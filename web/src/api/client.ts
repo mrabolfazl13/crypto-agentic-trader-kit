@@ -34,7 +34,8 @@ export interface Health {
   schema_version: string | null;
   mode: Mode;
   live_trading_enabled: boolean | null;
-  kill_switch: { active: boolean | null; path?: string | null };
+  /** Backend sends a plain boolean; PaperTrading also tolerates an object for safety. */
+  kill_switch: boolean | null;
   counts: Record<string, number | null>;
   clock?: Record<string, unknown> | null;
   /** Timestamp of the last paper cycle, when the backend reports it. */

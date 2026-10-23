@@ -64,18 +64,21 @@ function Shell() {
     });
   }, []);
 
-  const kill = health.data?.kill_switch?.active === true;
-  const stamp = portfolio.data?.updated_at ?? health.data?.last_data_at ?? health.data?.generated_at ?? null;
+  const kill = health.data?.kill_switch === true;
+  // Two different facts: market-data freshness (newest stored candle) vs account refresh time.
+  const dataStamp = health.data?.last_data_at ?? health.data?.generated_at ?? null;
+  const accountStamp = portfolio.data?.updated_at ?? null;
   const lastCycle = health.data?.last_cycle_at ?? null;
   const modeRaw = health.data?.mode ?? null;
   const modeLabel = health.loading ? "…" : text(modeRaw === null ? null : String(modeRaw).toUpperCase());
-  const summary = `حالت اجرا: ${text(modeRaw)} · توقف اضطراری: ${kill ? "فعال" : "خاموش"} · آخرین داده: ${stamp ? dateTime(stamp) : NO_DATA}`;
+  const summary = `حالت اجرا: ${text(modeRaw)} · توقف اضطراری: ${kill ? "فعال" : "خاموش"} · آخرین کندل ذخیره‌شده: ${dataStamp ? dateTime(dataStamp) : NO_DATA}`;
   const detailTip = [
     "منبع: /health و /portfolio",
     `حالت اجرا: ${text(modeRaw)} — این رابط هیچ کنترل «شروع معامله‌ی زنده» ندارد`,
     `توقف اضطراری (kill switch): ${kill ? "فعال — هیچ سفارش جدیدی ساخته نمی‌شود" : "خاموش، در دسترس"}`,
     `آخرین چرخه: ${lastCycle ? `${dateTime(lastCycle)} (${sinceLabel(lastCycle, tick)})` : NO_DATA}`,
-    `آخرین به‌روزرسانی حساب: ${stamp ? `${dateTime(stamp)} (${sinceLabel(stamp, tick)})` : NO_DATA}`,
+    `آخرین به‌روزرسانی حساب: ${accountStamp ? `${dateTime(accountStamp)} (${sinceLabel(accountStamp, tick)})` : NO_DATA}`,
+    `آخرین کندل ذخیره‌شده در Store: ${dataStamp ? `${dateTime(dataStamp)} (${sinceLabel(dataStamp, tick)})` : NO_DATA}`,
     `موقعیت‌های باز: ${num(portfolio.data?.positions?.length ?? null, { max: 0 })} · معامله‌ی امروز: ${num(portfolio.data?.trades_today ?? null, { max: 0 })} از ${num(portfolio.data?.max_trades_per_day ?? null, { max: 0 })}`,
     `کارمزد پرداختی: ${money(portfolio.data?.fees_paid ?? null)}`,
     portfolio.error ? `خطای /portfolio: ${portfolio.error}` : null,
@@ -130,7 +133,7 @@ function Shell() {
               <span className="mute">·</span>
               <span>{kill ? "توقف اضطراری فعال" : "توقف اضطراری خاموش"}</span>
               <span className="mute">·</span>
-              <span>{`داده: ${stamp ? sinceLabel(stamp, tick) : NO_DATA}`}</span>
+              <span>{`داده: ${dataStamp ? sinceLabel(dataStamp, tick) : NO_DATA}`}</span>
             </span>
             <InfoTip text={detailTip} />
             {health.error ? (

@@ -190,6 +190,11 @@ def create_app(root: Path | None = None) -> FastAPI:
     def health() -> dict[str, Any]:
         config = get_config()
         kill = Path(config.kill_switch_file).exists()
+        # Newest ingested candle across datasets — the header chip's "last data".
+        # Never fabricated: null when nothing has been imported yet.
+        rows = store._rows("SELECT MAX(open_time) AS newest FROM bars")
+        newest = rows[0]["newest"] if rows else None
+        cycle = store._rows("SELECT MAX(ts) AS last FROM portfolio_snapshots")
         return {
             "status": "ok",
             "mode": config.mode,
@@ -198,6 +203,8 @@ def create_app(root: Path | None = None) -> FastAPI:
             "kill_switch": kill,
             "live_trading_enabled": False,
             "owner_confirmed": config.owner_confirmed,
+            "last_data_at": datetime.fromtimestamp(newest, tz=timezone.utc).isoformat(timespec="seconds") if newest else None,
+            "last_cycle_at": cycle[0]["last"] if cycle else None,
             "server_time": now_iso(),
         }
 
@@ -261,6 +268,7 @@ def create_app(root: Path | None = None) -> FastAPI:
             "closed_trades": len(acct.closed_trades),
             "positions": positions,
             "price_source": "none",
+            "updated_at": now_iso(),
             "provenance": _provenance("paper", "engine", "account.json"),
         }
 

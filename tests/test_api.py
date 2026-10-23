@@ -76,7 +76,19 @@ def test_health_reports_schema_counts_and_paper_mode(client: TestClient):
     assert body["schema_version"] == "1"
     assert isinstance(body["counts"], dict)
     assert body["live_trading_enabled"] is False
+    assert body["last_data_at"] is None  # empty workspace: no data, never faked
     assert "datasets" in body["counts"] and "trades" in body["counts"]
+
+
+def test_health_last_data_at_tracks_newest_ingested_candle(client: TestClient, workspace: Path):
+    csv_path = workspace / "fresh.csv"
+    prices = _trending_prices(90)
+    _write_csv(csv_path, prices)
+    client.post(f"{BASE}/datasets/import",
+                json={"path": str(csv_path), "symbol": "BTC/USDT", "timeframe": "4h"})
+    body = client.get(f"{BASE}/health").json()
+    newest = 1_700_000_000 + (len(prices) - 1) * STEP_4H
+    assert body["last_data_at"] == datetime.fromtimestamp(newest, tz=UTC).isoformat(timespec="seconds")
 
 
 def test_config_masks_proxy_and_drops_keys(client: TestClient):
