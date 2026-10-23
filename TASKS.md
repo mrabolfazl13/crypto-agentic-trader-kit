@@ -1,7 +1,7 @@
 # TASKS
 
 معیار پذیرش هر آیتم: کد قابل‌اجرا + تست سبز + شواهد اندازه‌گیری‌شده. بدون «طرح» به‌عنوان خروجی نهایی.
-وضعیت تا 2026-10-23 — مجموعه‌ی تست: **۱۲۵ passed** (`python -m pytest -q`).
+وضعیت تا 2026-10-23 — مجموعه‌ی تست: **۱۲۶ passed** (`python -m pytest -q`).
 
 ## انجام‌شده و راستی‌آزمایی‌شده
 - [x] #1 موتور PAPER قابل‌اجرا + Risk Gate قطعی (۴۸ تست اولیه)
@@ -19,16 +19,17 @@
 - [x] زیردستورهای CLI: `serve`, `import-csv`, `fetch-history`, `datasets`, `quality`, `runs`, `versions`, `research`
 - [x] build فرانت: `tsc --noEmit` صفر خطا، `vite build` موفق (۴۰۰KB JS / ۱۲۳KB gzip)
 - [x] فایل CI: `.github/workflows/ci.yml` — pytest + دروازه‌ی پیش‌فرض LIVE در CI + زنجیره‌ی audit + tsc + build + artifact
+- [x] مخزن خصوصی GitHub ساخته و push شد: `github.com/mrabolfazl13/crypto-agentic-trader-kit` (main = 8bed332؛ CI روی هر push اجرا می‌شود — وضعیت اجرا از این ماشین قابل‌مشاهده نیست: gh نصب نیست و ابزار Actions در MCP موجود نیست)
 - [x] صفحه‌ی «کیفیت مجموعه‌داده» و نمایش شکاف/پوشش در تحلیل (`web/src/pages/Data.tsx`, `Analysis.tsx`)
 
-## در جریان
-- [ ] #9 راستی‌آزمایی مرورگری ۱۳ صفحه‌ی ساخته‌شده (صفحات کد نوشته و build سبز؛ تیک نهایی پس از مرورگر واقعی)
-- [ ] #10 push به GitHub برای فعال‌شدن CI و تأیید سبزی آن
-- [ ] #11 راستی‌آزمایی مرورگری هر ۱۳ مسیر داشبورد (Edge headless + CDP، دسکتاپ و موبایل)
+## انجام‌شده و راستی‌آزمایی‌شده
+- [x] #9 + #11 راستی‌آزمایی مرورگری ۱۳ مسیر در Edge هدلس (CDP 9344): هر ۱۳ مسیر PASS — RTL/fa، صفر خطای کنسول، صفر خطای شبکه؛ ۳ مسیر در نمای موبایل (390px) هم PASS. بلوک «هیچ استراتژی سودآور تأیید نشده است» در `/versions` همان وضعیت صادقانه‌ی طراحی‌شده است، نه خطا
+- [x] باگ واقعی که فقط در مرورگر پیدا شد: deep-linkهای SPA (مثل `/portfolio`) از StaticFiles بدون fallback 404 می‌گرفتند → `SpaStaticFiles` در `src/cat/api.py` shell را برای مسیرهای client-side برمی‌گرداند و assetهای گمشده همچنان 404 صادقانه می‌دهند (تست: `test_spa_fallback_serves_shell_for_client_routes_but_assets_404`)
 
 ## بعدی
 - [ ] تست یکپارچگی end-to-end: import → backtest → walk-forward → پذیرش/رد نسخه → گزارش (اسکلت در `tests/test_engine_integration.py` موجود است؛ زنجیره‌ی کامل با API گسترش یابد)
 - [ ] اجرای paper چندروزه برای دروازه‌ی B (بازیابی پس از restart)
+- [ ] جدول بک‌تست در عرض‌های باریک کمی بریده می‌شود (اسکرول افقی دارد) — بهبود واکنش‌گرایی اختیاری
 
 ## بدهی‌های فنی ثبت‌شده
 - [ ] grid کامل ۶۰تایی در walk-forward همگام ~۳–۵ دقیقه طول می‌کشد؛ برای UI باید streaming/سقف کندل/کار پس‌زمینه اضافه شود

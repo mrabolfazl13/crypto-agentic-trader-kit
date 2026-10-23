@@ -16,8 +16,8 @@
 | Store (SQLite) | سبز | `state/platform.sqlite3`: datasets 2 / bars 4380 / runs 4 / decisions 4 / snapshots 2 / versions 2 |
 | Mirror رویدادها | سبز | هم چرخه‌ی CLI و هم `POST /cycles/paper` از یک مسیر مشترک (`src/cat/mirror.py`) می‌نویسند؛ dedupe روی کلید طبیعی → بدون رکورد تکراری (۲+۲ تصمیم = ۴، نه ۸) |
 | API محلی | سبز | سرور واقعی روی `127.0.0.1:8177` (با کد اصلاح‌شده بازراه‌اندازی شد)؛ health/config/portfolio/runs/datasets/bars/analysis/risk/logs/reports + import/fetch/backtest/walk-forward/cycle/kill-switch؛ ۲۹ تست API |
-| داشبورد (Vite+React+TS) | سبز (build + رندر) | ۱۳ صفحه (۷۱۹۵ خط)، `npx tsc --noEmit` صفر خطا، `vite build` موفق (۴۰۰KB JS / ۱۲۳KB gzip)؛ رندر واقعی در Edge: RTL، `lang=fa`، همه‌ی کارت‌های بدون داده «داده‌ای موجود نیست» |
-| CI | فایل آماده، منتظر push | `.github/workflows/ci.yml`: pytest + دروازه‌ی پیش‌فرض LIVE در CI + زنجیره‌ی audit + tsc + build + artifact؛ مخزن remote ندارد → push لازم است |
+| داشبورد (Vite+React+TS) | سبز (build + رندر) | ۱۳ صفحه (۷۱۹۵ خط)، `npx tsc --noEmit` صفر خطا، `vite build` موفق (۴۰۰KB JS / ۱۲۳KB gzip)؛ **هر ۱۳ مسیر در Edge هدلس PASS** (RTL/fa، صفر خطای کنسول، صفر خطای شبکه؛ ۳ مسیر موبایل هم PASS) |
+| CI | push شد | مخزن خصوصی `mrabolfazl13/crypto-agentic-trader-kit`، main = `8bed332` + fix SPA؛ workflow: pytest + دروازه‌ی LIVE + audit + tsc + build؛ وضعیت اجرا از این ماشین قابل‌مشاهده نیست (بدون gh و بدون ابزار Actions) |
 
 ## مسیرهای رفع‌شده در این مرحله
 - `UnboundLocalError` در `run_backtest` (تنظیم `params_label` پیش از ساخت `result`) — با تست موفقِ `/runs/backtest` پوشش داده شد؛ قبلاً فقط مسیرهای reject تست شده بودند.
@@ -25,12 +25,11 @@
 - `GET /datasets/{id}/bars` (با `overlays`) اضافه شد؛ EMA روی کل سری محاسبه و سپس بریده می‌شود تا مقدار seedشده از پنجره‌ی visible نباشد.
 - `allocated_capital` به `/portfolio` اضافه شد (کارت «بازده خالص» داشبورد بدون آن همیشه خالی می‌ماند).
 - `POST /runs/walk-forward` اکنون `dataset_id` و `days` را می‌پذیرد و `dataset_id` واقعی را در runs ثبت می‌کند (قبلاً همیشه NULL می‌نوشت).
+- deep-linkهای SPA از API 404 می‌گرفتند (فقط در مرورگر پیدا شد، نه در tsc/build) → `SpaStaticFiles` با fallback به shell؛ assetهای گمشده همچنان 404.
 - `params_from_dict` دیگر روی کلیدهای هویتی (`version/name/note`) TypeError نمی‌دهد و float غیرمتناهی را رد می‌کند؛ لایه‌ی research کلید `version` در grid را صریحاً 422 می‌کند.
 - زیردستورهای CLI: `serve`، `fetch-history`، `import-csv`، `datasets`، `quality`، `runs`، `versions`، `research`.
 
 ## باقی‌مانده
-- راستی‌آزمایی مرورگری نهایی هر ۱۳ مسیر (Edge هدلس + CDP پورت 9344، دسکتاپ و موبایل).
-- push به GitHub برای فعال‌شدن CI (مخزن remote ندارد).
 - تست یکپارچگی end-to-end با زنجیره‌ی کامل API.
 - paper چندروزه برای دروازه‌ی B.
 

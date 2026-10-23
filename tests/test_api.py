@@ -92,6 +92,27 @@ def test_config_masks_proxy_and_drops_keys(client: TestClient):
     assert "strategy_params" in payload and "limits" in payload
 
 
+def test_spa_fallback_serves_shell_for_client_routes_but_assets_404(workspace: Path):
+    dist = workspace / "web" / "dist"
+    dist.mkdir(parents=True, exist_ok=True)
+    shell = dist / "index.html"
+    shell.write_text('<!doctype html><html lang="fa" dir="rtl"><body><div id="root"></div></body></html>', "utf-8")
+    (dist / "assets").mkdir()
+    (dist / "assets" / "app.js").write_text("console.log('ok')", "utf-8")
+    local = TestClient(api_module.create_app(root=workspace))
+
+    deep = local.get("/portfolio")
+    assert deep.status_code == 200
+    assert deep.headers["content-type"].startswith("text/html")
+    assert 'id="root"' in deep.text
+
+    assert local.get("/").status_code == 200
+    assert local.get("/assets/app.js").text == "console.log('ok')"
+    missing_asset = local.get("/assets/missing.js")
+    assert missing_asset.status_code == 404  # a broken asset must fail loudly, not return HTML
+    assert local.get("/api/v1/health").status_code == 200  # API still wins over the mount
+
+
 def test_portfolio_returns_nulls_on_empty_ledger(client: TestClient):
     body = client.get(f"{BASE}/portfolio").json()
     assert body["unrealized"] is None          # no live quotes -> not a fake 0

@@ -24,6 +24,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field
 
 from .backtest import run_backtest
@@ -719,7 +720,18 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     dist = app_root / "web" / "dist"
     if dist.exists():
-        app.mount("/", StaticFiles(directory=str(dist), html=True), name="dashboard")
+        class SpaStaticFiles(StaticFiles):
+            """Serve the SPA shell for client-side routes; missing assets still 404."""
+
+            async def get_response(self, path: str, scope):  # type: ignore[override]
+                try:
+                    return await super().get_response(path, scope)
+                except StarletteHTTPException as exc:
+                    if exc.status_code == 404 and "." not in Path(path).name:
+                        return await super().get_response("index.html", scope)
+                    raise
+
+        app.mount("/", SpaStaticFiles(directory=str(dist), html=True), name="dashboard")
 
     app.state.root = app_root
     app.state.store = store
