@@ -1,0 +1,63 @@
+app:
+  name: crypto-agentic-trader
+  timezone: UTC
+  log_level: INFO
+
+trading:
+  mode: PAPER                 # PAPER یا LIVE؛ پیش‌فرض هرگز تغییر نکند
+  live_trading_enabled: false # فعال‌سازی نیازمند اقدام صریح مالک است
+  exchange: example_exchange
+  market_type: spot
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+  timeframe: 1h
+  max_open_positions: 2
+  allow_short: false
+  allow_margin: false
+  allow_leverage: false
+  allow_withdrawals: false
+
+risk:
+  max_account_allocation_pct: 5.0
+  max_position_pct_of_allocated_capital: 20.0
+  max_risk_per_trade_pct: 0.5
+  max_daily_loss_pct: 1.5
+  max_weekly_loss_pct: 4.0
+  max_drawdown_pct: 8.0
+  max_trades_per_day: 4
+  max_spread_pct: 0.30
+  max_slippage_pct: 0.20
+  min_reward_risk_ratio: 1.5
+  cooldown_minutes_after_loss: 60
+  stop_on_data_staleness_seconds: 120
+  stop_on_consecutive_errors: 3
+
+strategy:
+  require_multiple_signals: true
+  require_market_regime_check: true
+  require_fee_and_slippage_estimate: true
+  confidence_threshold: 0.70
+  no_trade_if_signals_conflict: true
+
+execution:
+  order_type: limit
+  cancel_unfilled_after_seconds: 30
+  max_retries: 2
+  idempotency_required: true
+  reconcile_balances_before_order: true
+  verify_order_status_after_timeout: true
+
+monitoring:
+  kill_switch_file: "./STOP_TRADING"
+  alert_on_order: true
+  alert_on_daily_loss_limit: true
+  alert_on_exchange_error: true
+  daily_report: true
+
+security:
+  api_key_env: EXCHANGE_API_KEY
+  api_secret_env: EXCHANGE_API_SECRET
+  require_trade_only_api_key: true
+  reject_withdraw_permission: true
+  redact_secrets_from_logs: true

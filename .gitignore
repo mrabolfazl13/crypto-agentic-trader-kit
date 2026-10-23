@@ -1,0 +1,18 @@
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+__pycache__/
+.venv/
+venv/
+node_modules/
+dist/
+build/
+logs/
+*.log
+STOP_TRADING
+
+# وضعیت زمان اجرا: حساب paper، audit log زنجیره‌ای، گزارش‌ها، تأیید مالک
+state/
