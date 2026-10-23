@@ -76,6 +76,8 @@ class Engine:
         self.current_prices: dict[str, float] = {}
         self.clock_fn = self.clock_check
         self._reference_quote = Quote(symbol="", bid=1.0, ask=1.0, ts=0.0, source="internal")
+        self.mirror_to_store = True
+        self.store = None
 
     # --- guards -----------------------------------------------------------
     def kill_switch_active(self) -> bool:
@@ -114,13 +116,13 @@ class Engine:
             outcomes.extend(
                 SymbolOutcome(o.symbol, "CANCEL", False, ["kill switch active"], o.client_order_id) for o in cancelled
             )
-            return self._finish(started, now, kill, clock, outcomes, errors, snapshots or {}, safe_state=True)
+            return self._finish(started, now, kill, clock, outcomes, errors, snapshots or {}, safe_state=True, mirror=not dry_run)
 
         if not clock.get("acceptable"):
             errors.append(f"clock check failed: {clock}")
             self.state.note_error()
             self.audit.append("cycle_halted_clock", {"clock": clock}, mode=self.config.mode)
-            return self._finish(started, now, kill, clock, outcomes, errors, snapshots or {}, safe_state=True)
+            return self._finish(started, now, kill, clock, outcomes, errors, snapshots or {}, safe_state=True, mirror=not dry_run)
 
         self.audit.append(
             "cycle_start",
@@ -167,7 +169,7 @@ class Engine:
 
         if not errors:
             self.state.note_success()
-        return self._finish(started, now, kill, clock, outcomes, errors, snapshots, safe_state=bool(errors))
+        return self._finish(started, now, kill, clock, outcomes, errors, snapshots, safe_state=bool(errors), mirror=not dry_run)
 
     def settle(self, symbol: str, snap: MarketSnapshot, now: datetime) -> None:
         """Match resting orders against the current book and book the results."""
@@ -211,6 +213,7 @@ class Engine:
             maker_fee_pct=self.config.maker_fee_pct,
             taker_fee_pct=self.config.taker_fee_pct,
             est_slippage_pct=estimate_slippage_pct(self._reference_quote, self.config.limits.max_slippage_pct),
+            params=self.config.strategy_params,
         )
 
     def _risk_for(self, snap: MarketSnapshot, proposal: Proposal, position: Position | None, now: datetime) -> RiskResult:
@@ -281,7 +284,7 @@ class Engine:
         decision_id = f"dec-{uuid.uuid4().hex[:12]}"
         payload = build_decision(
             decision_id=decision_id, now=now, snapshot=snap, proposal=proposal, risk=risk,
-            analysis=analyze(snap),
+            analysis=analyze(snap, self.config.strategy_params),
         )
         schema_errors = validate_decision(self.config.root, payload["decision"])
         if schema_errors:
@@ -293,7 +296,8 @@ class Engine:
         return decision_id
 
     def _finish(self, started: str, now: datetime, kill: bool, clock: dict[str, Any], outcomes: list[SymbolOutcome],
-                errors: list[str], snapshots: dict[str, MarketSnapshot], *, safe_state: bool) -> CycleResult:
+                errors: list[str], snapshots: dict[str, MarketSnapshot], *, safe_state: bool,
+                mirror: bool = True) -> CycleResult:
         price_map = {symbol: snap.quote.mid for symbol, snap in snapshots.items()}
         for symbol, position in self.state.positions.items():
             price_map.setdefault(symbol, position.avg_entry)
@@ -306,12 +310,33 @@ class Engine:
             mode=self.config.mode,
         )
         self._persist()
-        return CycleResult(
+        cycle = CycleResult(
             started_at=started, finished_at=now.isoformat(timespec="seconds"), mode=self.config.mode,
             kill_switch=kill, clock=clock, outcomes=outcomes, equity=equity,
             unrealized=self.state.unrealized(price_map), drawdown_pct=self.state.drawdown_pct(price_map),
             errors=errors, safe_state=safe_state, config_digest=config_digest(self.config.raw),
         )
+        if mirror:
+            self._mirror(cycle)
+        return cycle
+
+    def _mirror(self, cycle: CycleResult) -> None:
+        """Best-effort SQLite projection of the ledger for the dashboard.
+
+        The JSON ledger and the hash-chained audit log stay authoritative: a
+        broken dashboard database must never stop a paper cycle or a risk check.
+        """
+        if not self.mirror_to_store:
+            return
+        try:
+            from .mirror import mirror_cycle
+            from .store import open_store
+
+            if self.store is None:
+                self.store = open_store(self.config.root)
+            mirror_cycle(self.store, self, self.config, cycle, source="paper")
+        except Exception as exc:  # noqa: BLE001
+            print(f"store mirror skipped: {type(exc).__name__}: {exc}")
 
     def _persist(self) -> None:
         atomic_write(self.state_path, self.state.to_dict())

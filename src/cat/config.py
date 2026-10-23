@@ -14,6 +14,8 @@ from typing import Any
 
 import yaml
 
+from .strategies import StrategyParams, params_from_dict
+
 MODES = ("PAPER", "LIVE", "PAUSED")
 OWNER_CONFIRMATION_FILE = "owner_confirmation.json"
 
@@ -78,6 +80,7 @@ class Config:
     max_clock_skew_seconds: float
     fallback_exchange: str
     proxy: str | None
+    strategy_params: Any = None
     warnings: tuple[str, ...] = ()
 
     @property
@@ -221,6 +224,13 @@ def load_config(path: str | os.PathLike[str] | None = None, root: Path | None = 
         max_clock_skew_seconds=float(risk.get("max_clock_skew_seconds", 2.0)),
         fallback_exchange=str(raw.get("data", {}).get("fallback_exchange", "mexc")) if isinstance(raw.get("data"), dict) else "mexc",
         proxy=os.environ.get("CAT_PROXY") or data.get("proxy"),
+        strategy_params=params_from_dict(
+            strategy.get("params") if isinstance(strategy.get("params"), dict) else None,
+            base=StrategyParams(
+                version=str(strategy.get("version", "v1")),
+                name=str(strategy.get("name", "trend-pullback")),
+            ),
+        ),
         warnings=tuple(warnings),
     )
 

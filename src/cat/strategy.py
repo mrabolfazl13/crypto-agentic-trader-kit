@@ -12,6 +12,7 @@ from typing import Any
 
 from .data import MarketSnapshot
 from .indicators import atr, closes, ema, pct_changes, realized_vol_pct, rsi, slope, sma
+from .strategies import StrategyParams, default_params
 
 EMA_FAST = 20
 EMA_SLOW = 50
@@ -61,18 +62,21 @@ def decision_id() -> str:
     return f"dec-{uuid.uuid4().hex[:12]}"
 
 
-def analyze(snapshot: MarketSnapshot) -> Analysis:
+def analyze(snapshot: MarketSnapshot, params: StrategyParams | None = None) -> Analysis:
+    p = params or default_params()
     bars = snapshot.klines
     prices = closes(bars)
     volumes = [b.quote_volume for b in bars]
-    fast = ema(prices, EMA_FAST)
-    slow = ema(prices, EMA_SLOW)
-    rsi_series = rsi(prices, RSI_PERIOD)
-    atr_series = atr(bars, ATR_PERIOD)
+    fast = ema(prices, p.ema_fast)
+    slow = ema(prices, p.ema_slow)
+    rsi_series = rsi(prices, p.rsi_period)
+    atr_series = atr(bars, p.atr_period)
     returns = pct_changes(prices)
-    vol = realized_vol_pct(returns, 30)
-    trend_slope = slope(prices, 30)
-    volume_avg = sma(volumes, 20)
+    vol = realized_vol_pct(returns, p.vol_lookback)
+    trend_slope = slope(prices, p.slope_lookback)
+    volume_avg = sma(volumes, p.volume_avg_bars)
+    ema_fast_key = f"ema{p.ema_fast}"
+    ema_slow_key = f"ema{p.ema_slow}"
 
     last_price = prices[-1]
     last_fast = fast[-1] if fast else None
@@ -82,9 +86,9 @@ def analyze(snapshot: MarketSnapshot) -> Analysis:
     avg_volume = volume_avg[-1] if volume_avg else None
 
     higher_fast = higher_slow = None
-    if snapshot.higher_klines and len(snapshot.higher_klines) >= EMA_SLOW:
+    if snapshot.higher_klines and len(snapshot.higher_klines) >= p.ema_slow:
         hp = closes(snapshot.higher_klines)
-        hf, hs = ema(hp, EMA_FAST), ema(hp, EMA_SLOW)
+        hf, hs = ema(hp, p.ema_fast), ema(hp, p.ema_slow)
         if hf and hs:
             higher_fast, higher_slow = hf[-1], hs[-1]
 
@@ -92,9 +96,9 @@ def analyze(snapshot: MarketSnapshot) -> Analysis:
     bearish: list[str] = []
     if last_fast and last_slow:
         if last_fast > last_slow:
-            bullish.append(f"ema{EMA_FAST} above ema{EMA_SLOW} (uptrend structure)")
+            bullish.append(f"{ema_fast_key} above {ema_slow_key} (uptrend structure)")
         else:
-            bearish.append(f"ema{EMA_FAST} below ema{EMA_SLOW} (downtrend structure)")
+            bearish.append(f"{ema_fast_key} below {ema_slow_key} (downtrend structure)")
     if last_price and last_slow:
         if last_price > last_slow:
             bullish.append("price above long-term average")
@@ -106,20 +110,20 @@ def analyze(snapshot: MarketSnapshot) -> Analysis:
         else:
             bearish.append("higher timeframe trend disagrees")
     if last_rsi is not None:
-        if last_rsi > 78:
+        if last_rsi > p.rsi_stretched:
             bearish.append(f"RSI {last_rsi:.1f} stretched (mean-reversion risk)")
-        elif 45 <= last_rsi <= 68:
+        elif p.rsi_bullish_low <= last_rsi <= p.rsi_bullish_high:
             bullish.append(f"RSI {last_rsi:.1f} in healthy momentum band")
-        elif last_rsi < 40:
+        elif last_rsi < p.rsi_weak:
             bearish.append(f"RSI {last_rsi:.1f} weak momentum")
 
     if vol is None or trend_slope is None or last_atr is None:
         regime = "UNKNOWN"
-    elif vol > 1.0 or (last_atr / last_price * 100) > 1.5:
+    elif vol > p.vol_threshold or (last_atr / last_price * 100) > p.atr_pct_threshold:
         regime = "HIGH_VOLATILITY"
-    elif trend_slope > 0.06 and len(bullish) > len(bearish):
+    elif trend_slope > p.slope_threshold and len(bullish) > len(bearish):
         regime = "TRENDING_UP"
-    elif trend_slope < -0.06 and len(bearish) > len(bullish):
+    elif trend_slope < -p.slope_threshold and len(bearish) > len(bullish):
         regime = "TRENDING_DOWN"
     else:
         regime = "RANGING"
@@ -128,19 +132,23 @@ def analyze(snapshot: MarketSnapshot) -> Analysis:
     recent_volume = sum(volumes[-3:]) / 3.0 if len(volumes) >= 3 else None
     if not avg_volume or recent_volume is None:
         volume_state = "unknown"
-    elif recent_volume >= 0.9 * avg_volume:
+    elif recent_volume >= p.volume_weak_ratio * avg_volume:
         volume_state = "ok"
-    elif recent_volume >= 0.6 * avg_volume:
+    elif recent_volume >= p.volume_collapse_ratio * avg_volume:
         volume_state = "weak"
     else:
         volume_state = "collapsing"
 
     indicators = {
         "price": round(last_price, 6),
-        f"ema{EMA_FAST}": round(last_fast, 6) if last_fast else None,
-        f"ema{EMA_SLOW}": round(last_slow, 6) if last_slow else None,
-        "rsi14": round(last_rsi, 2) if last_rsi is not None else None,
-        "atr14": round(last_atr, 6) if last_atr is not None else None,
+        ema_fast_key: round(last_fast, 6) if last_fast else None,
+        ema_slow_key: round(last_slow, 6) if last_slow else None,
+        "ema_fast": round(last_fast, 6) if last_fast else None,
+        "ema_slow": round(last_slow, 6) if last_slow else None,
+        f"rsi{p.rsi_period}": round(last_rsi, 2) if last_rsi is not None else None,
+        "rsi": round(last_rsi, 2) if last_rsi is not None else None,
+        f"atr{p.atr_period}": round(last_atr, 6) if last_atr is not None else None,
+        "atr": round(last_atr, 6) if last_atr is not None else None,
         "atr_pct": round(last_atr / last_price * 100, 4) if last_atr and last_price else None,
         "realized_vol_pct_per_bar": round(vol, 4) if vol is not None else None,
         "trend_slope_pct_per_bar": round(trend_slope, 4) if trend_slope is not None else None,
@@ -149,14 +157,15 @@ def analyze(snapshot: MarketSnapshot) -> Analysis:
         "avg_volume20": round(avg_volume, 2) if avg_volume else None,
         "volume_state": volume_state,
         "bars_used": len(bars),
+        "strategy_version": p.label(),
     }
     summary = (
         f"{snapshot.symbol} {snapshot.timeframe}: regime={regime}, "
         f"price={last_price:.2f}, spread={snapshot.quote.spread_pct:.3f}%"
     )
     scenarios = {
-        "bullish": f"continuation above {last_fast:.2f} toward +{ATR_TARGET_MULT} ATR",
-        "bearish": f"loss of {last_slow:.2f} opens {ATR_STOP_MULT} ATR downside",
+        "bullish": f"continuation above {last_fast:.2f} toward +{p.atr_target_mult} ATR",
+        "bearish": f"loss of {last_slow:.2f} opens {p.atr_stop_mult} ATR downside",
         "neutral": "chop inside 1 ATR band; no edge after fees",
     }
     return Analysis(
@@ -182,13 +191,17 @@ def propose(
     maker_fee_pct: float,
     taker_fee_pct: float,
     est_slippage_pct: float,
+    params: StrategyParams | None = None,
 ) -> Proposal:
-    analysis = analyze(snapshot)
+    p = params or default_params()
+    analysis = analyze(snapshot, p)
     prices = closes(snapshot.klines)
-    if len(snapshot.klines) < MIN_BARS:
-        return Proposal("NO_TRADE", 0.0, [f"need at least {MIN_BARS} closed bars"], None, None, None, analysis, "insufficient_history")
+    ema_fast_key = f"ema{p.ema_fast}"
+    ema_slow_key = f"ema{p.ema_slow}"
+    if len(snapshot.klines) < p.min_bars:
+        return Proposal("NO_TRADE", 0.0, [f"need at least {p.min_bars} closed bars"], None, None, None, analysis, "insufficient_history")
 
-    last_atr = analysis.indicators.get("atr14")
+    last_atr = analysis.indicators.get("atr")
     last_price = prices[-1]
     if not last_atr or last_atr <= 0:
         return Proposal("NO_TRADE", 0.0, ["ATR unavailable, cannot size a stop"], None, None, None, analysis, "no_atr")
@@ -198,8 +211,8 @@ def propose(
     if position:
         stop_hit = bid <= position.stop
         target_hit = ask >= position.target
-        trend_broken = analysis.indicators.get(f"ema{EMA_FAST}") is not None and (
-            analysis.indicators[f"ema{EMA_FAST}"] < analysis.indicators[f"ema{EMA_SLOW}"]
+        trend_broken = analysis.indicators.get(ema_fast_key) is not None and (
+            analysis.indicators[ema_fast_key] < analysis.indicators[ema_slow_key]
         )
         if stop_hit:
             return Proposal(
@@ -216,7 +229,7 @@ def propose(
         if trend_broken:
             return Proposal(
                 "SELL", 0.75,
-                [f"ema{EMA_FAST} crossed below ema{EMA_SLOW} while holding {position.symbol}", "trend thesis invalidated"],
+                [f"{ema_fast_key} crossed below {ema_slow_key} while holding {position.symbol}", "trend thesis invalidated"],
                 bid, position.stop, position.target, analysis, "exit_trend_broken",
             )
         return Proposal(
@@ -225,10 +238,10 @@ def propose(
             None, position.stop, position.target, analysis, "hold_position",
         )
 
-    if analysis.regime != "TRENDING_UP":
+    if p.regime_gate and analysis.regime != p.regime_gate:
         return Proposal(
             "NO_TRADE", 0.0,
-            [f"regime is {analysis.regime}; base build only enters confirmed uptrends"],
+            [f"regime is {analysis.regime}; this version only enters {p.regime_gate}"],
             None, None, None, analysis, "regime_filter",
         )
 
@@ -251,8 +264,8 @@ def propose(
         )
 
     entry = ask  # a buy crosses the spread
-    stop = entry - ATR_STOP_MULT * last_atr
-    target = entry + ATR_TARGET_MULT * last_atr
+    stop = entry - p.atr_stop_mult * last_atr
+    target = entry + p.atr_target_mult * last_atr
     if stop <= 0:
         return Proposal("NO_TRADE", 0.0, ["computed stop is not positive"], None, None, None, analysis, "bad_stop")
 
@@ -273,7 +286,7 @@ def propose(
     agreement = len(analysis.bullish)
     spread_penalty = max(0.0, (snapshot.quote.spread_pct or 0.0) / 0.30)
     volume_penalty = 0.06 if analysis.volume_state == "weak" else 0.0
-    confidence = min(0.95, 0.50 + 0.09 * agreement + (0.08 if analysis.regime == "TRENDING_UP" else 0.0) - 0.05 * spread_penalty - volume_penalty)
+    confidence = min(0.95, 0.50 + 0.09 * agreement + (0.08 if analysis.regime == p.regime_gate else 0.0) - 0.05 * spread_penalty - volume_penalty)
     if confidence < confidence_threshold:
         return Proposal(
             "NO_TRADE", round(confidence, 3),
@@ -282,9 +295,10 @@ def propose(
         )
 
     rationale = [analysis.summary] + analysis.bullish + [
-        f"stop={stop:.2f} ({ATR_STOP_MULT} ATR), target={target:.2f} ({ATR_TARGET_MULT} ATR)",
+        f"stop={stop:.2f} ({p.atr_stop_mult} ATR), target={target:.2f} ({p.atr_target_mult} ATR)",
         f"net reward/risk {rr:.2f} including {round_trip_cost_pct*100:.3f}% round-trip cost",
         f"invalidation: {analysis.invalidation}",
+        f"strategy {p.label()}",
         "heuristic confidence from signal agreement; not a probability of profit",
     ]
     return Proposal("BUY", round(confidence, 3), rationale, entry, stop, target, analysis, "entry_signal", )

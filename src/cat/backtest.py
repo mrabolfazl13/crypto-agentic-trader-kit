@@ -18,6 +18,7 @@ from .http import HttpClient
 from .indicators import closes
 from .portfolio import AccountState, ClosedTrade
 from .risk import evaluate
+from .strategies import StrategyParams, default_params
 from .strategy import Position, analyze, propose
 from datetime import timezone as _tz  # re-export guard
 
@@ -50,6 +51,8 @@ class BacktestResult:
     max_drawdown_pct: float = 0.0
     buy_hold_pct: float = 0.0
     metrics: dict[str, Any] = field(default_factory=dict)
+    params_label: str = ""
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 def select_closed_higher(higher_bars: list[Kline], decision_time: int, higher_step: int) -> list[Kline]:
@@ -91,7 +94,9 @@ def run_backtest(
     timeframe: str | None = None,
     warmup: int = 80,
     assumed_spread_pct: float = 0.05,
+    params: StrategyParams | None = None,
 ) -> BacktestResult:
+    params = params or default_params()
     timeframe = timeframe or config.timeframe
     step = seconds_per_bar(timeframe)
     confirm_tf = config.confirm_timeframe
@@ -101,6 +106,7 @@ def run_backtest(
         symbol=symbol, timeframe=timeframe, bars=len(bars),
         start=datetime.fromtimestamp(bars[0].open_time, tz=timezone.utc).isoformat(timespec="minutes"),
         end=datetime.fromtimestamp(bars[-1].open_time, tz=timezone.utc).isoformat(timespec="minutes"),
+        params_label=params.label(), params=params.tuning(),
     )
     state = AccountState.new(config.allocated_capital or 1000.0)
     fee_pct = config.taker_fee_pct / 100.0
@@ -123,6 +129,7 @@ def run_backtest(
             "maker_fee_pct": config.maker_fee_pct,
             "taker_fee_pct": config.taker_fee_pct,
             "est_slippage_pct": config.limits.max_slippage_pct,
+            "params": params,
         })
         risk = evaluate(
             config, state, snap, proposal, position,
@@ -130,7 +137,7 @@ def run_backtest(
             prices={symbol: bars[index].close}, kill_switch_active=False, clock_ok=True,
         )
         payload = build_decision(decision_id=f"bt-{index}", now=datetime.fromtimestamp(decision_time, tz=timezone.utc),
-                                 snapshot=snap, proposal=proposal, risk=risk, analysis=analyze(snap))
+                                 snapshot=snap, proposal=proposal, risk=risk, analysis=analyze(snap, params))
         if validate_decision(config.root, payload["decision"]):
             risk.approved = False
             risk.reasons = ["schema invalid"]
@@ -204,6 +211,7 @@ def run_backtest(
     result.max_drawdown_pct = dd
     result.buy_hold_pct = (prices[-1] - prices[warmup]) / prices[warmup] * 100.0
     result.metrics = compute_metrics(result, state, step)
+    result.params = params.tuning()
     return result
 
 

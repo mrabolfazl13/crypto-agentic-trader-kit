@@ -16,3 +16,9 @@ STOP_TRADING
 
 # وضعیت زمان اجرا: حساب paper، audit log زنجیره‌ای، گزارش‌ها، تأیید مالک
 state/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+web/node_modules/
+web/dist/
+.npmrc.tmp
