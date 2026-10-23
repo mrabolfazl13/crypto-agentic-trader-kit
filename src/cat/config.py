@@ -82,6 +82,8 @@ class Config:
     proxy: str | None
     strategy_params: Any = None
     warnings: tuple[str, ...] = ()
+    data_concurrency: int = 4
+    filters_cache_seconds: int = 3600
 
     @property
     def is_live(self) -> bool:
@@ -224,6 +226,8 @@ def load_config(path: str | os.PathLike[str] | None = None, root: Path | None = 
         max_clock_skew_seconds=float(risk.get("max_clock_skew_seconds", 2.0)),
         fallback_exchange=str(raw.get("data", {}).get("fallback_exchange", "mexc")) if isinstance(raw.get("data"), dict) else "mexc",
         proxy=os.environ.get("CAT_PROXY") or data.get("proxy"),
+        data_concurrency=max(1, min(8, int(data.get("max_concurrency", 4) or 4))),
+        filters_cache_seconds=max(0, int(data.get("filters_cache_seconds", 3600) or 0)),
         strategy_params=params_from_dict(
             strategy.get("params") if isinstance(strategy.get("params"), dict) else None,
             base=StrategyParams(

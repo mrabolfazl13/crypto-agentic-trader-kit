@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import { getConfig, getHealth, useAsync } from "../api/client";
+import { getConfig, getHealth, getUniverse, useAsync } from "../api/client";
 import Badge, { ModeBadge, ToneBadge } from "../components/Badge";
 import ProvenanceNote from "../components/ProvenanceNote";
-import StateBlocks from "../components/StateBlocks";
+import StateBlocks, { LoadingBlock } from "../components/StateBlocks";
 import Stat from "../components/Stat";
 import Table, { type Column } from "../components/Table";
 import { NO_DATA, dateTime, money, num, plainPct, text } from "../format";
@@ -148,11 +148,21 @@ const LIMIT_LABELS: Record<string, string> = {
   max_clock_skew_seconds: "سقف اختلاف ساعت (ثانیه)",
 };
 
+const EXCLUSION_FA: Record<string, string> = {
+  stablecoin: "استیبل‌کوین",
+  "tokenised commodity (gold/silver)": "توکن طلا/نقره",
+  "wrapped/staked duplicate": "نسخه‌ی رپ/استیک‌شده",
+};
+
 const NOT_AGENT_CONTROLLED: { label: string; detail: string }[] = [
   { label: "بودجه و سرمایه‌ی تخصیص‌یافته", detail: "عامل هرگز آن را افزایش نمی‌دهد؛ فقط مالک در config.yaml تغییرش می‌دهد." },
   { label: "سقف زیان روزانه/هفتگی و drawdown", detail: "کاهش یا افزایش این سقف‌ها از مسیر UI یا توسط عامل ممکن نیست." },
   { label: "اندازه‌ی موقعیت و ریسک هر معامله", detail: "تعیین اندازه فقط در لایه‌ی ریسک و از سقف‌های ثابت انجام می‌شود." },
-  { label: "فهرست نمادها", detail: "عامل نمی‌تواند نماد جدیدی به فهرست مجاز اضافه کند." },
+  {
+    label: "فهرست نمادها",
+    detail:
+      "عامل نمی‌تواند نماد جدیدی به فهرست مجاز اضافه کند. جهان ۱۰۰ نمادی فقط با اجرای دستی tools/build_universe.py توسط مالک و snapshot دارای منبع بازتولید می‌شود.",
+  },
   { label: "حالت اجرا (PAPER/LIVE)", detail: "پیش‌فرض هر نصب تازه PAPER است؛ این صفحه فقط حالت را می‌خواند و هیچ کنترل «شروع زنده» وجود ندارد." },
   { label: "فروش کوتاه، مارجین، اهرم و برداشت", detail: "خاموش و غیرقابل‌فعال‌سازی توسط عامل؛ کد پیکربندی آن‌ها را اجباراً خاموش نگه می‌دارد." },
   { label: "کلیدهای API و اطلاعات حساب", detail: "از log، گزارش، commit، prompt و پیام خطا حذف می‌شوند و در پاسخ API هم نیامده‌اند." },
@@ -163,6 +173,7 @@ const NOT_AGENT_CONTROLLED: { label: string; detail: string }[] = [
 export default function Settings() {
   const health = useAsync((signal) => getHealth(signal), []);
   const config = useAsync(async (signal) => (await getConfig(signal)) as Awaited<ReturnType<typeof getConfig>> & ConfigPayload, []);
+  const universe = useAsync((signal) => getUniverse(signal), []);
 
   const data = config.data;
   const raw = asRec(data?.config);
@@ -415,20 +426,58 @@ export default function Settings() {
           </header>
           <StateBlocks state={config} emptyLabel={NO_DATA} emptyHint="پیکربندی خوانده نشد؛ چیزی ساخته نمی‌شود.">
             {(payload) => (
+              <>
               <dl className="kv">
                 <dt>نمادهای مجاز</dt>
-                <dd className="rtl-text">{payload.symbols && payload.symbols.length > 0 ? payload.symbols.join("، ") : NO_DATA}</dd>
+                <dd className="rtl-text">
+                  <strong className="num">{num(payload.symbols?.length ?? null, { max: 0 })}</strong> جفت USDT
+                  {universe.data?.generated_at ? <> · snapshot رتبه‌بندی: {dateTime(universe.data.generated_at)}</> : null}
+                </dd>
+                <dt>منبع فهرست</dt>
+                <dd className="rtl-text">
+                  {universe.loading
+                    ? "…"
+                    : universe.data?.available
+                      ? `${text(strAt(universe.data.source, "name"))} · ${text(strAt(universe.data.source, "ranking"))}`
+                      : NO_DATA}
+                </dd>
+                <dt>تطابق snapshot با پیکربندی</dt>
+                <dd className="rtl-text">
+                  {universe.data?.available
+                    ? universe.data.matches_config
+                      ? "منطبق"
+                      : "ناهمخوان — snapshot بازتولید شود"
+                    : NO_DATA}
+                </dd>
                 <dt>تایم‌فریم سیگنال</dt>
                 <dd className="rtl-text">{text(strAt(payload, "timeframe"))}</dd>
                 <dt>تایم‌فریم تأیید</dt>
                 <dd className="rtl-text">{text(strAt(payload, "confirm_timeframe"))}</dd>
                 <dt>سقف موقعیت هم‌زمان</dt>
-                <dd className="rtl-text">{num(numAt(at(payload as unknown, "trading"), "max_open_positions"), { max: 0 })}</dd>
+                <dd className="rtl-text">{num(numAt(payload, "max_open_positions"), { max: 0 })}</dd>
                 <dt>منطقه‌ی زمانی</dt>
                 <dd className="rtl-text">{text(strAt(at(asRec(payload.config), "app"), "timezone"))}</dd>
                 <dt>سطح log</dt>
                 <dd className="rtl-text">{text(strAt(at(asRec(payload.config), "app"), "log_level"))}</dd>
               </dl>
+              {payload.symbols && payload.symbols.length > 0 ? (
+                <details className="dash-details">
+                  <summary>فهرست کامل {num(payload.symbols.length, { max: 0 })} نماد</summary>
+                  <ol className="m-0 mt-2 max-h-64 list-none overflow-auto rounded-md border border-line bg-surface2 p-2">
+                    {payload.symbols.map((symbol, index) => {
+                      const entry = universe.data?.entries?.find((item) => item.symbol === symbol);
+                      return (
+                        <li key={symbol} className="flex items-baseline justify-between gap-2 border-b border-line px-1 py-1 text-[12px] last:border-0">
+                          <span className="num w-8 text-mute">{num(entry?.rank ?? index + 1, { max: 0 })}</span>
+                          <span className="num font-semibold">{symbol}</span>
+                          <span className="mute truncate">{text(entry?.name)}</span>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </details>
+              ) : null}
+              </>
             )}
           </StateBlocks>
         </div>
@@ -467,6 +516,67 @@ export default function Settings() {
             فاصله‌ی حد سود است، نه درصد سود مورد انتظار؛ کنار هیچ عدد اندازه‌گیری‌شده‌ای به‌عنوان «بازده هدف» نمایش داده نمی‌شود.
           </p>
         </div>
+      </section>
+
+      <section className="card" aria-label="جهان معاملاتی و منبع رتبه‌بندی">
+        <header>
+          <h2>جهان معاملاتی و منبع رتبه‌بندی</h2>
+          <Badge kind="history" label="snapshot دارای تاریخ" />
+        </header>
+        {universe.loading ? <LoadingBlock label="خواندن /universe…" /> : null}
+        {universe.error ? <div className="notice danger" role="alert">{universe.error}</div> : null}
+        {!universe.loading && !universe.error && universe.data && !universe.data.available ? (
+          <div className="notice warn">
+            <strong>فایل snapshot در دسترس نیست.</strong>
+            <span>{text(universe.data.error)} — فهرست مؤثر همان trading.symbols در config.yaml است و همین توسط گیت ریسک اجرا می‌شود.</span>
+          </div>
+        ) : null}
+        {universe.data?.available ? (
+          <>
+            <dl className="kv">
+              <dt>تعداد مؤثر</dt>
+              <dd className="num">{num(universe.data.count, { max: 0 })}</dd>
+              <dt>منبع و رتبه‌بندی</dt>
+              <dd className="rtl-text">
+                {text(strAt(universe.data.source, "name"))} · {text(strAt(universe.data.source, "ranking"))} · جفت‌های tradable:{" "}
+                {num(numAt(universe.data.source, "gate_tradable_usdt_pairs"), { max: 0 })}
+              </dd>
+              <dt>زمان snapshot</dt>
+              <dd className="rtl-text">{dateTime(universe.data.generated_at)}</dd>
+              <dt>digest فهرست</dt>
+              <dd className="num break-all">{text(universe.data.digest)}</dd>
+              <dt>تطابق با config.yaml</dt>
+              <dd className="rtl-text">
+                <ToneBadge tone={universe.data.matches_config ? "pos" : "neg"}>
+                  {universe.data.matches_config ? "منطبق" : "ناهمخوان"}
+                </ToneBadge>{" "}
+                <span className="num mute">manifest: {num(universe.data.manifest_count ?? null, { max: 0 })} · config: {num(universe.data.count, { max: 0 })}</span>
+              </dd>
+              <dt>حذف‌شده با دلیل</dt>
+              <dd className="rtl-text">
+                {num(universe.data.excluded?.length ?? null, { max: 0 })} دارایی (استیبل‌کوین، طلا، نسخه‌ی رپ/استیک‌شده)
+              </dd>
+            </dl>
+            {universe.data.excluded && universe.data.excluded.length > 0 ? (
+              <details className="dash-details">
+                <summary>چه دارایی‌هایی حذف شدند و چرا</summary>
+                <ul className="mt-2 max-h-64 overflow-auto">
+                  {universe.data.excluded.map((item) => (
+                    <li key={`${String(item.rank)}-${item.ticker}`}>
+                      <span className="num">#{num(item.rank, { max: 0 })}</span> <span className="num font-semibold">{item.ticker}</span>{" "}
+                      <span className="mute">{item.name}</span> — {EXCLUSION_FA[item.reason] ?? item.reason}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+            <p className="stat-note">
+              این فهرست یک snapshot رتبه‌بندی بازار است؛ قیمت‌های داخل آن لحظه‌ای نیستند. تصمیم‌های موتور فقط از داده‌ی تازه‌ی Gate در هر چرخه
+              ساخته می‌شوند و نماد بدون داده‌ی معتبر در همان چرخه قرنطینه می‌شود. بازتولید فقط دستی است:{" "}
+              <code>python tools/build_universe.py</code>
+            </p>
+          </>
+        ) : null}
       </section>
 
       <section className="card" aria-label="سقف‌های ریسک در پیکربندی">

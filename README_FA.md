@@ -55,11 +55,16 @@ python trader.py backtest --days 365    # بک‌تست روی داده‌ی و�
 python tools/gate_a_backtest.py         # جدول شواهد دروازه‌ی A (چند پنجره)
 python trader.py verify-audit           # یکپارچگی زنجیره‌ی audit
 python trader.py stop                   # kill switch؛ resume برای برداشتن آن
+python trader.py serve                  # API + داشبورد روی 127.0.0.1:8177
+python tools/build_universe.py          # بازتولید فهرست ۱۰۰ جفت USDT (CoinGecko + Gate) در universe.json و config.yaml
 pytest -q                               # تست‌های آفلاین ایمنی و مهندسی
 ```
 `python trader.py enable-live --owner NAME --capital N` تنها راه ساخت رکورد تأیید مالک است و فقط با تصمیم آگاهانه‌ی خود مالک اجرا می‌شود؛ عامل هرگز آن را اجرا نمی‌کند و سقف‌ها را بالا نمی‌برد.
 
 داده از طریق پروکسی محلی در `config.yaml → data.proxy` گرفته می‌شود؛ بدون پروکسی، `check` با fail-closed هیچ سفارشی نمی‌فرستد.
+
+### جهان معاملاتی و نمودار زنده
+`config.yaml` به‌صورت پیش‌فرض ۱۰۰ جفت USDT برتر Gate را بر اساس ارزش بازار (snapshot در `universe.json` با digest و منبع) نگه می‌دارد. کارت «بازار» در داشبورد همین فهرست را از `GET /api/v1/universe` می‌خواند و کندل‌ها را زنده از `GET /api/v1/market/candles?symbol=SOL_USDT&timeframe=4h&limit=180` می‌گیرد؛ پاسخ شامل `provenance` (منبع `gate:SYM:tf`، پنجره، زمان دریافت، کش) است. نماد خارج از فهرست → 404، timeframe نامعتبر → 400، قطعی صرافی → 503 (fail-closed). اگر می‌خواهید فهرست کوچک‌تر بماند، همان `symbols` را در `config.yaml` دستی محدود کنید — API و نمودار همان را دنبال می‌کنند.
 
 ### وضعیت دروازه‌ها
 - دروازه‌ی A (داده و بک‌تست): اجرا شده — `state/reports/gate_a_backtest_2026-10-23.md`. بازده خالص در هشت پنجره بین `−0.97%` و `+0.00%` است، profit factor در بیشتر پنجره‌ها زیر ۱، و بیشترین drawdown زیر ۱.۳٪. این شواهد مجوز LIVE را نمی‌دهد.

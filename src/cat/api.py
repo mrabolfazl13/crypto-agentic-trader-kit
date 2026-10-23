@@ -13,7 +13,9 @@ lazily inside the handlers so this file can be exercised before they exist.
 from __future__ import annotations
 
 import copy
+import json
 import threading
+import time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,7 +31,7 @@ from pydantic import BaseModel, Field
 
 from .backtest import run_backtest
 from .config import Config, ConfigError, config_digest, load_config
-from .data import DataError, DataUnavailable, Kline
+from .data import TIMEFRAMES, DataError, DataUnavailable, Kline
 from .engine import Engine
 from .http import HttpClient
 from .mirror import mirror_cycle
@@ -101,6 +103,26 @@ def _provenance(kind: str, source: str, window: str = "no_data") -> dict[str, An
 
 def _normalize_symbol(symbol: str) -> str:
     return str(symbol).upper().replace("/", "_").replace("-", "_")
+
+
+# Short-lived cache for /market/candles so a symbol switch does not hit the exchange
+# again. Keyed by (symbol, timeframe, limit); TTL is intentionally small.
+_CANDLES_TTL = 20.0
+_candles_lock = threading.Lock()
+_candles_cache: dict[tuple[str, str, str, int], tuple[float, list[Kline], str]] = {}
+_gate_providers: dict[str, Any] = {}
+
+
+def _gate_provider(config: Config):
+    from .data import GateProvider
+
+    key = str(config.root)
+    with _candles_lock:
+        provider = _gate_providers.get(key)
+        if provider is None:
+            provider = GateProvider(HttpClient(proxy=config.proxy), filters_ttl_seconds=config.filters_cache_seconds)
+            _gate_providers[key] = provider
+    return provider
 
 
 def _window_for(store, dataset_id: str | None) -> str:
@@ -222,13 +244,124 @@ def create_app(root: Path | None = None) -> FastAPI:
             "confirm_timeframe": config.confirm_timeframe,
             "exchange": config.exchange,
             "allocated_capital": config.allocated_capital,
+            "max_open_positions": config.max_open_positions,
             "maker_fee_pct": config.maker_fee_pct,
             "taker_fee_pct": config.taker_fee_pct,
             "limits": asdict(config.limits),
             "strategy_params": config.strategy_params.as_dict(),
             "warnings": list(config.warnings),
             "config_digest": config_digest(config.raw),
+            "data_concurrency": config.data_concurrency,
             "config": raw,
+        }
+
+    @router.get("/universe")
+    def universe() -> dict[str, Any]:
+        """The dated universe snapshot next to the effective allowlist.
+
+        ``config.trading.symbols`` is the authority the risk gate enforces;
+        ``universe.json`` records where that list came from. If the two drift,
+        the response says so instead of pretending they match.
+        """
+        config = get_config()
+        effective = list(config.symbols)
+        base: dict[str, Any] = {"available": False, "count": len(effective), "symbols": effective}
+        path = app_root / "universe.json"
+        if not path.exists():
+            return {**base, "error": "universe.json not found; using trading.symbols only"}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return {**base, "error": f"universe.json unreadable: {type(exc).__name__}"}
+        if not isinstance(payload, dict):
+            return {**base, "error": "universe.json is not an object"}
+        manifest_symbols = payload.get("symbols") if isinstance(payload.get("symbols"), list) else []
+        normalised = tuple(
+            str(item).upper().replace("/", "_").replace("-", "_") for item in manifest_symbols
+        )
+        source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+        entries = payload.get("entries") if isinstance(payload.get("entries"), list) else []
+        excluded = payload.get("excluded") if isinstance(payload.get("excluded"), list) else []
+        return {
+            "available": True,
+            "source": source,
+            "generated_at": payload.get("generated_at"),
+            "requested_count": payload.get("requested_count"),
+            "count": len(effective),
+            "manifest_count": payload.get("count"),
+            "digest": payload.get("digest"),
+            "symbols": effective,
+            "manifest_symbols": manifest_symbols,
+            "matches_config": normalised == tuple(effective),
+            "entries": entries,
+            "excluded": excluded,
+            "skipped": payload.get("skipped") if isinstance(payload.get("skipped"), list) else [],
+        }
+
+    @router.get("/market/candles")
+    def market_candles(
+        symbol: str,
+        timeframe: str | None = None,
+        limit: int = Query(default=180, ge=20, le=500),
+    ) -> dict[str, Any]:
+        """Closed candles for one allow-listed symbol, read from the exchange.
+
+        This endpoint never invents data: a symbol outside ``trading.symbols`` is
+        refused, and an unreachable feed is a 503. Candles are cached in-process
+        for a few seconds so switching symbols does not hammer the exchange.
+        """
+        config = get_config()
+        normalized = _normalize_symbol(symbol)
+        if normalized not in config.symbols:
+            raise HTTPException(status_code=404, detail="نماد خارج از فهرست مجاز است؛ نمودار فقط جهان معاملاتی را نشان می‌دهد.")
+        tf = timeframe or config.timeframe
+        if tf not in TIMEFRAMES:
+            raise HTTPException(status_code=400, detail=f"تایم‌فریم پشتیبانی نمی‌شود: {tf}")
+
+        key = (str(app_root), normalized, tf, limit)
+        monotonic_now = time.monotonic()
+        with _candles_lock:
+            cached = _candles_cache.get(key)
+            if cached is not None and monotonic_now - cached[0] < _CANDLES_TTL:
+                bars, fetched_at = cached[1], cached[2]
+                cache_hit = True
+        if cached is None or monotonic_now - cached[0] >= _CANDLES_TTL:
+            provider = _gate_provider(config)
+            try:
+                bars = provider.klines(normalized, tf, limit=limit)
+            except DataError as exc:
+                raise HTTPException(status_code=503, detail=f"دریافت کندل از صرافی ممکن نشد: {exc}")
+            fetched_at = now_iso()
+            with _candles_lock:
+                _candles_cache[key] = (monotonic_now, bars, fetched_at)
+            cache_hit = False
+
+        closed = [bar for bar in bars if bar.closed]
+        first = closed[0].open_time if closed else None
+        last = closed[-1].open_time if closed else None
+        window = (
+            f"{datetime.fromtimestamp(first, tz=timezone.utc).isoformat(timespec='seconds')} → "
+            f"{datetime.fromtimestamp(last, tz=timezone.utc).isoformat(timespec='seconds')}"
+            if first is not None and last is not None else "no_data"
+        )
+        return {
+            "symbol": normalized,
+            "timeframe": tf,
+            "bars": [
+                {
+                    "t": bar.open_time, "open": bar.open, "high": bar.high, "low": bar.low,
+                    "close": bar.close, "base_volume": bar.base_volume,
+                    "quote_volume": bar.quote_volume, "closed": bar.closed,
+                }
+                for bar in bars
+            ],
+            "count": len(bars),
+            "closed_count": len(closed),
+            "provenance": {
+                **_provenance("history", f"gate:{normalized}:{tf}", window),
+                "fetched_at": fetched_at,
+                "cached": cache_hit,
+            },
         }
 
     @router.get("/portfolio")
@@ -316,8 +449,9 @@ def create_app(root: Path | None = None) -> FastAPI:
                 "provenance": _provenance("paper", "engine")}
 
     @router.get("/decisions")
-    def decisions(date: str | None = None, symbol: str | None = None) -> dict[str, Any]:
-        rows = store.list_decisions(date=date, symbol=symbol)
+    def decisions(date: str | None = None, symbol: str | None = None,
+                  limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:
+        rows = store.list_decisions(date=date, symbol=symbol, limit=limit)
         return {"decisions": rows, "count": len(rows),
                 "provenance": _provenance("paper", "engine", date or "recent")}
 
@@ -733,11 +867,19 @@ def create_app(root: Path | None = None) -> FastAPI:
 
             async def get_response(self, path: str, scope):  # type: ignore[override]
                 try:
-                    return await super().get_response(path, scope)
+                    response = await super().get_response(path, scope)
                 except StarletteHTTPException as exc:
                     if exc.status_code == 404 and "." not in Path(path).name:
-                        return await super().get_response("index.html", scope)
-                    raise
+                        response = await super().get_response("index.html", scope)
+                    else:
+                        raise
+                # The shell must revalidate so a new build is picked up on a plain reload;
+                # hashed assets can be cached forever.
+                if "." not in Path(path).name or Path(path).name == "index.html":
+                    response.headers["Cache-Control"] = "no-store, must-revalidate"
+                else:
+                    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                return response
 
         app.mount("/", SpaStaticFiles(directory=str(dist), html=True), name="dashboard")
 

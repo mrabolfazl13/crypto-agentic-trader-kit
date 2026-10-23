@@ -21,7 +21,9 @@
 | GET | `/equity-curve?mode=PAPER` | نقاط `[ts, equity, drawdown_pct]` |
 | GET | `/orders?status=open` | سفارش‌ها (paper) |
 | GET | `/trades?mode=PAPER&symbol=&outcome=win|loss&limit=&offset=` | تاریخچه‌ی معاملات با فیلتر |
-| GET | `/decisions?date=&symbol=` | تصمیم‌ها + rationale + حکم Risk Gate |
+| GET | `/decisions?date=&symbol=&limit=` | تصمیم‌ها + rationale + حکم Risk Gate. `limit` پیش‌فرض ۲۰۰ و حداکثر ۱۰۰۰؛ مقدار نامعتبر `422`. |
+| GET | `/universe` | فهرست مؤثر نمادها + snapshot رتبه‌بندی (`universe.json`): منبع، زمان، digest، تعداد، حذف‌شده‌ها و `matches_config`. نبود manifest صریحاً گزارش می‌شود، نه با داده‌ی ساختگی. |
+| GET | `/market/candles?symbol=&timeframe=&limit=` | کندل‌های بسته برای یک نماد از جهان معاملاتی، مستقیم از Gate. نماد خارج از `trading.symbols` → `404`؛ تایم‌فریم نامعتبر → `400`؛ صرافی در دسترس نیست → `503`. پاسخ شامل `provenance.source=gate:BASE_QUOTE:tf`، `window`، `fetched_at` و `cached` (کش درون‌پردازشی ۲۰ ثانیه). |
 | GET | `/datasets` | فهرست مجموعه‌داده‌ها (origin: `exchange` یا `csv`) |
 | GET | `/datasets/{id}/quality` | گزارش کیفیت: شکاف، تکرار، OHLC نامعتبر، کندل باز، stale، تعداد رد شدها |
 | GET | `/datasets/{id}/bars` | کندل‌های همان dataset (`limit≤5000`، `overlays=true` برای EMA). مجموعه‌داده نامعلوم `404` است، نه لیست خالی. EMA روی کل سری محاسبه و سپس بریده می‌شود تا مقدار seedشده از پنجره‌ی visible نباشد. |

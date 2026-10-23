@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
+import cat.http as http_module
 from cat.audit import AuditLog
 from cat.config import load_config
-from cat.data import Kline, validate_klines, estimate_slippage_pct
+from cat.data import GateProvider, Kline, validate_klines, estimate_slippage_pct
+from cat.http import DataError, HttpClient
 from cat.decision import build_decision, validate_decision
 from cat.indicators import atr, ema, rsi, slope
 from cat.portfolio import AccountState, atomic_write, load_state
@@ -81,7 +84,7 @@ def test_daily_trade_cap_and_position_cap(config, now):
 
 
 def test_unknown_symbol_is_rejected(config, now):
-    snapshot = make_snapshot(symbol="SOL_USDT")
+    snapshot = make_snapshot(symbol="ZZZ_USDT")
     risk = sized(config, AccountState.new(config.allocated_capital), snapshot, now)
     assert not risk.approved and "approved symbol list" in risk.reasons[0]
 
@@ -245,6 +248,24 @@ def test_strategy_uses_only_the_window_it_is_given(config):
     assert past.analysis.indicators["bars_used"] == len(truncated.klines)
 
 
+def test_short_history_reports_missing_emas_instead_of_crashing(config):
+    """Fresh listings have fewer closes than the EMA spans; analysis must stay honest, not raise."""
+    snapshot = make_snapshot(prices=uptrend_prices(12))
+    analysis = analyze(snapshot)
+    assert analysis.indicators["ema_fast"] is None
+    assert analysis.indicators["ema_slow"] is None
+    assert "unavailable" in analysis.scenarios["bullish"]
+    assert "unavailable" in analysis.scenarios["bearish"]
+    proposal = propose(
+        snapshot, None,
+        confidence_threshold=config.confidence_threshold, require_multiple_signals=True,
+        no_trade_if_signals_conflict=True, min_reward_risk_ratio=config.limits.min_reward_risk_ratio,
+        maker_fee_pct=config.maker_fee_pct, taker_fee_pct=config.taker_fee_pct, est_slippage_pct=0.03,
+    )
+    assert proposal.action == "NO_TRADE"
+    assert proposal.reason == "insufficient_history"
+
+
 def test_higher_timeframe_lookahead_guard():
     from cat.backtest import select_closed_higher
 
@@ -265,3 +286,38 @@ def test_backtest_executes_next_bar_not_current():
     quote = _quote_from_bar(bars[-1], 0.05)
     assert quote.bid < bars[-1].close < quote.ask
     assert quote.ts == bars[-1].open_time
+
+
+def test_http_4xx_is_not_retried(monkeypatch):
+    calls: list[str] = []
+
+    class Response:
+        status_code = 400
+        text = "invalid symbol"
+
+    def fake_get(url, **_kwargs):
+        calls.append(url)
+        return Response()
+
+    monkeypatch.setattr(http_module.requests, "get", fake_get)
+    with pytest.raises(DataError):
+        HttpClient().get("https://example.test/bookTicker")
+    assert len(calls) == 1, "a permanent 4xx must not be hammered three times"
+
+
+def test_gate_pair_metadata_is_cached_per_process():
+    calls: list[str] = []
+
+    def fake_get(url, params=None):
+        calls.append(url)
+        return {
+            "id": "BTC_USDT", "precision": 1, "amount_precision": 6,
+            "min_base_amount": "0.0001", "min_quote_amount": "3", "max_quote_amount": "900000",
+            "trade_status": "tradable", "fee": "0.2",
+        }
+
+    gate = GateProvider(SimpleNamespace(get=fake_get), filters_ttl_seconds=3600)
+    first = gate.filters("BTC/USDT")
+    second = gate.filters("BTC/USDT")
+    assert first == second
+    assert len(calls) == 1, "the static pair metadata should be fetched once per TTL"

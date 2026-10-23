@@ -163,9 +163,16 @@ def analyze(snapshot: MarketSnapshot, params: StrategyParams | None = None) -> A
         f"{snapshot.symbol} {snapshot.timeframe}: regime={regime}, "
         f"price={last_price:.2f}, spread={snapshot.quote.spread_pct:.3f}%"
     )
+    # Short histories (fresh listings) leave the EMAs unpopulated; say so instead of formatting None.
     scenarios = {
-        "bullish": f"continuation above {last_fast:.2f} toward +{p.atr_target_mult} ATR",
-        "bearish": f"loss of {last_slow:.2f} opens {p.atr_stop_mult} ATR downside",
+        "bullish": (
+            f"continuation above {last_fast:.2f} toward +{p.atr_target_mult} ATR"
+            if last_fast is not None else f"unavailable: needs {p.ema_fast} closes for EMA{p.ema_fast}"
+        ),
+        "bearish": (
+            f"loss of {last_slow:.2f} opens {p.atr_stop_mult} ATR downside"
+            if last_slow is not None else f"unavailable: needs {p.ema_slow} closes for EMA{p.ema_slow}"
+        ),
         "neutral": "chop inside 1 ATR band; no edge after fees",
     }
     return Analysis(

@@ -8,9 +8,109 @@ trading:
   live_trading_enabled: false # فعال‌سازی نیازمند اقدام صریح مالک است
   exchange: gate
   market_type: spot
-  symbols:
+  symbols:                    # 100 جفت USDT برتر Gate به ترتیب ارزش بازار — بازتولید: python tools/build_universe.py
+    # منبع رتبه‌بندی: CoinGecko /coins/markets (market_cap_desc) · snapshot: 2026-10-23T20:39:25+00:00
+    # فقط جفت‌های tradable با quote=USDT؛ استیبل‌کوین/طلا/نسخه رپ‌شده حذف شده‌اند (جزئیات: universe.json).
     - BTC/USDT
     - ETH/USDT
+    - BNB/USDT
+    - XRP/USDT
+    - SOL/USDT
+    - TRX/USDT
+    - ZEC/USDT
+    - HYPE/USDT
+    - DOGE/USDT
+    - LINK/USDT
+    - LEO/USDT
+    - ADA/USDT
+    - NEAR/USDT
+    - XLM/USDT
+    - RAIN/USDT
+    - BCH/USDT
+    - LTC/USDT
+    - UNI/USDT
+    - CC/USDT
+    - AVAX/USDT
+    - SUI/USDT
+    - GRAM/USDT
+    - HBAR/USDT
+    - SHIB/USDT
+    - TAO/USDT
+    - CRO/USDT
+    - ENA/USDT
+    - BTW/USDT
+    - QNT/USDT
+    - OKB/USDT
+    - AAVE/USDT
+    - ONDO/USDT
+    - PUMP/USDT
+    - M/USDT
+    - WLD/USDT
+    - PEPE/USDT
+    - DOT/USDT
+    - MNT/USDT
+    - ASTER/USDT
+    - WLFI/USDT
+    - SKY/USDT
+    - MORPHO/USDT
+    - ICP/USDT
+    - HTX/USDT
+    - ETC/USDT
+    - ARB/USDT
+    - VVV/USDT
+    - JST/USDT
+    - GT/USDT
+    - KAS/USDT
+    - JUP/USDT
+    - ALGO/USDT
+    - POL/USDT
+    - ATOM/USDT
+    - RENDER/USDT
+    - PI/USDT
+    - AKE/USDT
+    - LIT/USDT
+    - FIL/USDT
+    - NEXO/USDT
+    - INJ/USDT
+    - PEARL/USDT
+    - ZRO/USDT
+    - XDC/USDT
+    - DASH/USDT
+    - CAKE/USDT
+    - APT/USDT
+    - ETHFI/USDT
+    - NIGHT/USDT
+    - AERO/USDT
+    - VET/USDT
+    - STX/USDT
+    - BDX/USDT
+    - CRV/USDT
+    - PYTH/USDT
+    - FLR/USDT
+    - Q/USDT
+    - TIA/USDT
+    - PENGU/USDT
+    - TRUMP/USDT
+    - RAY/USDT
+    - GRASS/USDT
+    - VIRTUAL/USDT
+    - FET/USDT
+    - DRV/USDT
+    - SEI/USDT
+    - STRK/USDT
+    - PENDLE/USDT
+    - BTT/USDT
+    - BSV/USDT
+    - XPL/USDT
+    - SPX/USDT
+    - FF/USDT
+    - XTZ/USDT
+    - CARDS/USDT
+    - LDO/USDT
+    - SUN/USDT
+    - UB/USDT
+    - GNO/USDT
+    - PIEVERSE/USDT
   timeframe: 4h                # سیگنال روی 4h؛ اجرای زنده با quote لحظه‌ای
   max_open_positions: 2
   allow_short: false
@@ -74,3 +174,5 @@ data:
   confirm_timeframe: 1d
   fallback_exchange: mexc
   proxy: "http://127.0.0.1:1080"   # پروکسی محلی؛ با CAT_PROXY قابل بازنویسی است
+  max_concurrency: 4               # اسکن ۱۰۰ نماد با حداکثر ۴ درخواست موازی (سقف سخت: ۸)
+  filters_cache_seconds: 3600      # دقت قیمت/مقدار هر جفت یک ساعت کش می‌شود

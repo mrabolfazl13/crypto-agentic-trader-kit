@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
@@ -80,6 +81,45 @@ def test_network_failure_leaves_no_new_orders(workspace):
     assert result.safe_state and result.errors
     assert len(engine.broker.fills) == opened  # nothing new executed
     assert engine.state.consecutive_errors >= 1
+
+
+def test_one_dead_symbol_is_quarantined_without_halting_the_account(workspace):
+    engine = make_engine(workspace)
+    engine.config = replace(engine.config, symbols=("BTC_USDT", "DEAD_USDT"), data_concurrency=2)
+    good = buyable(engine)
+
+    def snapshot(symbol):
+        if symbol == "DEAD_USDT":
+            raise DataError("no tradable pair")
+        return good
+
+    engine.snapshot = snapshot
+    result = engine.run_cycle(now=CYCLE_NOW)
+    approved = [o for o in result.outcomes if o.approved]
+    assert approved, [o.reasons for o in result.outcomes]
+    assert result.errors and not result.safe_state
+    assert engine.state.consecutive_errors == 0, "one dead pair must not consume the account error budget"
+    assert "DEAD_USDT" not in {o.symbol for o in approved}
+
+
+def test_parallel_scan_preserves_allowlist_order(workspace):
+    config = replace(
+        load_config(root=workspace),
+        symbols=("BTC_USDT", "ETH_USDT", "SOL_USDT"),
+        data_concurrency=3,
+    )
+    engine = make_engine(workspace)
+    engine.config = config
+
+    def snapshot(symbol):
+        if symbol == "BTC_USDT":
+            time.sleep(0.05)  # the slowest request must still come first
+        return make_snapshot(symbol=symbol)
+
+    engine.snapshot = snapshot
+    snapshots, failures = engine._fetch_snapshots()
+    assert list(snapshots) == ["BTC_USDT", "ETH_USDT", "SOL_USDT"]
+    assert failures == []
 
 
 def test_clock_skew_halts_the_cycle_without_trading(workspace):

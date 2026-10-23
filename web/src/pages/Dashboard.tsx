@@ -15,7 +15,9 @@ import {
   type PerformanceView,
   type TradeRow,
 } from "../api/client";
-import Badge, { ModeBadge, ToneBadge } from "../components/Badge";
+import Badge, { ToneBadge } from "../components/Badge";
+import DecisionsFeed from "../components/DecisionsFeed";
+import MarketOverview from "../components/MarketOverview";
 import ProvenanceNote from "../components/ProvenanceNote";
 import StateBlocks, { EmptyBlock, LoadingBlock } from "../components/StateBlocks";
 import Stat from "../components/Stat";
@@ -71,11 +73,17 @@ export default function Dashboard() {
   const errorLogs = useAsync((signal) => getLogs({ level: "error", limit: 25 }, signal), []);
   const equity = useAsync((signal) => getEquityCurve("PAPER", signal), []);
 
-  const symbols = useMemo(() => config.data?.symbols ?? [], [config.data]);
+  // A 100-symbol universe must not become 100 API calls per dashboard load:
+  // only symbols that actually appear in the ledger are queried.
+  const tradedSymbols = useMemo(() => {
+    const unique = new Set<string>();
+    for (const row of trades.data?.rows ?? []) if (row.symbol) unique.add(row.symbol);
+    return [...unique].sort();
+  }, [trades.data]);
   const perSymbol = useAsync(async (signal) => {
-    if (symbols.length === 0) return [];
-    return Promise.all(symbols.map((symbol) => getPerformance({ symbol, mode: "PAPER" }, signal)));
-  }, [symbols.join(","), config.loading]);
+    if (tradedSymbols.length === 0) return [];
+    return Promise.all(tradedSymbols.map((symbol) => getPerformance({ symbol, mode: "PAPER" }, signal)));
+  }, [tradedSymbols.join(","), trades.loading]);
 
   const ledgerWindow = performance.data?.provenance?.window ?? null;
   const ledgerSource = performance.data?.provenance?.source ?? null;
@@ -91,6 +99,7 @@ export default function Dashboard() {
 
   const latestRun = runs.data?.[0] ?? null;
   const optimizationRounds = (runs.data ?? []).filter((run) => run.kind === "grid" || run.kind === "walk_forward").length;
+  const hasTrades = (trades.data?.rows?.length ?? 0) > 0;
 
   const warnings = [
     ...(health.data?.warnings ?? []),
@@ -156,15 +165,9 @@ export default function Dashboard() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>داشبورد</h1>
-          <p className="mute">همه‌ی مقادیر از API محلی خوانده می‌شوند؛ هرچه در API نباشد «داده‌ای موجود نیست» است، نه صفر یا عدد نمونه.</p>
-        </div>
-        <div className="btn-row">
-          <ModeBadge mode={health.data?.mode} />
-          <Badge kind="paper" label="حساب کاغذی — بدون سفارش زنده" />
-        </div>
+      <div className="dash-intro">
+        <p className="mute">هر عدد از API محلی خوانده می‌شود؛ مقدار غایب «داده‌ای موجود نیست» است، نه صفر یا عدد نمونه.</p>
+        <Badge kind="paper" label="حساب کاغذی — بدون سفارش زنده" />
       </div>
 
       {health.error ? (
@@ -174,37 +177,29 @@ export default function Dashboard() {
         </div>
       ) : null}
 
+      <section className="grid market" aria-label="بازار و تصمیم‌های موتور">
+        <MarketOverview />
+        <DecisionsFeed />
+      </section>
+
       <section aria-label="شاخص‌های اصلی حساب">
-        <h2>شاخص‌های اصلی</h2>
+        <div className="section-head">
+          <h2>شاخص‌های اصلی</h2>
+          <p className="mute">شش عدد کلیدی؛ منبع، پنجره و توضیح هر عدد با نگه‌داشتن نشانگر روی کارت دیده می‌شود.</p>
+        </div>
         {portfolio.loading && performance.loading ? <LoadingBlock label="خواندن حساب و ledger…" /> : null}
         <div className="grid stats">
           <Stat
-            label="سرمایه‌ی تخصیص‌یافته‌ی اولیه"
-            value={money(account?.allocated_capital ?? null)}
+            compact
+            label="ارزش فعلی حساب (equity)"
+            value={money(account?.equity ?? null)}
             window={accountWindow}
-            source="config.allocated_capital"
+            source="engine/paper"
             endpoint="/portfolio"
-            tooltip="موجودی فرضی حساب کاغذی. عامل هیچ‌وقت آن را افزایش نمی‌دهد."
-          />
-          <Stat label="ارزش فعلی حساب (equity)" value={money(account?.equity ?? null)} window={accountWindow} source="engine/paper" endpoint="/portfolio" />
-          <Stat
-            label="سود/زیان تحقق‌یافته"
-            value={signedMoney(account?.realized ?? null)}
-            tone={tone(account?.realized ?? null)}
-            window={accountWindow}
-            source="ledger"
-            endpoint="/portfolio"
+            tooltip="ارزش حساب کاغذی؛ اگر موقعیتی باز باشد مبنای آن بهای تمام‌شده است، نه قیمت لحظه‌ای."
           />
           <Stat
-            label="سود/زیان تحقق‌نیافته"
-            value={signedMoney(account?.unrealized ?? null)}
-            tone={tone(account?.unrealized ?? null)}
-            window={accountWindow}
-            source="mark-to-market"
-            endpoint="/portfolio"
-            tooltip="محاسبه با آخرین قیمت معتبر؛ اگر قیمت تازه نباشد سیستم در حالت امن می‌ماند."
-          />
-          <Stat
+            compact
             label="بازده خالص پس از کارمزد"
             value={
               account?.allocated_capital && typeof account.equity === "number"
@@ -219,68 +214,110 @@ export default function Dashboard() {
             window={ledgerWindow}
             source="engine"
             endpoint="/portfolio"
-            note="اختلاف equity فعلی (شامل تحقق‌نیافته) با سرمایه‌ی تخصیص‌یافته؛ کارمزد ثبت‌شده در این عدد کسر شده است."
+            tooltip="اختلاف equity فعلی (شامل تحقق‌نیافته) با سرمایه‌ی تخصیص‌یافته؛ کارمزد ثبت‌شده کسر شده است."
           />
-          <Stat label="تعداد کل معاملات" value={num(metrics?.trades ?? null, { max: 0 })} window={ledgerWindow} source={ledgerSource} endpoint="/performance" />
           <Stat
-            label="برد / باخت"
-            value={metrics ? `${num(metrics.wins ?? null, { max: 0 })} / ${num(metrics.losses ?? null, { max: 0 })}` : null}
+            compact
+            label="سود/زیان تحقق‌نیافته"
+            value={signedMoney(account?.unrealized ?? null)}
+            tone={tone(account?.unrealized ?? null)}
+            window={accountWindow}
+            source="mark-to-market"
+            endpoint="/portfolio"
+            tooltip="بدون قیمت تازه‌ی معتبر، این عدد null می‌ماند و سیستم در حالت امن می‌ماند."
+          />
+          <Stat
+            compact
+            label="سود/زیان تحقق‌یافته"
+            value={signedMoney(account?.realized ?? null)}
+            tone={tone(account?.realized ?? null)}
+            window={accountWindow}
+            source="ledger"
+            endpoint="/portfolio"
+          />
+          <Stat
+            compact
+            label="تعداد کل معاملات"
+            value={num(metrics?.trades ?? null, { max: 0 })}
             window={ledgerWindow}
             source={ledgerSource}
             endpoint="/performance"
-            note="مبنای باخت: خالص پس از کارمزد ≤ ۰."
-          />
-          <Stat label="نرخ برد" value={plainPct(metrics?.win_rate_pct ?? null, { max: 1 })} window={ledgerWindow} source={ledgerSource} endpoint="/performance" />
-          <Stat
-            label="ضریب سود (profit factor)"
-            value={num(metrics?.profit_factor ?? null, { max: 2 })}
-            window={ledgerWindow}
-            source={ledgerSource}
-            endpoint="/performance"
-            tooltip="مجموع سود تقسیم بر مجموع زیان؛ وقتی هیچ زیانی ثبت نشده باشد API مقدار null می‌فرستد و اینجا عددی ساخته نمی‌شود."
+            tooltip={metrics ? `برد ${num(metrics.wins ?? null, { max: 0 })} · باخت ${num(metrics.losses ?? null, { max: 0 })} — مبنای باخت: خالص پس از کارمزد ≤ ۰` : undefined}
           />
           <Stat
+            compact
             label="بیشترین افت سرمایه"
             value={pct(metrics?.max_drawdown_pct ?? null, { max: 2 })}
             tone={drawdownTone}
             window={ledgerWindow}
             source={ledgerSource}
             endpoint="/performance"
-            note={`سقف فعال drawdown: ${plainPct(config.data?.limits?.max_drawdown_pct ?? null, { max: 1 })}`}
-          />
-          <Stat
-            label="شارپ (تحویلی و خام)"
-            value={num(metrics?.sharpe_annualised_crude ?? null, { max: 2 })}
-            window={ledgerWindow}
-            source={ledgerSource}
-            endpoint="/performance"
-            tooltip={
-              metrics?.sharpe_note ??
-              "بازده هر کندل میانگین‌گیری و روی sqrt(کندل در سال) مقیاس می‌شود؛ بدون نرخ بدون‌ریسک، بدون ادعاى پیش‌بینی."
-            }
-          />
-          <Stat
-            label="کارمزد کل"
-            value={money(metrics?.fees_paid ?? metrics?.fees ?? account?.fees_paid ?? null)}
-            window={ledgerWindow}
-            source={ledgerSource}
-            endpoint="/performance"
-            note={`نرخ پیکربندی: ${plainPct(config.data?.taker_fee_pct ?? null, { max: 2 })} taker`}
-          />
-          <Stat
-            label="اسلیپیج کل"
-            value={account?.slippage_paid == null ? null : money(account.slippage_paid)}
-            window={ledgerWindow}
-            source="ledger"
-            endpoint="/portfolio"
-            note={
-              account?.slippage_paid == null
-                ? "ledger اسلیپیج تحقق‌یافته را جدا ثبت نمی‌کند؛ سقف اسلیپیج از ریسک‌گیت اخذ می‌شود."
-                : undefined
-            }
-            tooltip={`سقف اسلیپیج مجاز: ${plainPct(config.data?.limits?.max_slippage_pct ?? null, { max: 2 })}`}
+            tooltip={`سقف فعال drawdown: ${plainPct(config.data?.limits?.max_drawdown_pct ?? null, { max: 1 })}`}
           />
         </div>
+
+        <details className="dash-details">
+          <summary>جزئیات و منبع ۷ شاخص دیگر</summary>
+          <div className="grid stats">
+            <Stat
+              label="سرمایه‌ی تخصیص‌یافته‌ی اولیه"
+              value={money(account?.allocated_capital ?? null)}
+              window={accountWindow}
+              source="config.allocated_capital"
+              endpoint="/portfolio"
+              tooltip="موجودی فرضی حساب کاغذی. عامل هیچ‌وقت آن را افزایش نمی‌دهد."
+            />
+            <Stat
+              label="برد / باخت"
+              value={metrics ? `${num(metrics.wins ?? null, { max: 0 })} / ${num(metrics.losses ?? null, { max: 0 })}` : null}
+              window={ledgerWindow}
+              source={ledgerSource}
+              endpoint="/performance"
+              note="مبنای باخت: خالص پس از کارمزد ≤ ۰."
+            />
+            <Stat label="نرخ برد" value={plainPct(metrics?.win_rate_pct ?? null, { max: 1 })} window={ledgerWindow} source={ledgerSource} endpoint="/performance" />
+            <Stat
+              label="ضریب سود (profit factor)"
+              value={num(metrics?.profit_factor ?? null, { max: 2 })}
+              window={ledgerWindow}
+              source={ledgerSource}
+              endpoint="/performance"
+              tooltip="مجموع سود تقسیم بر مجموع زیان؛ وقتی هیچ زیانی ثبت نشده باشد API مقدار null می‌فرستد و اینجا عددی ساخته نمی‌شود."
+            />
+            <Stat
+              label="شارپ (تحویلی و خام)"
+              value={num(metrics?.sharpe_annualised_crude ?? null, { max: 2 })}
+              window={ledgerWindow}
+              source={ledgerSource}
+              endpoint="/performance"
+              tooltip={
+                metrics?.sharpe_note ??
+                "بازده هر کندل میانگین‌گیری و روی sqrt(کندل در سال) مقیاس می‌شود؛ بدون نرخ بدون‌ریسک، بدون ادعاى پیش‌بینی."
+              }
+            />
+            <Stat
+              label="کارمزد کل"
+              value={money(metrics?.fees_paid ?? metrics?.fees ?? account?.fees_paid ?? null)}
+              window={ledgerWindow}
+              source={ledgerSource}
+              endpoint="/performance"
+              note={`نرخ پیکربندی: ${plainPct(config.data?.taker_fee_pct ?? null, { max: 2 })} taker`}
+            />
+            <Stat
+              label="اسلیپیج کل"
+              value={account?.slippage_paid == null ? null : money(account.slippage_paid)}
+              window={ledgerWindow}
+              source="ledger"
+              endpoint="/portfolio"
+              note={
+                account?.slippage_paid == null
+                  ? "ledger اسلیپیج تحقق‌یافته را جدا ثبت نمی‌کند؛ سقف اسلیپیج از ریسک‌گیت اخذ می‌شود."
+                  : undefined
+              }
+              tooltip={`سقف اسلیپیج مجاز: ${plainPct(config.data?.limits?.max_slippage_pct ?? null, { max: 2 })}`}
+            />
+          </div>
+        </details>
       </section>
 
       <section className="grid two" aria-label="روند سرمایه">
@@ -320,58 +357,73 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="grid two" aria-label="عملکرد به تفکیک">
-        <div className="card">
+      {!trades.loading && !trades.error && !hasTrades ? (
+        <section className="card" aria-label="عملکرد به تفکیک">
           <header>
-            <h2>عملکرد به تفکیک نماد (از API)</h2>
-            <Badge kind="paper" label="پیپر" />
+            <h2>عملکرد به تفکیک نماد و تایم‌فریم</h2>
+            <ToneBadge tone="warn">بدون معامله</ToneBadge>
           </header>
-          <StateBlocks state={perSymbol} emptyLabel={NO_DATA} emptyHint="پیکربندی نمادی در دسترس نیست یا /performance پاسخ نداد.">
-            {(rows) => (rows.length === 0 ? <EmptyBlock label={NO_DATA} /> : <Table rows={rows} getRowId={(row) => row.symbol ?? "unknown"} caption="عملکرد هر نماد از /performance?symbol=" columns={perSymbolColumns} />)}
-          </StateBlocks>
-        </div>
+          <p className="stat-note m-0">
+            هنوز هیچ معامله‌ای در حالت پیپر ثبت نشده است؛ جدول‌های تفکیکی پس از اولین معامله نمایش داده می‌شوند. دلیل رد شدن ورودها در «تصمیم‌های موتور» ثبت شده
+            است.
+          </p>
+        </section>
+      ) : (
+        <>
+          <section className="grid two" aria-label="عملکرد به تفکیک">
+            <div className="card">
+              <header>
+                <h2>عملکرد به تفکیک نماد (از API)</h2>
+                <Badge kind="paper" label="پیپر" />
+              </header>
+              <StateBlocks state={perSymbol} emptyLabel={NO_DATA} emptyHint="پیکربندی نمادی در دسترس نیست یا /performance پاسخ نداد.">
+                {(rows) => (rows.length === 0 ? <EmptyBlock label={NO_DATA} /> : <Table rows={rows} getRowId={(row) => row.symbol ?? "unknown"} caption="عملکرد هر نماد از /performance?symbol=" columns={perSymbolColumns} />)}
+              </StateBlocks>
+            </div>
 
-        <div className="card">
-          <header>
-            <h2>عملکرد به تفکیک تایم‌فریم</h2>
-            <ToneBadge tone="warn" title="قرارداد API پارامتر timeframe برای /performance ندارد">
-              استخراج‌شده از /trades
-            </ToneBadge>
-          </header>
-          <StateBlocks
-            state={trades}
-            emptyLabel={NO_DATA}
-            emptyHint="بدون معامله‌ی ثبت‌شده، تفکیک تایم‌فریم معنایی ندارد."
-          >
-            {() => (
-              <>
-                <Table
-                  rows={byTimeframe}
-                  getRowId={(row) => `tf-${row.key}`}
-                  caption="دسته‌بندی ردیف‌های ledger بر اساس timeframe"
-                  columns={bucketColumns("تایم‌فریم")}
-                />
-                <ProvenanceNote provenance={trades.data?.provenance ?? null} fallbackKind="paper" extra="دسته‌بندی محلی از ردیف‌های /trades" />
-              </>
-            )}
-          </StateBlocks>
-        </div>
-      </section>
+            <div className="card">
+              <header>
+                <h2>عملکرد به تفکیک تایم‌فریم</h2>
+                <ToneBadge tone="warn" title="قرارداد API پارامتر timeframe برای /performance ندارد">
+                  استخراج‌شده از /trades
+                </ToneBadge>
+              </header>
+              <StateBlocks
+                state={trades}
+                emptyLabel={NO_DATA}
+                emptyHint="بدون معامله‌ی ثبت‌شده، تفکیک تایم‌فریم معنایی ندارد."
+              >
+                {() => (
+                  <>
+                    <Table
+                      rows={byTimeframe}
+                      getRowId={(row) => `tf-${row.key}`}
+                      caption="دسته‌بندی ردیف‌های ledger بر اساس timeframe"
+                      columns={bucketColumns("تایم‌فریم")}
+                    />
+                    <ProvenanceNote provenance={trades.data?.provenance ?? null} fallbackKind="paper" extra="دسته‌بندی محلی از ردیف‌های /trades" />
+                  </>
+                )}
+              </StateBlocks>
+            </div>
+          </section>
 
-      <section className="card" aria-label="عملکرد به تفکیک نماد (ledger)">
-        <header>
-          <h2>ledger به تفکیک نماد</h2>
-          <Badge kind="paper" />
-        </header>
-        <StateBlocks state={trades} emptyLabel={NO_DATA} emptyHint="هیچ معامله‌ای در حالت پیپر ثبت نشده است.">
-          {() => (
-            <>
-              <Table rows={bySymbol} getRowId={(row) => `sym-${row.key}`} caption="دسته‌بندی ردیف‌های ledger بر اساس نماد" columns={bucketColumns("نماد")} />
-              <ProvenanceNote provenance={trades.data?.provenance ?? null} fallbackKind="paper" extra="دسته‌بندی محلی از ردیف‌های /trades" />
-            </>
-          )}
-        </StateBlocks>
-      </section>
+          <section className="card" aria-label="عملکرد به تفکیک نماد (ledger)">
+            <header>
+              <h2>ledger به تفکیک نماد</h2>
+              <Badge kind="paper" />
+            </header>
+            <StateBlocks state={trades} emptyLabel={NO_DATA} emptyHint="هیچ معامله‌ای در حالت پیپر ثبت نشده است.">
+              {() => (
+                <>
+                  <Table rows={bySymbol} getRowId={(row) => `sym-${row.key}`} caption="دسته‌بندی ردیف‌های ledger بر اساس نماد" columns={bucketColumns("نماد")} />
+                  <ProvenanceNote provenance={trades.data?.provenance ?? null} fallbackKind="paper" extra="دسته‌بندی محلی از ردیف‌های /trades" />
+                </>
+              )}
+            </StateBlocks>
+          </section>
+        </>
+      )}
 
       <section className="grid stats" aria-label="وضعیت سامانه">
         <div className="card">
@@ -400,6 +452,9 @@ export default function Dashboard() {
               <dd className="rtl-text">{text(latestRun.params_label)}</dd>
             </dl>
           ) : null}
+          <p className="stat-note m-0">
+            {`دورهای بهینه‌سازی (grid/walk-forward در ۲۵ اجرای اخیر): ${num(optimizationRounds, { max: 0 })} · کل اجراها: ${num(health.data?.counts?.runs ?? null, { max: 0 })}`}
+          </p>
         </div>
 
         <div className="card">
@@ -429,20 +484,6 @@ export default function Dashboard() {
               );
             }}
           </StateBlocks>
-        </div>
-
-        <div className="card">
-          <header>
-            <h3>دورهای بهینه‌سازی</h3>
-            <Badge kind="simulated" />
-          </header>
-          <p className="stat-value">{runs.loading ? "…" : num(optimizationRounds, { max: 0 })}</p>
-          <p className="mute">
-            شمارش اجرای kind=grid و kind=walk_forward در ۲۵ اجرای اخیر از /runs — نه شمار کل پایگاه‌داده.
-          </p>
-          <p className="stat-note">
-            کل ردیف‌های runs در /health: {num(health.data?.counts?.runs ?? null, { max: 0 })}
-          </p>
         </div>
 
         <div className="card">

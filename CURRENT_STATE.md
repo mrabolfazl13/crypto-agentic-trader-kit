@@ -1,43 +1,50 @@
 # CURRENT_STATE
 
-به‌روزرسانی: 2026-10-23T09:30Z (UTC) — هر ۱۳ صفحه نوشته و build شد؛ دو باگ قراردادی walk-forward رفع و روی سرور واقعی راستی‌آزمایی شد.
+به‌روزرسانی: 2026-10-23T21:25Z (UTC) — جهان معاملاتی ۱۰۰ نمادی، نمودار کندل زنده برای همه‌ی نمادها، فهرست تصمیم‌ها با اسکرول داخلی و سقف `/decisions`؛ **۱۴۲ تست سبز**.
 
 ## لایه‌هایی که الان کار می‌کنند (راستی‌آزمایی‌شده با اجرا)
 | لایه | وضعیت | شواهد (همه اجراشده، نه ادعا) |
 |---|---|---|
-| داده‌ی بازار واقعی | سبز | `python trader.py check` → `check: PASS`؛ `fetch-history` → `ds-ex-43cf0e785f` (BTC 4h، ۲۱۹۰ کندل بسته، coverage 100%، صفر شکاف/تکرار) و `ds-ex-0f36cb81e7` (ETH 4h، ۲۱۹۰ کندل)؛ gateio/mexc از طریق پروکسی 200 OK |
+| داده‌ی بازار واقعی | سبز | `python trader.py check` → `check: PASS`؛ `fetch-history` → `ds-ex-43cf0e785f` (BTC 4h، ۲۱۹۰ کندل بسته، coverage 100%) و `ds-ex-0f36cb81e7` (ETH 4h)؛ gateio/mexc از طریق پروکسی 200 OK |
+| جهان معاملاتی ۱۰۰ نمادی | سبز (این مرحله) | `python tools/build_universe.py` → ۱۰۰ جفت USDT از Gate به ترتیب ارزش بازار CoinGecko؛ `universe.json` با snapshot `2026-10-23T20:39:25+00:00`، `digest 65f5f4cb…`، فهرست حذف‌شده‌ها (استیبل‌کوین/طلا/رپ‌شده) و ۲۰۳۲ جفت tradable بررسی‌شده؛ `config.yaml` به‌صورت جراحی بازنویسی شد |
+| نمایش جهان در UI/API | سبز | `GET /api/v1/universe` منبع و snapshot را برمی‌گرداند؛ کارت «جهان معاملاتی» در داشبورد تعداد/منبع/digest را نشان می‌دهد؛ `GET /config` شمارش را تأیید می‌کند |
+| موتور روی ۱۰۰ نماد | سبز | چرخه‌ی paper واقعی: **۱۰۰ outcome، ۰ خطا**، ۵m39s؛ یک BUY: BNB_USDT ۰٫۰۶۷ @ 742.6، کارمزد 0.049754، stop 731.959819، target 767.427089، equity ≈ 999.95؛ چرخه‌ی دوم ۴m44s → HOLD، بدون سفارش تکراری، ۰ خطا؛ `max_concurrency: 4` |
 | اعتبارسنجی داده | سبز | `tests/test_datasets.py` (۲۰ تست آفلاین) + `python trader.py quality --dataset …` روی داده‌ی واقعی |
-| استراتژی + Risk Gate قطعی | سبز | **۱۲۵ تست آفلاین سبز**؛ چرخه‌ی paper امروز: ۴ تصمیم، صفر تأیید، صفر سفارش (علت `regime_filter`) |
-| بک‌تست رویدادمحور | سبز | `POST /api/v1/runs/backtest` روی ۳۶۵ روز واقعی BTC → `run-6cbbd7a9b577`: ۲۳ معامله، خالص `−1.848%`، PF `0.203`، کارمزد `2.2861`، DD `1.85%` |
-| موتور تحقیق (ضد overfit) | سبز | `python trader.py research --dataset … --grid "ema_fast=15,20;atr_stop_mult=1.5,2.5"` → split 1314/438/438، **REJECTED** چون candidate خارج‌نمونه صفر معامله داشت؛ champion حفظ شد و دلیل در Store ثبت شد |
-| walk-forward از API با dataset واردشده | سبز (این مرحله) | `POST /runs/walk-forward` با `dataset_id` + ۴۰۰ روز واقعی → ۲۰۰ OK؛ داوری صادقانه «rejected» (۰ از ۲ پنجره سودآور، PF 0.298)، ۱۲ معامله‌ی out-of-sample، `risk_limits_untouched: true`، قهرمان ماند |
-| ردّ داده‌ی ناکافی | سبز (این مرحله) | ۳۶۰ کندل → 422 «هر بخش حداقل ۱۲۰ کندل»؛ کلید `version` در grid → 422 صریح، نه 500 |
-| نسخه‌بندی استراتژی | سبز | `python trader.py versions` → نسخه‌ها با digest، parent و متن تصمیم؛ تاریخچه حذف نمی‌شود |
-| Store (SQLite) | سبز | `state/platform.sqlite3`: datasets 2 / bars 4380 / runs 4 / decisions 4 / snapshots 2 / versions 2 |
-| Mirror رویدادها | سبز | هم چرخه‌ی CLI و هم `POST /cycles/paper` از یک مسیر مشترک (`src/cat/mirror.py`) می‌نویسند؛ dedupe روی کلید طبیعی → بدون رکورد تکراری (۲+۲ تصمیم = ۴، نه ۸) |
-| API محلی | سبز | سرور واقعی روی `127.0.0.1:8177` (با کد اصلاح‌شده بازراه‌اندازی شد)؛ health/config/portfolio/runs/datasets/bars/analysis/risk/logs/reports + import/fetch/backtest/walk-forward/cycle/kill-switch؛ ۲۹ تست API |
-| داشبورد (Vite+React+TS) | سبز (build + رندر) | ۱۳ صفحه (۷۱۹۵ خط)، `npx tsc --noEmit` صفر خطا، `vite build` موفق (۴۰۰KB JS / ۱۲۳KB gzip)؛ **هر ۱۳ مسیر در Edge هدلس PASS** (RTL/fa، صفر خطای کنسول، صفر خطای شبکه؛ ۳ مسیر موبایل هم PASS) |
-| CI | push شد | مخزن خصوصی `mrabolfazl13/crypto-agentic-trader-kit`، main = `8bed332` + fix SPA؛ workflow: pytest + دروازه‌ی LIVE + audit + tsc + build؛ وضعیت اجرا از این ماشین قابل‌مشاهده نیست (بدون gh و بدون ابزار Actions) |
+| استراتژی + Risk Gate قطعی | سبز | **۱۴۲ تست آفلاین سبز** (`pytest -q` → `142 passed`)؛ شامل رگرسیون تاریخچه‌ی کوتاه (EMA خالی) |
+| بک‌تست رویدادمحور | سبز | `POST /api/v1/runs/backtest` روی ۳۶۵ روز واقعی BTC → `run-6cbbd7a9b577`: ۲۳ معامله، خالص `−1.848%`، PF `0.203`، DD `1.85%` |
+| موتور تحقیق (ضد overfit) | سبز | `python trader.py research … --grid "ema_fast=15,20;atr_stop_mult=1.5,2.5"` → split 1314/438/438، **REJECTED**؛ champion حفظ شد |
+| walk-forward از API | سبز | `POST /runs/walk-forward` با `dataset_id` + ۴۰۰ روز واقعی → ۲۰۰ OK؛ «rejected» (۰ از ۲ پنجره سودآور، PF 0.298)، ۱۲ معامله‌ی OOS، `risk_limits_untouched: true` |
+| ردّ داده‌ی ناکافی | سبز | ۳۶۰ کندل → 422 «هر بخش حداقل ۱۲۰ کندل»؛ کلید `version` در grid → 422 صریح، نه 500 |
+| نسخه‌بندی استراتژی | سبز | `python trader.py versions` → نسخه‌ها با digest، parent و متن تصمیم |
+| Store (SQLite) | سبز | `state/platform.sqlite3`: datasets 3 / bars 6780 / runs 7 / decisions 226 / orders 1 / fills 1 / portfolio_snapshots 16 / strategy_versions 2 |
+| Mirror رویدادها | سبز | چرخه‌ی CLI و `POST /cycles/paper` از یک مسیر (`src/cat/mirror.py`) می‌نویسند؛ dedupe روی کلید طبیعی |
+| کندل زنده‌ی بازار | سبز (این مرحله) | `GET /api/v1/market/candles?symbol=SOL_USDT&timeframe=4h&limit=180` → ۱۸۰ کندل، ۱۷۹ بسته، `source gate:SOL_USDT:4h`، window `2026-09-24 → 2026-10-23`؛ allowlist خارج از جهان → 404؛ timeframe نامعتبر → 400؛ صرافی در دسترس نیست → 503؛ کش ۲۰ ثانیه‌ای درون‌فرآیندی |
+| نمودار همه‌ی نمادها | سبز (این مرحله) | کارت بازار به `getUniverse` وصل شد: **۱۰۰ گزینه** در انتخابگر (جستجو + select)، پیش‌فرض BTC_USDT، نمودار پس از انتخاب SOL با ۱۷۹ مستطیل کندل در Edge هدلس رندر شد؛ صفر خطای کنسول |
+| فهرست تصمیم‌ها با اسکرول | سبز (این مرحله) | `/decisions?limit=50` → دقیقاً ۵۰ رکورد؛ کادر `.feed-scroll` با ارتفاع 46vh، اسکرول‌بار مرئی و `tabIndex=0`؛ اندازه‌گیری: viewport ۴۱۲px / content ۲۷۰۶px، چرخ ماوس ۰→۳۲۰ بدون جابه‌جایی کل صفحه؛ ارتفاع کل صفحه از ۷۳۷۶px به ۲۲۸۸px رسید |
+| نشانی کش پوسته | سبز | `SpaStaticFiles`: shell → `no-store, must-revalidate`؛ asset هش‌دار → `immutable` (رفع پوسته‌ی کهنه پس از deploy) |
+| API محلی | سبز | سرور واقعی روی `127.0.0.1:8177`؛ health/config/portfolio/runs/datasets/bars/analysis/risk/logs/reports/universe/market-candles + import/fetch/backtest/walk-forward/cycle/kill-switch |
+| داشبورد (Vite+React+TS) | سبز (build + رندر) | ۱۳ صفحه؛ `npx tsc --noEmit` صفر خطا؛ `vite build` موفق؛ مسیرها در Edge هدلس PASS (RTL/fa، صفر خطای کنسول/شبکه، ۳ مسیر موبایل ۳۹۰×۸۴۴) |
+| CI | push شد | مخزن خصوصی `mrabolfazl13/crypto-agentic-trader-kit`؛ workflow: pytest + دروازه‌ی LIVE + audit + tsc + build؛ وضعیت اجرا از این ماشین قابل‌مشاهده نیست (بدون gh/Actions tools) |
 
 ## مسیرهای رفع‌شده در این مرحله
-- `UnboundLocalError` در `run_backtest` (تنظیم `params_label` پیش از ساخت `result`) — با تست موفقِ `/runs/backtest` پوشش داده شد؛ قبلاً فقط مسیرهای reject تست شده بودند.
-- سری تأیید در API به‌جای کندل‌های 4h واقعی، همان کندل‌های سیگنال را alias می‌کرد → حالا `resample` به `confirm_timeframe` (۱d) انجام می‌شود و تست spacing 86400 دارد.
-- `GET /datasets/{id}/bars` (با `overlays`) اضافه شد؛ EMA روی کل سری محاسبه و سپس بریده می‌شود تا مقدار seedشده از پنجره‌ی visible نباشد.
-- `allocated_capital` به `/portfolio` اضافه شد (کارت «بازده خالص» داشبورد بدون آن همیشه خالی می‌ماند).
-- `POST /runs/walk-forward` اکنون `dataset_id` و `days` را می‌پذیرد و `dataset_id` واقعی را در runs ثبت می‌کند (قبلاً همیشه NULL می‌نوشت).
-- deep-linkهای SPA از API 404 می‌گرفتند (فقط در مرورگر پیدا شد، نه در tsc/build) → `SpaStaticFiles` با fallback به shell؛ assetهای گمشده همچنان 404.
-- `params_from_dict` دیگر روی کلیدهای هویتی (`version/name/note`) TypeError نمی‌دهد و float غیرمتناهی را رد می‌کند؛ لایه‌ی research کلید `version` در grid را صریحاً 422 می‌کند.
-- زیردستورهای CLI: `serve`، `fetch-history`، `import-csv`، `datasets`، `quality`، `runs`، `versions`، `research`.
+- `TypeError` در `strategy.analyze()` روی نمادهای تازه‌لیست (EMA هنوز seed نشده) → سناریوها به‌جای فرمت‌کردن `None`، «unavailable: needs N closes» برمی‌گردانند؛ تست رگرسیون اضافه شد.
+- خطای استراتژی در یک نماد کل چرخه را 500 می‌کرد → موتور هر خطای strategy را در audit ثبت می‌کند و با `consecutive_errors`/`safe_state` **fail-closed** می‌شود، بدون از دست دادن کل اسکن.
+- «سقف موقعیت همزمان» در Settings خالی بود → `/config` فیلد `max_open_positions` را برمی‌گرداند.
+- `/decisions` پارامتر `limit` را نادیده می‌گرفت (۱۰۲ ردیف / صفحه‌ی ۷۳۷۶px) → `limit` با بازه‌ی ۱..۱۰۰۰ اضافه شد؛ داشبورد ۵۰ می‌خواهد و داخل کادر اسکرول می‌کند.
+- اسکرول نامرئی بود → کادر مرزدار با پس‌زمینه‌ی متمایز، اسکرول‌بار ضخیم‌تر و فوکوس‌پذیر + هدر `no-store` برای پوسته.
+- نمودار فقط از datasetهای ذخیره‌شده می‌خواند (عملاً BTC) → endpoint زنده‌ی `/market/candles` روی allowlist جهان و اتصال کارت بازار به `getUniverse`؛ حالا هر ۱۰۰ نماد انتخاب‌شدنی‌اند.
+- deep-linkهای SPA از API 404 می‌گرفتند → `SpaStaticFiles` با fallback به shell؛ assetهای گم‌شده همچنان 404.
 
 ## باقی‌مانده
 - تست یکپارچگی end-to-end با زنجیره‌ی کامل API.
 - paper چندروزه برای دروازه‌ی B.
+- بررسی واکنش‌گرایی جدول‌های بک‌تست در موبایل (خارج از این مرحله).
 
 ## مرزهای ایمنی که دست‌نخورده می‌مانند
 - پیش‌فرض و حالت فعلی: `PAPER`. `live_trading_enabled: false`. هیچ adapter زنده‌ای وجود ندارد و هیچ route یا دکمه‌ای LIVE را فعال نمی‌کند (تست: «no path contains live»).
-- هیچ endpoint یا دکمه‌ای برای افزایش بودجه، تغییر سقف ریسک یا افزودن نماد ساخته نمی‌شود؛ صفحه‌ی Risk فقط‌خواندنی است.
-- برداشت/انتقال/مارجین/اهرم: پیاده‌سازی نشده و ممنوع.
-- Kill switch: `python trader.py stop` (و `POST /api/v1/kill-switch`) همیشه در دسترس؛ فقط سفارش‌های جدید را می‌بندد و موقعیت باز را به‌زور نمی‌فروشد.
+- هیچ endpoint یا دکمه‌ای برای افزایش بودجه، تغییر سقف ریسک یا افزودن نماد خارج از جهان ثبت‌شده ساخته نشده؛ صفحه‌ی Risk فقط‌خواندنی است.
+- برداشت/انتقال/مارجین/اهرم: پیاده‌سازی نشده و ممنوع؛ `allow_margin/allow_leverage/allow_withdrawals: false`.
+- Kill switch: `python trader.py stop` و `POST /api/v1/kill-switch` همیشه در دسترس؛ فقط سفارش‌های جدید را می‌بندد.
 - اعداد ساختگی در هیچ لایه‌ای نمایش داده نمی‌شود؛ نبود داده = `null` و پیام «داده‌ای موجود نیست».
 
 ## محدودیت‌های محیط (واقعی، نه حدسی)
@@ -48,7 +55,7 @@
 - اسلیپیج تحقق‌یافته در ledger ثبت نمی‌شود → در UI «ثبت نشده» نمایش داده می‌شود، نه عدد تخمینی.
 
 ## نتیجه‌ی دروازه‌ها
-- **دروازه‌ی A (داده و بک‌تست): PASS از نظر مهندسی، FAIL از نظر edge.** ۸ پنجره‌ی BTC/ETH بین `−1.85%` و `+0.00%` خالص، profit factor اکثر پنجره‌ها زیر ۱، و استراتژی فقط در سال‌های نزولی از buy-and-hold جلو می‌افتد. **edge تأیید نشده؛ LIVE توجیه ندارد.**
-- دروازه‌ی B (paper): در حال جمع‌آوری — چرخه‌ها ثبت می‌شوند و پس از restart بازیابی می‌شوند؛ برای «چند روز متوالی» هنوز شواهد کامل نیست.
+- **دروازه‌ی A (داده و بک‌تست): PASS از نظر مهندسی، FAIL از نظر edge.** پنجره‌های BTC/ETH بین `−1.85%` و `+0.00%` خالص، PF اکثر پنجره‌ها زیر ۱؛ **edge تأیید نشده؛ LIVE توجیه ندارد.** گسترش به ۱۰۰ نماد فقط پوشش بازار را بیشتر می‌کند، نه وجود edge.
+- دروازه‌ی B (paper): در حال جمع‌آوری — چرخه‌ها ثبت و پس از restart بازیابی می‌شوند؛ برای «چند روز متوالی» هنوز شواهد کامل نیست.
 - دروازه‌ی C (امنیت): تست‌های secrets/redaction و زنجیره‌ی ممیزی سبز.
 - دروازه‌ی D (live): عمداً غیرقابل‌دسترس.

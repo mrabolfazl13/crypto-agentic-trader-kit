@@ -66,6 +66,37 @@ export interface ConfigView {
   generated_at: string | null;
 }
 
+/* --------------------------------------------------------------- universe */
+
+export interface UniverseEntry {
+  rank: number | null;
+  ticker: string;
+  name: string;
+  symbol: string;
+  gate_base_name?: string | null;
+  market_cap_usd?: number | null;
+  volume_24h_usd?: number | null;
+  price_usd_at_snapshot?: number | null;
+}
+
+export interface UniverseInfo {
+  available: boolean;
+  error?: string;
+  /** Effective allowlist enforced by the risk gate. */
+  symbols: string[];
+  count: number;
+  manifest_count?: number | null;
+  requested_count?: number | null;
+  manifest_symbols?: string[] | null;
+  matches_config?: boolean | null;
+  digest?: string | null;
+  generated_at?: string | null;
+  source?: Record<string, unknown> | null;
+  entries?: UniverseEntry[] | null;
+  excluded?: { rank: number | null; ticker: string; name: string; reason: string }[] | null;
+  skipped?: { rank: number | null; ticker: string; name: string; reason: string }[] | null;
+}
+
 /* -------------------------------------------------------------- portfolio */
 
 export interface PositionRow {
@@ -301,8 +332,38 @@ export interface DatasetInfo {
   bars: number | null;
   created_at: string | null;
   note: string | null;
-  quality: Partial<Quality> | null;
+  quality: DatasetQuality | null;
   provenance?: Provenance | null;
+}
+
+/**
+ * Dataset quality envelope as `/datasets` and `/datasets/fetch` return it.
+ * Unlike the flat `Quality` record, `gaps` here is a structured object.
+ */
+export interface DatasetQuality {
+  source?: string | null;
+  origin?: string | null;
+  timeframe?: string | null;
+  bars?: number | null;
+  closed_bars?: number | null;
+  dropped_unclosed?: number | null;
+  duplicates?: number | null;
+  impossible_ohlc?: number | null;
+  non_positive_prices?: number | null;
+  coverage_pct?: number | null;
+  expected_bars?: number | null;
+  gaps?: { count?: number | null; missing_bars?: number | null; starts?: (number | null)[] | null } | null;
+  stale_seconds?: number | null;
+  is_stale?: boolean | null;
+  median_spacing?: number | null;
+  first_ts?: number | null;
+  last_ts?: number | null;
+  first_iso?: string | null;
+  last_iso?: string | null;
+  requested_bars?: number | null;
+  requested_days?: number | null;
+  bar_ratio_pct?: number | null;
+  warnings?: string[] | null;
 }
 
 export interface Quality {
@@ -340,6 +401,8 @@ export interface BarsPage {
   symbol: string | null;
   timeframe: string | null;
   bars: Bar[];
+  /** Total closed bars in the dataset, when the backend reports it. */
+  total_bars?: number | null;
   /** EMA / overlay series aligned to `bars` when the backend supplies them. */
   overlays?: { label: string; points: (number | null)[] }[];
   provenance: Provenance | null;
@@ -526,6 +589,8 @@ export const getHealth = (signal?: AbortSignal) => getJSON<Health>("/health", un
 
 export const getConfig = (signal?: AbortSignal) => getJSON<ConfigView>("/config", undefined, signal);
 
+export const getUniverse = (signal?: AbortSignal) => getJSON<UniverseInfo>("/universe", undefined, signal);
+
 export const getPortfolio = (signal?: AbortSignal) => getJSON<Portfolio>("/portfolio", undefined, signal);
 
 export const getPerformance = (params: { symbol?: string | null; window?: string | null; mode?: string | null } = {}, signal?: AbortSignal) =>
@@ -558,6 +623,21 @@ export const getDatasetQuality = (datasetId: string, signal?: AbortSignal) =>
  */
 export const getDatasetBars = (datasetId: string, params: { limit?: number } = {}, signal?: AbortSignal) =>
   getJSON<BarsPage>(`/datasets/${encodeURIComponent(datasetId)}/bars`, { ...params }, signal);
+
+/** Exchange candles for one allow-listed symbol; provenance names the source and fetch time. */
+export interface MarketCandles {
+  symbol: string;
+  timeframe: string;
+  bars: Bar[];
+  count: number;
+  closed_count: number;
+  provenance: Provenance & { fetched_at?: string | null; cached?: boolean };
+}
+
+export const getMarketCandles = (
+  params: { symbol: string; timeframe?: string | null; limit?: number },
+  signal?: AbortSignal,
+) => getJSON<MarketCandles>("/market/candles", { ...params }, signal);
 
 export const getAnalysis = (
   params: { symbol?: string | null; timeframe?: string | null; dataset_id?: string | null } = {},

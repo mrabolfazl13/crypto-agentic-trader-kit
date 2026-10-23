@@ -17,6 +17,10 @@ class DataError(RuntimeError):
     pass
 
 
+class PermanentDataError(DataError):
+    """A 4xx that will never succeed on retry (unknown pair, bad parameter)."""
+
+
 @dataclass
 class HttpClient:
     proxy: str | None = None
@@ -36,8 +40,12 @@ class HttpClient:
                 response = requests.get(url, params=params, proxies=self._proxies(), timeout=self.timeout)
                 if response.status_code == 429 or response.status_code >= 500:
                     raise DataError(f"rate limited/server error {response.status_code} for {url}")
+                if 400 <= response.status_code < 500:
+                    raise PermanentDataError(f"client error {response.status_code} for {url}")
                 response.raise_for_status()
                 return response.json()
+            except PermanentDataError:
+                raise
             except (requests.RequestException, ValueError, DataError) as exc:
                 last_error = exc
                 if attempt < self.max_attempts:

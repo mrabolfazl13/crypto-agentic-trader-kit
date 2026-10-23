@@ -7,6 +7,7 @@ the cycle (fail closed) instead of guessing.
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,7 +67,7 @@ class Engine:
         self.state_path = root / "state" / "account.json"
         self.audit = AuditLog(root / "state" / "audit" / "events.jsonl")
         self.client = HttpClient(proxy=self.config.proxy)
-        self.gate = GateProvider(self.client)
+        self.gate = GateProvider(self.client, filters_ttl_seconds=self.config.filters_cache_seconds)
         self.cross = MexcCrossCheck(self.client) if self.config.fallback_exchange == "mexc" else None
         starting = allocated_capital if allocated_capital is not None else (self.config.allocated_capital or 1000.0)
         self.state: AccountState = load_state(self.state_path, starting)
@@ -97,6 +98,36 @@ class Engine:
             higher_timeframe=self.config.confirm_timeframe, limit=300,
             staleness_seconds=self.config.limits.stop_on_data_staleness_seconds,
         )
+
+    def _safe_snapshot(self, symbol: str) -> tuple[MarketSnapshot | None, str | None]:
+        try:
+            return self.snapshot(symbol), None
+        except Exception as exc:  # one bad pair must not abort the scan
+            return None, f"{type(exc).__name__}: {exc}"
+
+    def _fetch_snapshots(self) -> tuple[dict[str, MarketSnapshot], list[tuple[str, str]]]:
+        """Scan the allowlist with bounded concurrency, preserving config order.
+
+        A 100-symbol universe cannot be fetched sequentially inside a cycle, and
+        unbounded parallelism would trip exchange rate limits. Results are
+        collected in the configured order so entry priority stays deterministic.
+        """
+        symbols = self.config.symbols
+        workers = max(1, min(self.config.data_concurrency, len(symbols)))
+        snapshots: dict[str, MarketSnapshot] = {}
+        failures: list[tuple[str, str]] = []
+        if workers == 1:
+            results = [(symbol, self._safe_snapshot(symbol)) for symbol in symbols]
+        else:
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="cat-data") as pool:
+                futures = {symbol: pool.submit(self._safe_snapshot, symbol) for symbol in symbols}
+                results = [(symbol, futures[symbol].result()) for symbol in symbols]
+        for symbol, (snap, error) in results:
+            if snap is None:
+                failures.append((symbol, error or "unknown data error"))
+            else:
+                snapshots[symbol] = snap
+        return snapshots, failures
 
     # --- one cycle --------------------------------------------------------
     def run_cycle(self, *, now: datetime | None = None, dry_run: bool = False, snapshots: dict[str, MarketSnapshot] | None = None) -> CycleResult:
@@ -132,14 +163,10 @@ class Engine:
         )
 
         if snapshots is None:
-            snapshots = {}
-            for symbol in self.config.symbols:
-                try:
-                    snapshots[symbol] = self.snapshot(symbol)
-                except DataError as exc:
-                    errors.append(f"{symbol}: {exc}")
-                    self.state.note_error()
-                    self.audit.append("data_error", {"symbol": symbol, "error": str(exc)}, mode=self.config.mode)
+            snapshots, failures = self._fetch_snapshots()
+            for symbol, message in failures:
+                errors.append(f"{symbol}: {message}")
+                self.audit.append("data_error", {"symbol": symbol, "error": message}, mode=self.config.mode)
 
         for order in self.broker.cancel_unfilled(now):
             outcomes.append(SymbolOutcome(order.symbol, "CANCEL", False, ["unfilled timeout"], order.client_order_id))
@@ -147,29 +174,51 @@ class Engine:
         self.current_prices = {symbol: snap.quote.mid for symbol, snap in snapshots.items()}
         if snapshots:
             self._reference_quote = max(snapshots.values(), key=lambda s: s.quote.ts).quote
+        settlement_errors = 0
         for symbol, snap in snapshots.items():
             try:
                 self.settle(symbol, snap, now)
             except Exception as exc:  # one bad symbol must not corrupt the cycle
+                settlement_errors += 1
                 errors.append(f"{symbol}: settlement error {type(exc).__name__}: {exc}")
-                self.state.note_error()
                 self.audit.append("settlement_error", {"symbol": symbol, "error": str(exc)}, mode=self.config.mode)
 
+        strategy_errors = 0
         for symbol, position in list(self.state.positions.items()):
             snap = snapshots.get(symbol)
             if snap is None:
                 outcomes.append(SymbolOutcome(symbol, "HOLD", False, ["no fresh data for an open position"]))
                 continue
-            self._handle_exit(snap, position, now, outcomes, dry_run)
+            try:
+                self._handle_exit(snap, position, now, outcomes, dry_run)
+            except Exception as exc:  # fail closed: the position keeps its stop, entries stop
+                strategy_errors += 1
+                errors.append(f"{symbol}: exit error {type(exc).__name__}: {exc}")
+                self.audit.append("strategy_error", {"symbol": symbol, "phase": "exit", "error": str(exc)}, mode=self.config.mode)
+                break
 
-        for symbol, snap in snapshots.items():
-            if snap.symbol in self.state.positions or self.broker.open_orders_for(snap.symbol):
-                continue
-            self._handle_entry(snap, now, outcomes, dry_run)
+        # After an unexpected strategy failure no new order is placed for this cycle.
+        if strategy_errors == 0:
+            for symbol, snap in snapshots.items():
+                if snap.symbol in self.state.positions or self.broker.open_orders_for(snap.symbol):
+                    continue
+                try:
+                    self._handle_entry(snap, now, outcomes, dry_run)
+                except Exception as exc:
+                    strategy_errors += 1
+                    errors.append(f"{symbol}: entry error {type(exc).__name__}: {exc}")
+                    self.audit.append("strategy_error", {"symbol": symbol, "phase": "entry", "error": str(exc)}, mode=self.config.mode)
+                    break
 
-        if not errors:
+        # With a wide universe, a single dead pair is quarantined for the cycle;
+        # only a systemic fault (no data at all, or an internal strategy/settlement error)
+        # consumes the account's consecutive-error budget.
+        systemic = strategy_errors > 0 or settlement_errors > 0 or (not snapshots and bool(errors))
+        if systemic:
+            self.state.note_error()
+        elif snapshots:
             self.state.note_success()
-        return self._finish(started, now, kill, clock, outcomes, errors, snapshots, safe_state=bool(errors), mirror=not dry_run)
+        return self._finish(started, now, kill, clock, outcomes, errors, snapshots, safe_state=systemic, mirror=not dry_run)
 
     def settle(self, symbol: str, snap: MarketSnapshot, now: datetime) -> None:
         """Match resting orders against the current book and book the results."""

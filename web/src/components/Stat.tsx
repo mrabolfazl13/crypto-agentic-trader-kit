@@ -45,14 +45,38 @@ export interface StatProps {
   note?: string;
   /** Backend assumptions (e.g. the Sharpe caveat) shown in a tooltip. */
   tooltip?: string;
+  /** Dashboard KPI strip: value + label only; provenance moves into the hover title. */
+  compact?: boolean;
 }
 
 /**
  * A single metric with full provenance. If the value is absent it renders
  * `داده‌ای موجود نیست` — no zero, no sample number, ever.
  */
-export default function Stat({ label, value, tone = "neutral", window, source, endpoint, provenance, note, tooltip }: StatProps) {
+export default function Stat({ label, value, tone = "neutral", window, source, endpoint, provenance, note, tooltip, compact = false }: StatProps) {
   const missing = value === null || value === undefined || (typeof value === "string" && isAbsent(value));
+  if (compact) {
+    return (
+      <div
+        className="card stat is-compact"
+        title={[
+          `پنجره: ${window ?? NO_DATA}`,
+          `منبع: ${source ?? NO_DATA}`,
+          endpoint ? `مسیر: ${endpoint}` : null,
+          note ?? null,
+        ]
+          .filter(Boolean)
+          .join("\n")}
+      >
+        <div className="stat-label">
+          <span>{label}</span>
+          {tooltip ? <InfoTip text={tooltip} /> : null}
+        </div>
+        <div className={`stat-value tone-${tone} ${missing ? "is-missing" : ""}`}>{missing ? NO_DATA : value}</div>
+        {provenance ? <Badge kind={provenance.kind} /> : null}
+      </div>
+    );
+  }
   return (
     <div className="card stat">
       <div className="stat-label">

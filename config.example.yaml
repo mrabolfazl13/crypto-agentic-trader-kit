@@ -33,6 +33,12 @@ risk:
   stop_on_data_staleness_seconds: 120
   stop_on_consecutive_errors: 3
 
+data:
+  confirm_timeframe: 1d
+  fallback_exchange: mexc
+  max_concurrency: 4
+  filters_cache_seconds: 3600
+
 strategy:
   require_multiple_signals: true
   require_market_regime_check: true

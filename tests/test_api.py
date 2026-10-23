@@ -7,6 +7,7 @@ then asserts the contract in docs/API_CONTRACT_FA.md end to end.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +17,7 @@ from fastapi.testclient import TestClient
 
 import cat.api as api_module
 import cat.datasets as datasets_mod
+from cat.config import load_config
 from cat.data import DataUnavailable
 from cat.portfolio import AccountState
 
@@ -91,7 +93,7 @@ def test_health_last_data_at_tracks_newest_ingested_candle(client: TestClient, w
     assert body["last_data_at"] == datetime.fromtimestamp(newest, tz=UTC).isoformat(timespec="seconds")
 
 
-def test_config_masks_proxy_and_drops_keys(client: TestClient):
+def test_config_masks_proxy_and_drops_keys(client: TestClient, workspace: Path):
     resp = client.get(f"{BASE}/config")
     assert resp.status_code == 200
     text = resp.text
@@ -100,8 +102,45 @@ def test_config_masks_proxy_and_drops_keys(client: TestClient):
     assert payload["config"]["data"]["proxy"] == "***"
     assert payload["config"]["data"]["proxy_configured"] is True
     assert payload["mode"] == "PAPER"
-    assert set(payload["symbols"]) == {"BTC_USDT", "ETH_USDT"}
+    configured = list(load_config(root=workspace).symbols)
+    assert payload["symbols"] == configured
+    assert payload["symbols"][:2] == ["BTC_USDT", "ETH_USDT"]
     assert "strategy_params" in payload and "limits" in payload
+    assert payload["max_open_positions"] == load_config(root=workspace).max_open_positions
+
+
+def test_universe_missing_manifest_is_reported_not_invented(client: TestClient):
+    body = client.get(f"{BASE}/universe").json()
+    assert body["available"] is False
+    assert body["symbols"], "the effective allowlist is still reported"
+
+
+def test_universe_reports_snapshot_provenance_and_detects_drift(client: TestClient, workspace: Path):
+    configured = list(load_config(root=workspace).symbols)
+    manifest = {
+        "schema_version": 1,
+        "generated_at": "2026-10-23T20:00:00+00:00",
+        "requested_count": len(configured),
+        "count": len(configured),
+        "digest": "abc",
+        "source": {"name": "CoinGecko", "ranking": "market_cap_desc"},
+        "symbols": configured,
+        "entries": [{"rank": 1, "ticker": "BTC", "name": "Bitcoin", "symbol": "BTC/USDT"}],
+        "excluded": [{"rank": 3, "ticker": "USDT", "name": "Tether", "reason": "stablecoin"}],
+    }
+    (workspace / "universe.json").write_text(json.dumps(manifest), encoding="utf-8")
+    body = client.get(f"{BASE}/universe").json()
+    assert body["available"] is True
+    assert body["matches_config"] is True
+    assert body["count"] == len(configured)
+    assert body["source"]["name"] == "CoinGecko"
+    assert body["excluded"][0]["ticker"] == "USDT"
+
+    manifest["symbols"] = manifest["symbols"][:-1]
+    (workspace / "universe.json").write_text(json.dumps(manifest), encoding="utf-8")
+    drifted = client.get(f"{BASE}/universe").json()
+    assert drifted["available"] is True
+    assert drifted["matches_config"] is False
 
 
 def test_spa_fallback_serves_shell_for_client_routes_but_assets_404(workspace: Path):
@@ -262,7 +301,8 @@ def test_kill_switch_toggle_is_reflected_in_health(client: TestClient, workspace
 
 
 def test_backtest_rejects_symbol_outside_allowlist(client: TestClient):
-    resp = client.post(f"{BASE}/runs/backtest", json={"symbol": "SOL/USDT", "days": 10})
+    # ZZZ is deliberately not on Gate, so it can never enter a generated universe.
+    resp = client.post(f"{BASE}/runs/backtest", json={"symbol": "ZZZ/USDT", "days": 10})
     assert resp.status_code == 422
     assert "فهرست مجاز" in resp.json()["detail"]
 
@@ -468,6 +508,10 @@ def test_paper_cycle_mirrors_decisions_into_store(client: TestClient, store: obj
         assert mirrored, "cycle decision was not mirrored into the Store"
         assert mirrored[0]["approved"] == 1
         assert "risk gate approved" in mirrored[0]["rationale"]
+
+        limited = client.get(f"{BASE}/decisions", params={"limit": 1}).json()
+        assert limited["count"] == 1
+        assert client.get(f"{BASE}/decisions", params={"limit": 0}).status_code == 422
     finally:
         monkey.undo()
 
@@ -516,3 +560,54 @@ def test_every_metric_response_carries_provenance(client: TestClient):
         assert "provenance" in payload, path
         assert payload["provenance"]["kind"] in {"history", "simulated", "paper", "live"}
         assert "generated_at" in payload["provenance"]
+
+
+def test_market_candles_refuses_symbols_outside_the_allowlist(client: TestClient):
+    resp = client.get(f"{BASE}/market/candles", params={"symbol": "ZZZ/USDT"})
+    assert resp.status_code == 404
+    assert "فهرست مجاز" in resp.json()["detail"]
+
+
+def test_market_candles_rejects_unknown_timeframe(client: TestClient):
+    resp = client.get(f"{BASE}/market/candles", params={"symbol": "BTC/USDT", "timeframe": "7m"})
+    assert resp.status_code == 400
+
+
+def test_market_candles_reads_gate_and_caches_briefly(client: TestClient, monkeypatch):
+    from cat import data as data_module
+    from cat.data import Kline
+
+    calls: list[tuple[str, str, int]] = []
+
+    def fake_klines(self, symbol, timeframe, limit=300):
+        calls.append((symbol, timeframe, limit))
+        start = 1_700_000_000
+        return [
+            Kline(open_time=start + index * STEP_4H, open=100.0 + index, high=101.0 + index,
+                  low=99.0 + index, close=100.5 + index, base_volume=1.0, quote_volume=100.0, closed=True)
+            for index in range(limit)
+        ]
+
+    monkeypatch.setattr(data_module.GateProvider, "klines", fake_klines)
+    body = client.get(f"{BASE}/market/candles", params={"symbol": "BTC/USDT", "timeframe": "4h", "limit": 60}).json()
+    assert body["symbol"] == "BTC_USDT" and body["count"] == 60 and body["closed_count"] == 60
+    assert body["provenance"]["kind"] == "history"
+    assert body["provenance"]["source"] == "gate:BTC_USDT:4h"
+    assert body["provenance"]["window"].startswith("2")
+    assert body["bars"][-1]["close"] > body["bars"][0]["close"]
+
+    again = client.get(f"{BASE}/market/candles", params={"symbol": "BTC/USDT", "timeframe": "4h", "limit": 60}).json()
+    assert again["provenance"]["cached"] is True
+    assert len(calls) == 1
+
+
+def test_market_candles_reports_unreachable_feed(client: TestClient, monkeypatch):
+    from cat import data as data_module
+
+    def broken(self, symbol, timeframe, limit=300):
+        raise DataUnavailable("feed down")
+
+    monkeypatch.setattr(data_module.GateProvider, "klines", broken)
+    resp = client.get(f"{BASE}/market/candles", params={"symbol": "ETH/USDT", "timeframe": "4h", "limit": 40})
+    assert resp.status_code == 503
+    assert "دریافت کندل" in resp.json()["detail"]

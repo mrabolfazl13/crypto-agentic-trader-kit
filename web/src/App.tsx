@@ -1,7 +1,31 @@
 import { useCallback, useEffect, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import {
+  CandlestickChart,
+  ChartLine,
+  Database,
+  FileText,
+  FlaskConical,
+  GitBranch,
+  History,
+  LayoutDashboard,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PlayCircle,
+  ReceiptText,
+  RefreshCw,
+  ScrollText,
+  Settings,
+  ShieldCheck,
+  Sun,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import { getHealth, getPortfolio, useAsync } from "./api/client";
 import { InfoTip } from "./components/Stat";
+import { Button } from "./components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { NO_DATA, dateTime, money, num, sinceLabel, text } from "./format";
 import { NAV_GROUPS, RESEARCH_DISCLAIMER, labelForPath } from "./nav";
 import Analysis from "./pages/Analysis";
@@ -13,7 +37,7 @@ import PaperTrading from "./pages/PaperTrading";
 import PerformanceReports from "./pages/PerformanceReports";
 import Portfolio from "./pages/Portfolio";
 import Risk from "./pages/Risk";
-import Settings from "./pages/Settings";
+import SettingsPage from "./pages/Settings";
 import StrategyLab from "./pages/StrategyLab";
 import Trades from "./pages/Trades";
 import Versions from "./pages/Versions";
@@ -22,6 +46,22 @@ const COLLAPSE_KEY = "cat.sidebar.collapsed";
 const THEME_KEY = "cat.theme";
 
 type Theme = "dark" | "light";
+
+const NAV_ICONS: Record<string, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  portfolio: Wallet,
+  trades: ReceiptText,
+  data: Database,
+  analysis: ChartLine,
+  strategies: FlaskConical,
+  backtests: History,
+  versions: GitBranch,
+  paper: PlayCircle,
+  risk: ShieldCheck,
+  reports: FileText,
+  logs: ScrollText,
+  settings: Settings,
+};
 
 function readStored(key: string): string | null {
   try {
@@ -95,12 +135,25 @@ function Shell() {
 
       <aside className="sidebar" aria-label="راهنمای اصلی">
         <div className="brand">
-          <span className="brand-title">کنسول پژوهش</span>
-          <span className="brand-sub">PAPER / research only</span>
+          <span className="brand-mark" aria-hidden="true">
+            <CandlestickChart size={20} />
+          </span>
+          <div className="brand-text">
+            <span className="brand-title">کنسول پژوهش</span>
+            <span className="brand-sub">CAT · PAPER ONLY</span>
+          </div>
         </div>
-        <button type="button" className="btn ghost small" onClick={toggleNav} aria-expanded={!collapsed} aria-controls="primary-nav">
-          {collapsed ? "باز کردن منو" : "بستن منو"}
-        </button>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="sm" onClick={toggleNav} aria-expanded={!collapsed} aria-controls="primary-nav" className="justify-start">
+              {collapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}
+              <span className={collapsed ? "sr-only" : ""}>{collapsed ? "باز کردن منو" : "بستن منو"}</span>
+            </Button>
+          </TooltipTrigger>
+          {collapsed ? <TooltipContent side="left">نمایش منو</TooltipContent> : null}
+        </Tooltip>
+
         <nav id="primary-nav" aria-label="بخش‌ها">
           {NAV_GROUPS.map((group) => (
             <div key={group.title}>
@@ -108,18 +161,38 @@ function Shell() {
                 {group.title}
               </p>
               <ul className="nav-list" aria-labelledby={`nav-group-${group.items[0]?.id ?? "x"}`}>
-                {group.items.map((item) => (
-                  <li key={item.id}>
-                    <NavLink to={item.to} end={item.to === "/"} className="nav-link" title={item.label}>
-                      <span aria-hidden="true" className="dot" />
+                {group.items.map((item) => {
+                  const Icon = NAV_ICONS[item.id] ?? CandlestickChart;
+                  const link = (
+                    <NavLink to={item.to} end={item.to === "/"} className="nav-link" title={item.label} aria-label={item.label}>
+                      <Icon className="nav-icon" size={17} aria-hidden="true" />
                       <span className="nav-label">{item.label}</span>
                     </NavLink>
-                  </li>
-                ))}
+                  );
+                  return (
+                    <li key={item.id}>
+                      {collapsed ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>{link}</TooltipTrigger>
+                          <TooltipContent side="left">{item.label}</TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        link
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ))}
         </nav>
+
+        <div className="sidebar-footer">
+          <span className="inline-flex items-center gap-1.5">
+            <ShieldCheck size={12} aria-hidden="true" /> حساب کاغذی — بدون سفارش زنده
+          </span>
+          <span>داده‌ی بازار: منبع محلی Store · بدون اتصال به صرافی در UI</span>
+        </div>
       </aside>
 
       <div className="main">
@@ -131,7 +204,7 @@ function Shell() {
               <span aria-hidden="true" className={`dot ${kill ? "danger pulse" : "ok"}`} />
               <strong>{modeLabel}</strong>
               <span className="mute">·</span>
-              <span>{kill ? "توقف اضطراری فعال" : "توقف اضطراری خاموش"}</span>
+              <span>{kill ? "توقف اضطراری: فعال" : "توقف: خاموش"}</span>
               <span className="mute">·</span>
               <span>{`داده: ${dataStamp ? sinceLabel(dataStamp, tick) : NO_DATA}`}</span>
             </span>
@@ -142,20 +215,26 @@ function Shell() {
                 سرور در دسترس نیست
               </span>
             ) : null}
-            <button
-              type="button"
-              className="btn ghost small"
-              onClick={() => {
-                setTheme(theme === "dark" ? "light" : "dark");
-                writeStored(THEME_KEY, theme === "dark" ? "light" : "dark");
-              }}
-              aria-label={theme === "dark" ? "روشن کردن حالت روشن" : "روشن کردن حالت تیره"}
-            >
-              {theme === "dark" ? "روشن" : "تیره"}
-            </button>
-            <button type="button" className="btn small" onClick={health.reload} aria-label="تازه‌سازی وضعیت سرویس">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    setTheme(theme === "dark" ? "light" : "dark");
+                    writeStored(THEME_KEY, theme === "dark" ? "light" : "dark");
+                  }}
+                  aria-label={theme === "dark" ? "روشن کردن حالت روشن" : "روشن کردن حالت تیره"}
+                >
+                  {theme === "dark" ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{theme === "dark" ? "حالت روشن" : "حالت تیره"}</TooltipContent>
+            </Tooltip>
+            <Button variant="default" size="sm" onClick={health.reload} aria-label="تازه‌سازی وضعیت سرویس">
+              <RefreshCw size={14} aria-hidden="true" />
               تازه‌سازی
-            </button>
+            </Button>
           </div>
         </header>
 
@@ -173,7 +252,7 @@ function Shell() {
             <Route path="/reports" element={<PerformanceReports />} />
             <Route path="/versions" element={<Versions />} />
             <Route path="/logs" element={<Logs />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Dashboard />} />
           </Routes>
           <footer className="notice warn">{RESEARCH_DISCLAIMER}</footer>
@@ -185,8 +264,10 @@ function Shell() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Shell />
-    </BrowserRouter>
+    <TooltipProvider delayDuration={200}>
+      <BrowserRouter>
+        <Shell />
+      </BrowserRouter>
+    </TooltipProvider>
   );
 }

@@ -1,0 +1,1508 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-23T20:39:25+00:00",
+  "requested_count": 100,
+  "count": 100,
+  "digest": "65f5f4cb7a057c45cd2cd99b3a2f5457302fd4b044ccbd3c4618a26d089dc4be",
+  "source": {
+    "name": "CoinGecko",
+    "endpoint": "https://api.coingecko.com/api/v3/coins/markets",
+    "ranking": "market_cap_desc",
+    "gate_endpoint": "https://api.gateio.ws/api/v4/spot/currency_pairs",
+    "gate_tradable_usdt_pairs": 2032,
+    "fetched_at": "2026-10-23T20:39:25+00:00",
+    "note": "رتبه‌بندی و قیمت‌ها در لحظه‌ی snapshot هستند، نه قیمت زنده."
+  },
+  "filters": {
+    "excluded_categories": [
+      "stablecoin",
+      "tokenised commodity (gold/silver)",
+      "wrapped/staked duplicate"
+    ],
+    "tradability": "Gate spot, quote=USDT, trade_status=tradable, type=normal"
+  },
+  "symbols": [
+    "BTC/USDT",
+    "ETH/USDT",
+    "BNB/USDT",
+    "XRP/USDT",
+    "SOL/USDT",
+    "TRX/USDT",
+    "ZEC/USDT",
+    "HYPE/USDT",
+    "DOGE/USDT",
+    "LINK/USDT",
+    "LEO/USDT",
+    "ADA/USDT",
+    "NEAR/USDT",
+    "XLM/USDT",
+    "RAIN/USDT",
+    "BCH/USDT",
+    "LTC/USDT",
+    "UNI/USDT",
+    "CC/USDT",
+    "AVAX/USDT",
+    "SUI/USDT",
+    "GRAM/USDT",
+    "HBAR/USDT",
+    "SHIB/USDT",
+    "TAO/USDT",
+    "CRO/USDT",
+    "ENA/USDT",
+    "BTW/USDT",
+    "QNT/USDT",
+    "OKB/USDT",
+    "AAVE/USDT",
+    "ONDO/USDT",
+    "PUMP/USDT",
+    "M/USDT",
+    "WLD/USDT",
+    "PEPE/USDT",
+    "DOT/USDT",
+    "MNT/USDT",
+    "ASTER/USDT",
+    "WLFI/USDT",
+    "SKY/USDT",
+    "MORPHO/USDT",
+    "ICP/USDT",
+    "HTX/USDT",
+    "ETC/USDT",
+    "ARB/USDT",
+    "VVV/USDT",
+    "JST/USDT",
+    "GT/USDT",
+    "KAS/USDT",
+    "JUP/USDT",
+    "ALGO/USDT",
+    "POL/USDT",
+    "ATOM/USDT",
+    "RENDER/USDT",
+    "PI/USDT",
+    "AKE/USDT",
+    "LIT/USDT",
+    "FIL/USDT",
+    "NEXO/USDT",
+    "INJ/USDT",
+    "PEARL/USDT",
+    "ZRO/USDT",
+    "XDC/USDT",
+    "DASH/USDT",
+    "CAKE/USDT",
+    "APT/USDT",
+    "ETHFI/USDT",
+    "NIGHT/USDT",
+    "AERO/USDT",
+    "VET/USDT",
+    "STX/USDT",
+    "BDX/USDT",
+    "CRV/USDT",
+    "PYTH/USDT",
+    "FLR/USDT",
+    "Q/USDT",
+    "TIA/USDT",
+    "PENGU/USDT",
+    "TRUMP/USDT",
+    "RAY/USDT",
+    "GRASS/USDT",
+    "VIRTUAL/USDT",
+    "FET/USDT",
+    "DRV/USDT",
+    "SEI/USDT",
+    "STRK/USDT",
+    "PENDLE/USDT",
+    "BTT/USDT",
+    "BSV/USDT",
+    "XPL/USDT",
+    "SPX/USDT",
+    "FF/USDT",
+    "XTZ/USDT",
+    "CARDS/USDT",
+    "LDO/USDT",
+    "SUN/USDT",
+    "UB/USDT",
+    "GNO/USDT",
+    "PIEVERSE/USDT"
+  ],
+  "entries": [
+    {
+      "rank": 1,
+      "ticker": "BTC",
+      "name": "Bitcoin",
+      "symbol": "BTC/USDT",
+      "gate_pair": "BTC_USDT",
+      "gate_base_name": "Bitcoin",
+      "market_cap_usd": 1634529572462,
+      "volume_24h_usd": 22738249828,
+      "price_usd_at_snapshot": 81305
+    },
+    {
+      "rank": 2,
+      "ticker": "ETH",
+      "name": "Ethereum",
+      "symbol": "ETH/USDT",
+      "gate_pair": "ETH_USDT",
+      "gate_base_name": "Ethereum",
+      "market_cap_usd": 292786140109,
+      "volume_24h_usd": 10148521696,
+      "price_usd_at_snapshot": 2396.97
+    },
+    {
+      "rank": 4,
+      "ticker": "BNB",
+      "name": "BNB",
+      "symbol": "BNB/USDT",
+      "gate_pair": "BNB_USDT",
+      "gate_base_name": "Binance Coin",
+      "market_cap_usd": 97530570920,
+      "volume_24h_usd": 853358816,
+      "price_usd_at_snapshot": 741.61
+    },
+    {
+      "rank": 5,
+      "ticker": "XRP",
+      "name": "XRP",
+      "symbol": "XRP/USDT",
+      "gate_pair": "XRP_USDT",
+      "gate_base_name": "XRP",
+      "market_cap_usd": 82371774032,
+      "volume_24h_usd": 1231929709,
+      "price_usd_at_snapshot": 1.31
+    },
+    {
+      "rank": 7,
+      "ticker": "SOL",
+      "name": "Solana",
+      "symbol": "SOL/USDT",
+      "gate_pair": "SOL_USDT",
+      "gate_base_name": "Solana",
+      "market_cap_usd": 61067218894,
+      "volume_24h_usd": 2024327707,
+      "price_usd_at_snapshot": 103.57
+    },
+    {
+      "rank": 8,
+      "ticker": "TRX",
+      "name": "TRON",
+      "symbol": "TRX/USDT",
+      "gate_pair": "TRX_USDT",
+      "gate_base_name": "TRON",
+      "market_cap_usd": 31345530552,
+      "volume_24h_usd": 297057199,
+      "price_usd_at_snapshot": 0.329971
+    },
+    {
+      "rank": 10,
+      "ticker": "ZEC",
+      "name": "Zcash",
+      "symbol": "ZEC/USDT",
+      "gate_pair": "ZEC_USDT",
+      "gate_base_name": "ZCash",
+      "market_cap_usd": 20781697667,
+      "volume_24h_usd": 721727980,
+      "price_usd_at_snapshot": 1222.88
+    },
+    {
+      "rank": 11,
+      "ticker": "HYPE",
+      "name": "Hyperliquid",
+      "symbol": "HYPE/USDT",
+      "gate_pair": "HYPE_USDT",
+      "gate_base_name": "Hyperliquid",
+      "market_cap_usd": 17168805666,
+      "volume_24h_usd": 731604324,
+      "price_usd_at_snapshot": 77.23
+    },
+    {
+      "rank": 12,
+      "ticker": "DOGE",
+      "name": "Dogecoin",
+      "symbol": "DOGE/USDT",
+      "gate_pair": "DOGE_USDT",
+      "gate_base_name": "Dogecoin",
+      "market_cap_usd": 12377569452,
+      "volume_24h_usd": 450003860,
+      "price_usd_at_snapshot": 0.079142
+    },
+    {
+      "rank": 16,
+      "ticker": "LINK",
+      "name": "Chainlink",
+      "symbol": "LINK/USDT",
+      "gate_pair": "LINK_USDT",
+      "gate_base_name": "ChainLink",
+      "market_cap_usd": 9134055163,
+      "volume_24h_usd": 199293023,
+      "price_usd_at_snapshot": 11.91
+    },
+    {
+      "rank": 17,
+      "ticker": "LEO",
+      "name": "LEO Token",
+      "symbol": "LEO/USDT",
+      "gate_pair": "LEO_USDT",
+      "gate_base_name": "UNUS-SED-LEO",
+      "market_cap_usd": 8326831286,
+      "volume_24h_usd": 153442,
+      "price_usd_at_snapshot": 9.05
+    },
+    {
+      "rank": 18,
+      "ticker": "ADA",
+      "name": "Cardano",
+      "symbol": "ADA/USDT",
+      "gate_pair": "ADA_USDT",
+      "gate_base_name": "Cardano",
+      "market_cap_usd": 8010457263,
+      "volume_24h_usd": 218662357,
+      "price_usd_at_snapshot": 0.213268
+    },
+    {
+      "rank": 19,
+      "ticker": "NEAR",
+      "name": "NEAR Protocol",
+      "symbol": "NEAR/USDT",
+      "gate_pair": "NEAR_USDT",
+      "gate_base_name": "Near",
+      "market_cap_usd": 6230442388,
+      "volume_24h_usd": 545169573,
+      "price_usd_at_snapshot": 4.76
+    },
+    {
+      "rank": 20,
+      "ticker": "XLM",
+      "name": "Stellar",
+      "symbol": "XLM/USDT",
+      "gate_pair": "XLM_USDT",
+      "gate_base_name": "Stellar",
+      "market_cap_usd": 6151694099,
+      "volume_24h_usd": 94533040,
+      "price_usd_at_snapshot": 0.174783
+    },
+    {
+      "rank": 21,
+      "ticker": "RAIN",
+      "name": "Rain",
+      "symbol": "RAIN/USDT",
+      "gate_pair": "RAIN_USDT",
+      "gate_base_name": "Rain",
+      "market_cap_usd": 5888394486,
+      "volume_24h_usd": 14007494,
+      "price_usd_at_snapshot": 0.00828505
+    },
+    {
+      "rank": 22,
+      "ticker": "BCH",
+      "name": "Bitcoin Cash",
+      "symbol": "BCH/USDT",
+      "gate_pair": "BCH_USDT",
+      "gate_base_name": "BitcoinCash",
+      "market_cap_usd": 5687354488,
+      "volume_24h_usd": 168650294,
+      "price_usd_at_snapshot": 282.89
+    },
+    {
+      "rank": 25,
+      "ticker": "LTC",
+      "name": "Litecoin",
+      "symbol": "LTC/USDT",
+      "gate_pair": "LTC_USDT",
+      "gate_base_name": "Litecoin",
+      "market_cap_usd": 4514548941,
+      "volume_24h_usd": 202119273,
+      "price_usd_at_snapshot": 58.08
+    },
+    {
+      "rank": 26,
+      "ticker": "UNI",
+      "name": "Uniswap",
+      "symbol": "UNI/USDT",
+      "gate_pair": "UNI_USDT",
+      "gate_base_name": "Uniswap",
+      "market_cap_usd": 4413737497,
+      "volume_24h_usd": 253163930,
+      "price_usd_at_snapshot": 7.07
+    },
+    {
+      "rank": 27,
+      "ticker": "CC",
+      "name": "Canton",
+      "symbol": "CC/USDT",
+      "gate_pair": "CC_USDT",
+      "gate_base_name": "Canton Network",
+      "market_cap_usd": 4087851619,
+      "volume_24h_usd": 10189669,
+      "price_usd_at_snapshot": 0.102439
+    },
+    {
+      "rank": 28,
+      "ticker": "AVAX",
+      "name": "Avalanche",
+      "symbol": "AVAX/USDT",
+      "gate_pair": "AVAX_USDT",
+      "gate_base_name": "Avalanche",
+      "market_cap_usd": 4016879240,
+      "volume_24h_usd": 186131832,
+      "price_usd_at_snapshot": 9.05
+    },
+    {
+      "rank": 29,
+      "ticker": "SUI",
+      "name": "Sui",
+      "symbol": "SUI/USDT",
+      "gate_pair": "SUI_USDT",
+      "gate_base_name": "Sui",
+      "market_cap_usd": 4013226361,
+      "volume_24h_usd": 281878967,
+      "price_usd_at_snapshot": 0.974841
+    },
+    {
+      "rank": 31,
+      "ticker": "GRAM",
+      "name": "Gram (prev. Toncoin)",
+      "symbol": "GRAM/USDT",
+      "gate_pair": "GRAM_USDT",
+      "gate_base_name": "GRAM (prev. Toncoin)",
+      "market_cap_usd": 3677324558,
+      "volume_24h_usd": 31791308,
+      "price_usd_at_snapshot": 1.3
+    },
+    {
+      "rank": 32,
+      "ticker": "HBAR",
+      "name": "Hedera",
+      "symbol": "HBAR/USDT",
+      "gate_pair": "HBAR_USDT",
+      "gate_base_name": "Hedera",
+      "market_cap_usd": 3457144255,
+      "volume_24h_usd": 85299379,
+      "price_usd_at_snapshot": 0.078001
+    },
+    {
+      "rank": 36,
+      "ticker": "SHIB",
+      "name": "Shiba Inu",
+      "symbol": "SHIB/USDT",
+      "gate_pair": "SHIB_USDT",
+      "gate_base_name": "Shiba Inu",
+      "market_cap_usd": 2966290126,
+      "volume_24h_usd": 63213558,
+      "price_usd_at_snapshot": 5.03e-06
+    },
+    {
+      "rank": 37,
+      "ticker": "TAO",
+      "name": "Bittensor",
+      "symbol": "TAO/USDT",
+      "gate_pair": "TAO_USDT",
+      "gate_base_name": "Bittensor",
+      "market_cap_usd": 2912232078,
+      "volume_24h_usd": 97060259,
+      "price_usd_at_snapshot": 256.95
+    },
+    {
+      "rank": 38,
+      "ticker": "CRO",
+      "name": "Cronos",
+      "symbol": "CRO/USDT",
+      "gate_pair": "CRO_USDT",
+      "gate_base_name": "Cronos",
+      "market_cap_usd": 2831081942,
+      "volume_24h_usd": 4246252,
+      "price_usd_at_snapshot": 0.055811
+    },
+    {
+      "rank": 39,
+      "ticker": "ENA",
+      "name": "Ethena",
+      "symbol": "ENA/USDT",
+      "gate_pair": "ENA_USDT",
+      "gate_base_name": "Ethena",
+      "market_cap_usd": 2760138586,
+      "volume_24h_usd": 402720057,
+      "price_usd_at_snapshot": 0.206136
+    },
+    {
+      "rank": 40,
+      "ticker": "BTW",
+      "name": "Bitway",
+      "symbol": "BTW/USDT",
+      "gate_pair": "BTW_USDT",
+      "gate_base_name": "Bitway",
+      "market_cap_usd": 2743208605,
+      "volume_24h_usd": 24068114,
+      "price_usd_at_snapshot": 1.82
+    },
+    {
+      "rank": 41,
+      "ticker": "QNT",
+      "name": "Quant",
+      "symbol": "QNT/USDT",
+      "gate_pair": "QNT_USDT",
+      "gate_base_name": "Quant",
+      "market_cap_usd": 2639726062,
+      "volume_24h_usd": 62785737,
+      "price_usd_at_snapshot": 181.31
+    },
+    {
+      "rank": 45,
+      "ticker": "OKB",
+      "name": "OKB",
+      "symbol": "OKB/USDT",
+      "gate_pair": "OKB_USDT",
+      "gate_base_name": "OKB",
+      "market_cap_usd": 2325420052,
+      "volume_24h_usd": 31340910,
+      "price_usd_at_snapshot": 110.74
+    },
+    {
+      "rank": 46,
+      "ticker": "AAVE",
+      "name": "Aave",
+      "symbol": "AAVE/USDT",
+      "gate_pair": "AAVE_USDT",
+      "gate_base_name": "AAVE",
+      "market_cap_usd": 2261819601,
+      "volume_24h_usd": 172410871,
+      "price_usd_at_snapshot": 146.58
+    },
+    {
+      "rank": 48,
+      "ticker": "ONDO",
+      "name": "Ondo",
+      "symbol": "ONDO/USDT",
+      "gate_pair": "ONDO_USDT",
+      "gate_base_name": "Ondo Finance",
+      "market_cap_usd": 2067800095,
+      "volume_24h_usd": 79416099,
+      "price_usd_at_snapshot": 0.424765
+    },
+    {
+      "rank": 49,
+      "ticker": "PUMP",
+      "name": "Pump.fun",
+      "symbol": "PUMP/USDT",
+      "gate_pair": "PUMP_USDT",
+      "gate_base_name": "Pump.Fun",
+      "market_cap_usd": 2050246757,
+      "volume_24h_usd": 132966170,
+      "price_usd_at_snapshot": 0.00444577
+    },
+    {
+      "rank": 50,
+      "ticker": "M",
+      "name": "MemeCore",
+      "symbol": "M/USDT",
+      "gate_pair": "M_USDT",
+      "gate_base_name": "MemeCore",
+      "market_cap_usd": 2045830287,
+      "volume_24h_usd": 1450274,
+      "price_usd_at_snapshot": 0.893473
+    },
+    {
+      "rank": 51,
+      "ticker": "WLD",
+      "name": "Worldcoin",
+      "symbol": "WLD/USDT",
+      "gate_pair": "WLD_USDT",
+      "gate_base_name": "Worldcoin",
+      "market_cap_usd": 1971111610,
+      "volume_24h_usd": 260371776,
+      "price_usd_at_snapshot": 0.515954
+    },
+    {
+      "rank": 52,
+      "ticker": "PEPE",
+      "name": "Pepe",
+      "symbol": "PEPE/USDT",
+      "gate_pair": "PEPE_USDT",
+      "gate_base_name": "Pepe",
+      "market_cap_usd": 1961407272,
+      "volume_24h_usd": 657009735,
+      "price_usd_at_snapshot": 4.66e-06
+    },
+    {
+      "rank": 53,
+      "ticker": "DOT",
+      "name": "Polkadot",
+      "symbol": "DOT/USDT",
+      "gate_pair": "DOT_USDT",
+      "gate_base_name": "Polkadot",
+      "market_cap_usd": 1903590872,
+      "volume_24h_usd": 193107507,
+      "price_usd_at_snapshot": 1.11
+    },
+    {
+      "rank": 58,
+      "ticker": "MNT",
+      "name": "Mantle",
+      "symbol": "MNT/USDT",
+      "gate_pair": "MNT_USDT",
+      "gate_base_name": "Mantle",
+      "market_cap_usd": 1752958297,
+      "volume_24h_usd": 17930494,
+      "price_usd_at_snapshot": 0.530876
+    },
+    {
+      "rank": 59,
+      "ticker": "ASTER",
+      "name": "Aster",
+      "symbol": "ASTER/USDT",
+      "gate_pair": "ASTER_USDT",
+      "gate_base_name": "Aster",
+      "market_cap_usd": 1752624071,
+      "volume_24h_usd": 75529077,
+      "price_usd_at_snapshot": 0.699448
+    },
+    {
+      "rank": 60,
+      "ticker": "WLFI",
+      "name": "World Liberty Financial",
+      "symbol": "WLFI/USDT",
+      "gate_pair": "WLFI_USDT",
+      "gate_base_name": "World Liberty Financial",
+      "market_cap_usd": 1724775350,
+      "volume_24h_usd": 29169011,
+      "price_usd_at_snapshot": 0.054285
+    },
+    {
+      "rank": 61,
+      "ticker": "SKY",
+      "name": "Sky",
+      "symbol": "SKY/USDT",
+      "gate_pair": "SKY_USDT",
+      "gate_base_name": "Sky",
+      "market_cap_usd": 1699890808,
+      "volume_24h_usd": 6294385,
+      "price_usd_at_snapshot": 0.072581
+    },
+    {
+      "rank": 63,
+      "ticker": "MORPHO",
+      "name": "Morpho",
+      "symbol": "MORPHO/USDT",
+      "gate_pair": "MORPHO_USDT",
+      "gate_base_name": "Morpho Labs",
+      "market_cap_usd": 1586285032,
+      "volume_24h_usd": 14784185,
+      "price_usd_at_snapshot": 2.26
+    },
+    {
+      "rank": 64,
+      "ticker": "ICP",
+      "name": "Internet Computer",
+      "symbol": "ICP/USDT",
+      "gate_pair": "ICP_USDT",
+      "gate_base_name": "Internet Computer",
+      "market_cap_usd": 1522598035,
+      "volume_24h_usd": 42038395,
+      "price_usd_at_snapshot": 2.73
+    },
+    {
+      "rank": 65,
+      "ticker": "HTX",
+      "name": "HTX DAO",
+      "symbol": "HTX/USDT",
+      "gate_pair": "HTX_USDT",
+      "gate_base_name": "HTX DAO",
+      "market_cap_usd": 1458982325,
+      "volume_24h_usd": 58558046,
+      "price_usd_at_snapshot": 1.64e-06
+    },
+    {
+      "rank": 69,
+      "ticker": "ETC",
+      "name": "Ethereum Classic",
+      "symbol": "ETC/USDT",
+      "gate_pair": "ETC_USDT",
+      "gate_base_name": "Ethereum Classic",
+      "market_cap_usd": 1239966331,
+      "volume_24h_usd": 35061623,
+      "price_usd_at_snapshot": 7.81
+    },
+    {
+      "rank": 70,
+      "ticker": "ARB",
+      "name": "Arbitrum",
+      "symbol": "ARB/USDT",
+      "gate_pair": "ARB_USDT",
+      "gate_base_name": "Arbitrum",
+      "market_cap_usd": 1219566277,
+      "volume_24h_usd": 143783986,
+      "price_usd_at_snapshot": 0.177016
+    },
+    {
+      "rank": 71,
+      "ticker": "VVV",
+      "name": "Venice Token",
+      "symbol": "VVV/USDT",
+      "gate_pair": "VVV_USDT",
+      "gate_base_name": "Venice Token",
+      "market_cap_usd": 1214482712,
+      "volume_24h_usd": 27632064,
+      "price_usd_at_snapshot": 25.0
+    },
+    {
+      "rank": 72,
+      "ticker": "JST",
+      "name": "JUST",
+      "symbol": "JST/USDT",
+      "gate_pair": "JST_USDT",
+      "gate_base_name": "Just",
+      "market_cap_usd": 1131006330,
+      "volume_24h_usd": 25241150,
+      "price_usd_at_snapshot": 0.141085
+    },
+    {
+      "rank": 73,
+      "ticker": "GT",
+      "name": "Gate",
+      "symbol": "GT/USDT",
+      "gate_pair": "GT_USDT",
+      "gate_base_name": "GateToken",
+      "market_cap_usd": 1055373352,
+      "volume_24h_usd": 1754422,
+      "price_usd_at_snapshot": 10.08
+    },
+    {
+      "rank": 75,
+      "ticker": "KAS",
+      "name": "Kaspa",
+      "symbol": "KAS/USDT",
+      "gate_pair": "KAS_USDT",
+      "gate_base_name": "Kaspa",
+      "market_cap_usd": 1016221331,
+      "volume_24h_usd": 8797554,
+      "price_usd_at_snapshot": 0.03659521
+    },
+    {
+      "rank": 76,
+      "ticker": "JUP",
+      "name": "Jupiter",
+      "symbol": "JUP/USDT",
+      "gate_pair": "JUP_USDT",
+      "gate_base_name": "Jupiter",
+      "market_cap_usd": 1010008558,
+      "volume_24h_usd": 55077124,
+      "price_usd_at_snapshot": 0.30441
+    },
+    {
+      "rank": 77,
+      "ticker": "ALGO",
+      "name": "Algorand",
+      "symbol": "ALGO/USDT",
+      "gate_pair": "ALGO_USDT",
+      "gate_base_name": "Algorand",
+      "market_cap_usd": 965821123,
+      "volume_24h_usd": 39229340,
+      "price_usd_at_snapshot": 0.106462
+    },
+    {
+      "rank": 78,
+      "ticker": "POL",
+      "name": "POL (ex-MATIC)",
+      "symbol": "POL/USDT",
+      "gate_pair": "POL_USDT",
+      "gate_base_name": "Polygon Ecosystem Token",
+      "market_cap_usd": 962643384,
+      "volume_24h_usd": 44968910,
+      "price_usd_at_snapshot": 0.090528
+    },
+    {
+      "rank": 79,
+      "ticker": "ATOM",
+      "name": "Cosmos Hub",
+      "symbol": "ATOM/USDT",
+      "gate_pair": "ATOM_USDT",
+      "gate_base_name": "Cosmos",
+      "market_cap_usd": 939162124,
+      "volume_24h_usd": 62443583,
+      "price_usd_at_snapshot": 1.75
+    },
+    {
+      "rank": 80,
+      "ticker": "RENDER",
+      "name": "Render",
+      "symbol": "RENDER/USDT",
+      "gate_pair": "RENDER_USDT",
+      "gate_base_name": "Render",
+      "market_cap_usd": 900993827,
+      "volume_24h_usd": 47720936,
+      "price_usd_at_snapshot": 1.74
+    },
+    {
+      "rank": 81,
+      "ticker": "PI",
+      "name": "Pi Network",
+      "symbol": "PI/USDT",
+      "gate_pair": "PI_USDT",
+      "gate_base_name": "Pi Network",
+      "market_cap_usd": 885748719,
+      "volume_24h_usd": 3089991,
+      "price_usd_at_snapshot": 0.078404
+    },
+    {
+      "rank": 82,
+      "ticker": "AKE",
+      "name": "Akedo",
+      "symbol": "AKE/USDT",
+      "gate_pair": "AKE_USDT",
+      "gate_base_name": "Akedo",
+      "market_cap_usd": 880808358,
+      "volume_24h_usd": 44381384,
+      "price_usd_at_snapshot": 0.03887846
+    },
+    {
+      "rank": 84,
+      "ticker": "LIT",
+      "name": "Lighter",
+      "symbol": "LIT/USDT",
+      "gate_pair": "LIT_USDT",
+      "gate_base_name": "Lighter",
+      "market_cap_usd": 814212229,
+      "volume_24h_usd": 91119135,
+      "price_usd_at_snapshot": 3.26
+    },
+    {
+      "rank": 85,
+      "ticker": "FIL",
+      "name": "Filecoin",
+      "symbol": "FIL/USDT",
+      "gate_pair": "FIL_USDT",
+      "gate_base_name": "Filecoin(IPFS)",
+      "market_cap_usd": 809288378,
+      "volume_24h_usd": 85682355,
+      "price_usd_at_snapshot": 0.965525
+    },
+    {
+      "rank": 86,
+      "ticker": "NEXO",
+      "name": "NEXO",
+      "symbol": "NEXO/USDT",
+      "gate_pair": "NEXO_USDT",
+      "gate_base_name": "Nexo",
+      "market_cap_usd": 805279888,
+      "volume_24h_usd": 2813885,
+      "price_usd_at_snapshot": 0.805222
+    },
+    {
+      "rank": 87,
+      "ticker": "INJ",
+      "name": "Injective",
+      "symbol": "INJ/USDT",
+      "gate_pair": "INJ_USDT",
+      "gate_base_name": "Injective",
+      "market_cap_usd": 773788836,
+      "volume_24h_usd": 109340525,
+      "price_usd_at_snapshot": 7.74
+    },
+    {
+      "rank": 89,
+      "ticker": "PEARL",
+      "name": "Pearl",
+      "symbol": "PEARL/USDT",
+      "gate_pair": "PEARL_USDT",
+      "gate_base_name": "Pearl",
+      "market_cap_usd": 714024825,
+      "volume_24h_usd": 7590887,
+      "price_usd_at_snapshot": 2.01
+    },
+    {
+      "rank": 91,
+      "ticker": "ZRO",
+      "name": "LayerZero",
+      "symbol": "ZRO/USDT",
+      "gate_pair": "ZRO_USDT",
+      "gate_base_name": "LayerZero",
+      "market_cap_usd": 689588068,
+      "volume_24h_usd": 73730347,
+      "price_usd_at_snapshot": 1.73
+    },
+    {
+      "rank": 92,
+      "ticker": "XDC",
+      "name": "XDC Network",
+      "symbol": "XDC/USDT",
+      "gate_pair": "XDC_USDT",
+      "gate_base_name": "XDC Network",
+      "market_cap_usd": 689230233,
+      "volume_24h_usd": 14474219,
+      "price_usd_at_snapshot": 0.03455336
+    },
+    {
+      "rank": 93,
+      "ticker": "DASH",
+      "name": "Dash",
+      "symbol": "DASH/USDT",
+      "gate_pair": "DASH_USDT",
+      "gate_base_name": "Dash",
+      "market_cap_usd": 688401318,
+      "volume_24h_usd": 107589654,
+      "price_usd_at_snapshot": 53.52
+    },
+    {
+      "rank": 94,
+      "ticker": "CAKE",
+      "name": "PancakeSwap",
+      "symbol": "CAKE/USDT",
+      "gate_pair": "CAKE_USDT",
+      "gate_base_name": "PancakeSwap",
+      "market_cap_usd": 684512619,
+      "volume_24h_usd": 52569419,
+      "price_usd_at_snapshot": 2.15
+    },
+    {
+      "rank": 95,
+      "ticker": "APT",
+      "name": "Aptos",
+      "symbol": "APT/USDT",
+      "gate_pair": "APT_USDT",
+      "gate_base_name": "Aptos",
+      "market_cap_usd": 657410307,
+      "volume_24h_usd": 44938546,
+      "price_usd_at_snapshot": 0.744286
+    },
+    {
+      "rank": 96,
+      "ticker": "ETHFI",
+      "name": "Ether.fi",
+      "symbol": "ETHFI/USDT",
+      "gate_pair": "ETHFI_USDT",
+      "gate_base_name": "Ether.Fi",
+      "market_cap_usd": 648094812,
+      "volume_24h_usd": 34288711,
+      "price_usd_at_snapshot": 0.649621
+    },
+    {
+      "rank": 97,
+      "ticker": "NIGHT",
+      "name": "Midnight",
+      "symbol": "NIGHT/USDT",
+      "gate_pair": "NIGHT_USDT",
+      "gate_base_name": "Midnight",
+      "market_cap_usd": 640719622,
+      "volume_24h_usd": 12304761,
+      "price_usd_at_snapshot": 0.03858464
+    },
+    {
+      "rank": 98,
+      "ticker": "AERO",
+      "name": "Aerodrome Finance",
+      "symbol": "AERO/USDT",
+      "gate_pair": "AERO_USDT",
+      "gate_base_name": "Aerodrome",
+      "market_cap_usd": 629340414,
+      "volume_24h_usd": 44364884,
+      "price_usd_at_snapshot": 0.738613
+    },
+    {
+      "rank": 99,
+      "ticker": "VET",
+      "name": "VeChain",
+      "symbol": "VET/USDT",
+      "gate_pair": "VET_USDT",
+      "gate_base_name": "Vechain",
+      "market_cap_usd": 614116913,
+      "volume_24h_usd": 6693775,
+      "price_usd_at_snapshot": 0.00714591
+    },
+    {
+      "rank": 100,
+      "ticker": "STX",
+      "name": "Stacks",
+      "symbol": "STX/USDT",
+      "gate_pair": "STX_USDT",
+      "gate_base_name": "Stacks",
+      "market_cap_usd": 601299748,
+      "volume_24h_usd": 23964473,
+      "price_usd_at_snapshot": 0.320474
+    },
+    {
+      "rank": 101,
+      "ticker": "BDX",
+      "name": "Beldex",
+      "symbol": "BDX/USDT",
+      "gate_pair": "BDX_USDT",
+      "gate_base_name": "Beldex",
+      "market_cap_usd": 584394383,
+      "volume_24h_usd": 11300110,
+      "price_usd_at_snapshot": 0.074251
+    },
+    {
+      "rank": 103,
+      "ticker": "CRV",
+      "name": "Curve DAO",
+      "symbol": "CRV/USDT",
+      "gate_pair": "CRV_USDT",
+      "gate_base_name": "Curve",
+      "market_cap_usd": 569530829,
+      "volume_24h_usd": 52481407,
+      "price_usd_at_snapshot": 0.360398
+    },
+    {
+      "rank": 104,
+      "ticker": "PYTH",
+      "name": "Pyth Network",
+      "symbol": "PYTH/USDT",
+      "gate_pair": "PYTH_USDT",
+      "gate_base_name": "Pyth Network",
+      "market_cap_usd": 554885453,
+      "volume_24h_usd": 31997272,
+      "price_usd_at_snapshot": 0.070464
+    },
+    {
+      "rank": 105,
+      "ticker": "FLR",
+      "name": "Flare",
+      "symbol": "FLR/USDT",
+      "gate_pair": "FLR_USDT",
+      "gate_base_name": "Flare Network",
+      "market_cap_usd": 542092483,
+      "volume_24h_usd": 1872844,
+      "price_usd_at_snapshot": 0.00619075
+    },
+    {
+      "rank": 107,
+      "ticker": "Q",
+      "name": "Quack AI",
+      "symbol": "Q/USDT",
+      "gate_pair": "Q_USDT",
+      "gate_base_name": "Quack AI",
+      "market_cap_usd": 530017449,
+      "volume_24h_usd": 12017760,
+      "price_usd_at_snapshot": 0.11281
+    },
+    {
+      "rank": 108,
+      "ticker": "TIA",
+      "name": "Celestia",
+      "symbol": "TIA/USDT",
+      "gate_pair": "TIA_USDT",
+      "gate_base_name": "Celestia",
+      "market_cap_usd": 528718891,
+      "volume_24h_usd": 60996851,
+      "price_usd_at_snapshot": 0.536835
+    },
+    {
+      "rank": 111,
+      "ticker": "PENGU",
+      "name": "Pudgy Penguins",
+      "symbol": "PENGU/USDT",
+      "gate_pair": "PENGU_USDT",
+      "gate_base_name": "Pudgy Penguins",
+      "market_cap_usd": 497432434,
+      "volume_24h_usd": 120260238,
+      "price_usd_at_snapshot": 0.00791543
+    },
+    {
+      "rank": 113,
+      "ticker": "TRUMP",
+      "name": "Official Trump",
+      "symbol": "TRUMP/USDT",
+      "gate_pair": "TRUMP_USDT",
+      "gate_base_name": "OFFICIAL TRUMP",
+      "market_cap_usd": 493157793,
+      "volume_24h_usd": 102813164,
+      "price_usd_at_snapshot": 1.75
+    },
+    {
+      "rank": 114,
+      "ticker": "RAY",
+      "name": "Raydium",
+      "symbol": "RAY/USDT",
+      "gate_pair": "RAY_USDT",
+      "gate_base_name": "Raydium",
+      "market_cap_usd": 489430015,
+      "volume_24h_usd": 22848913,
+      "price_usd_at_snapshot": 1.81
+    },
+    {
+      "rank": 119,
+      "ticker": "GRASS",
+      "name": "Grass",
+      "symbol": "GRASS/USDT",
+      "gate_pair": "GRASS_USDT",
+      "gate_base_name": "Grass",
+      "market_cap_usd": 458451949,
+      "volume_24h_usd": 20708040,
+      "price_usd_at_snapshot": 0.655182
+    },
+    {
+      "rank": 120,
+      "ticker": "VIRTUAL",
+      "name": "Virtuals Protocol",
+      "symbol": "VIRTUAL/USDT",
+      "gate_pair": "VIRTUAL_USDT",
+      "gate_base_name": "Virtuals Protocol",
+      "market_cap_usd": 429641985,
+      "volume_24h_usd": 27838256,
+      "price_usd_at_snapshot": 0.652864
+    },
+    {
+      "rank": 121,
+      "ticker": "FET",
+      "name": "Artificial Superintelligence Alliance",
+      "symbol": "FET/USDT",
+      "gate_pair": "FET_USDT",
+      "gate_base_name": "Artificial Superintelligence Alliance",
+      "market_cap_usd": 424369263,
+      "volume_24h_usd": 72351809,
+      "price_usd_at_snapshot": 0.183634
+    },
+    {
+      "rank": 122,
+      "ticker": "DRV",
+      "name": "Derive",
+      "symbol": "DRV/USDT",
+      "gate_pair": "DRV_USDT",
+      "gate_base_name": "Derive",
+      "market_cap_usd": 385524745,
+      "volume_24h_usd": 10713657,
+      "price_usd_at_snapshot": 0.385766
+    },
+    {
+      "rank": 123,
+      "ticker": "SEI",
+      "name": "Sei",
+      "symbol": "SEI/USDT",
+      "gate_pair": "SEI_USDT",
+      "gate_base_name": "Sei",
+      "market_cap_usd": 385293695,
+      "volume_24h_usd": 30264250,
+      "price_usd_at_snapshot": 0.057249
+    },
+    {
+      "rank": 125,
+      "ticker": "STRK",
+      "name": "Starknet",
+      "symbol": "STRK/USDT",
+      "gate_pair": "STRK_USDT",
+      "gate_base_name": "Starknet",
+      "market_cap_usd": 378121969,
+      "volume_24h_usd": 59999167,
+      "price_usd_at_snapshot": 0.04985458
+    },
+    {
+      "rank": 126,
+      "ticker": "PENDLE",
+      "name": "Pendle",
+      "symbol": "PENDLE/USDT",
+      "gate_pair": "PENDLE_USDT",
+      "gate_base_name": "Pendle",
+      "market_cap_usd": 365006851,
+      "volume_24h_usd": 49172252,
+      "price_usd_at_snapshot": 2.1
+    },
+    {
+      "rank": 127,
+      "ticker": "BTT",
+      "name": "BitTorrent",
+      "symbol": "BTT/USDT",
+      "gate_pair": "BTT_USDT",
+      "gate_base_name": "BitTorrent",
+      "market_cap_usd": 360879666,
+      "volume_24h_usd": 10502879,
+      "price_usd_at_snapshot": 3.73361e-07
+    },
+    {
+      "rank": 129,
+      "ticker": "BSV",
+      "name": "Bitcoin SV",
+      "symbol": "BSV/USDT",
+      "gate_pair": "BSV_USDT",
+      "gate_base_name": "BitcoinSV",
+      "market_cap_usd": 351586795,
+      "volume_24h_usd": 5614668,
+      "price_usd_at_snapshot": 17.49
+    },
+    {
+      "rank": 131,
+      "ticker": "XPL",
+      "name": "Plasma",
+      "symbol": "XPL/USDT",
+      "gate_pair": "XPL_USDT",
+      "gate_base_name": "Plasma",
+      "market_cap_usd": 349660558,
+      "volume_24h_usd": 20336395,
+      "price_usd_at_snapshot": 0.077182
+    },
+    {
+      "rank": 133,
+      "ticker": "SPX",
+      "name": "SPX6900",
+      "symbol": "SPX/USDT",
+      "gate_pair": "SPX_USDT",
+      "gate_base_name": "SPX6900",
+      "market_cap_usd": 334717322,
+      "volume_24h_usd": 3502280,
+      "price_usd_at_snapshot": 0.359572
+    },
+    {
+      "rank": 134,
+      "ticker": "FF",
+      "name": "Falcon Finance",
+      "symbol": "FF/USDT",
+      "gate_pair": "FF_USDT",
+      "gate_base_name": "Falcon Finance",
+      "market_cap_usd": 333712992,
+      "volume_24h_usd": 3832736,
+      "price_usd_at_snapshot": 0.099822
+    },
+    {
+      "rank": 135,
+      "ticker": "XTZ",
+      "name": "Tezos",
+      "symbol": "XTZ/USDT",
+      "gate_pair": "XTZ_USDT",
+      "gate_base_name": "Tezos",
+      "market_cap_usd": 333707506,
+      "volume_24h_usd": 3189263,
+      "price_usd_at_snapshot": 0.303472
+    },
+    {
+      "rank": 137,
+      "ticker": "CARDS",
+      "name": "Collector Crypt",
+      "symbol": "CARDS/USDT",
+      "gate_pair": "CARDS_USDT",
+      "gate_base_name": "Collector Crypt",
+      "market_cap_usd": 322549094,
+      "volume_24h_usd": 7559775,
+      "price_usd_at_snapshot": 0.363361
+    },
+    {
+      "rank": 139,
+      "ticker": "LDO",
+      "name": "Lido DAO",
+      "symbol": "LDO/USDT",
+      "gate_pair": "LDO_USDT",
+      "gate_base_name": "Lido DAO Token",
+      "market_cap_usd": 318914328,
+      "volume_24h_usd": 36204635,
+      "price_usd_at_snapshot": 0.3845
+    },
+    {
+      "rank": 140,
+      "ticker": "SUN",
+      "name": "Sun Token",
+      "symbol": "SUN/USDT",
+      "gate_pair": "SUN_USDT",
+      "gate_base_name": "SUN",
+      "market_cap_usd": 314880896,
+      "volume_24h_usd": 12593762,
+      "price_usd_at_snapshot": 0.01638144
+    },
+    {
+      "rank": 143,
+      "ticker": "UB",
+      "name": "Unibase",
+      "symbol": "UB/USDT",
+      "gate_pair": "UB_USDT",
+      "gate_base_name": "Unibase",
+      "market_cap_usd": 303660118,
+      "volume_24h_usd": 9090229,
+      "price_usd_at_snapshot": 0.121504
+    },
+    {
+      "rank": 144,
+      "ticker": "GNO",
+      "name": "Gnosis",
+      "symbol": "GNO/USDT",
+      "gate_pair": "GNO_USDT",
+      "gate_base_name": "Gnosis",
+      "market_cap_usd": 298701969,
+      "volume_24h_usd": 755962,
+      "price_usd_at_snapshot": 113.22
+    },
+    {
+      "rank": 146,
+      "ticker": "PIEVERSE",
+      "name": "Pieverse",
+      "symbol": "PIEVERSE/USDT",
+      "gate_pair": "PIEVERSE_USDT",
+      "gate_base_name": "Pieverse",
+      "market_cap_usd": 288762280,
+      "volume_24h_usd": 4606684,
+      "price_usd_at_snapshot": 1.05
+    }
+  ],
+  "excluded": [
+    {
+      "rank": 3,
+      "ticker": "USDT",
+      "name": "Tether",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 6,
+      "ticker": "USDC",
+      "name": "USDC",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 14,
+      "ticker": "USDS",
+      "name": "USDS",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 23,
+      "ticker": "USDE",
+      "name": "Ethena USDe",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 24,
+      "ticker": "DAI",
+      "name": "Dai",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 30,
+      "ticker": "USD1",
+      "name": "USD1",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 33,
+      "ticker": "XAUT",
+      "name": "Tether Gold",
+      "reason": "tokenised commodity (gold/silver)"
+    },
+    {
+      "rank": 34,
+      "ticker": "USDG",
+      "name": "Global Dollar",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 35,
+      "ticker": "PYUSD",
+      "name": "PayPal USD",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 42,
+      "ticker": "RLUSD",
+      "name": "Ripple USD",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 44,
+      "ticker": "USDY",
+      "name": "Ondo US Dollar Yield",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 54,
+      "ticker": "USDF",
+      "name": "Falcon USD",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 55,
+      "ticker": "USDD",
+      "name": "USDD",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 57,
+      "ticker": "PAXG",
+      "name": "PAX Gold",
+      "reason": "tokenised commodity (gold/silver)"
+    },
+    {
+      "rank": 62,
+      "ticker": "U",
+      "name": "United Stables",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 67,
+      "ticker": "BFUSD",
+      "name": "BFUSD",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 68,
+      "ticker": "USDGO",
+      "name": "USDGO",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 83,
+      "ticker": "OUSD",
+      "name": "Open USD",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 90,
+      "ticker": "GHO",
+      "name": "GHO",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 106,
+      "ticker": "USD0",
+      "name": "Usual USD",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 109,
+      "ticker": "EUTBL",
+      "name": "Spiko EU T-Bills Money Market Fund",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 112,
+      "ticker": "TUSD",
+      "name": "TrueUSD",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 115,
+      "ticker": "YLDS",
+      "name": "YLDS",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 116,
+      "ticker": "EURC",
+      "name": "EURC",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 117,
+      "ticker": "STABLE",
+      "name": "​​Stable",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 128,
+      "ticker": "REUSD",
+      "name": "Re Protocol reUSD",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 130,
+      "ticker": "KAU",
+      "name": "Kinesis Gold",
+      "reason": "tokenised commodity (gold/silver)"
+    },
+    {
+      "rank": 136,
+      "ticker": "JTRSY",
+      "name": "Janus Henderson Anemoy Treasury Fund",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 141,
+      "ticker": "APXUSD",
+      "name": "apxUSD",
+      "reason": "stablecoin"
+    },
+    {
+      "rank": 142,
+      "ticker": "FDUSD",
+      "name": "First Digital USD",
+      "reason": "stablecoin"
+    }
+  ],
+  "skipped": [
+    {
+      "rank": 9,
+      "ticker": "FIGR_HELOC",
+      "name": "Figure Heloc",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 13,
+      "ticker": "XMR",
+      "name": "Monero",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 15,
+      "ticker": "WBT",
+      "name": "WhiteBIT Coin",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 43,
+      "ticker": "USYC",
+      "name": "Circle USYC",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 47,
+      "ticker": "BUIDL",
+      "name": "BlackRock USD Institutional Digital Liquidity Fund",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 56,
+      "ticker": "EURSAFO",
+      "name": "Spiko Amundi Overnight Swap Fund (EUR)",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 66,
+      "ticker": "BGB",
+      "name": "Bitget Token",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 74,
+      "ticker": "KCS",
+      "name": "KuCoin",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 88,
+      "ticker": "USTB",
+      "name": "Invesco Short Duration US Government Securities Fund",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 102,
+      "ticker": "JAAA",
+      "name": "Janus Henderson Anemoy AAA CLO Fund",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 110,
+      "ticker": "币安人生",
+      "name": "币安人生 (BinanceLife)",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 118,
+      "ticker": "A7A5",
+      "name": "A7A5",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 124,
+      "ticker": "HASH",
+      "name": "Provenance Blockchain",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 132,
+      "ticker": "SOFID",
+      "name": "SoFiUSD",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 138,
+      "ticker": "OUSG",
+      "name": "Ondo Short-Term U.S. Government Bond Fund",
+      "reason": "no tradable Gate USDT pair"
+    },
+    {
+      "rank": 145,
+      "ticker": "OHM",
+      "name": "Olympus",
+      "reason": "no tradable Gate USDT pair"
+    }
+  ]
+}

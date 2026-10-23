@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import threading
+import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any
@@ -129,8 +131,11 @@ class GateProvider:
     name = "gate"
     base = "https://api.gateio.ws"
 
-    def __init__(self, client: HttpClient):
+    def __init__(self, client: HttpClient, *, filters_ttl_seconds: float = 3600.0):
         self.client = client
+        self.filters_ttl_seconds = max(0.0, float(filters_ttl_seconds))
+        self._filters: dict[str, tuple[float, SymbolFilter]] = {}
+        self._filters_lock = threading.Lock()
 
     def klines(self, symbol: str, timeframe: str, limit: int = 300) -> list[Kline]:
         pair = normalize_pair(symbol)
@@ -209,10 +214,16 @@ class GateProvider:
 
     def filters(self, symbol: str) -> SymbolFilter:
         pair = normalize_pair(symbol)
+        now = time.monotonic()
+        if self.filters_ttl_seconds > 0:
+            with self._filters_lock:
+                cached = self._filters.get(pair)
+            if cached and cached[0] > now:
+                return cached[1]
         row = self.client.get(f"{self.base}/api/v4/spot/currency_pairs/{pair}")
         if not isinstance(row, dict):
             raise DataUnavailable(f"no pair metadata for {pair}")
-        return SymbolFilter(
+        result = SymbolFilter(
             symbol=pair,
             price_precision=int(row.get("precision", 2)),
             qty_precision=int(row.get("amount_precision", 8)),
@@ -222,6 +233,10 @@ class GateProvider:
             tradable=str(row.get("trade_status", "tradable")) == "tradable",
             fee_pct=float(row.get("fee", 0.2)) if row.get("fee") not in (None, "") else 0.2,
         )
+        if self.filters_ttl_seconds > 0:
+            with self._filters_lock:
+                self._filters[pair] = (now + self.filters_ttl_seconds, result)
+        return result
 
     def server_time(self) -> float:
         return float(self.client.get(f"{self.base}/api/v4/spot/time")["server_time"]) / 1000.0
