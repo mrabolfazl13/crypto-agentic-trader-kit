@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from .config import Config
 from .data import Kline, MarketSnapshot, Quote, SymbolFilter, DataQuality, seconds_per_bar
@@ -19,7 +19,7 @@ from .indicators import closes
 from .portfolio import AccountState, ClosedTrade
 from .risk import evaluate
 from .strategies import StrategyParams, default_params
-from .strategy import Position, analyze, propose
+from .strategy import Position, Proposal, analyze, propose
 from datetime import timezone as _tz  # re-export guard
 
 
@@ -95,6 +95,7 @@ def run_backtest(
     warmup: int = 80,
     assumed_spread_pct: float = 0.05,
     params: StrategyParams | None = None,
+    propose_fn: Callable[..., Proposal] | None = None,
 ) -> BacktestResult:
     params = params or default_params()
     timeframe = timeframe or config.timeframe
@@ -121,7 +122,8 @@ def run_backtest(
         higher = select_closed_higher(higher_bars, decision_time, higher_step)
         snap = _snapshot(symbol, timeframe, window, higher[-200:] if len(higher) >= 60 else None, bars[index], filters, assumed_spread_pct, config.limits.stop_on_data_staleness_seconds)
         position = state.positions.get(symbol)
-        proposal = propose(snap, position, **{
+        signal = propose_fn or propose
+        proposal = signal(snap, position, **{
             "confidence_threshold": config.confidence_threshold,
             "require_multiple_signals": config.require_multiple_signals,
             "no_trade_if_signals_conflict": config.no_trade_if_signals_conflict,

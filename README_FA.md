@@ -52,6 +52,7 @@ python trader.py loop --cycles 6        # پیاپی
 python trader.py status                 # equity، موقعیت‌ها، سفارش‌ها، خطاهای پیاپی
 python trader.py report                 # گزارش روزانه در state/reports/
 python trader.py backtest --days 365    # بک‌تست روی داده‌ی واقعی
+python trader.py month-scan --days 30 --warmup 180 --timeframe 4h   # اسکن ۳۰ روزه‌ی ۴ استراتژی روی ۱۰۰ نماد + train/validation
 python tools/gate_a_backtest.py         # جدول شواهد دروازه‌ی A (چند پنجره)
 python trader.py verify-audit           # یکپارچگی زنجیره‌ی audit
 python trader.py stop                   # kill switch؛ resume برای برداشتن آن

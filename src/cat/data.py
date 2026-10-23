@@ -7,7 +7,7 @@ import threading
 import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from .http import DataError, HttpClient, utc_now
 
@@ -16,6 +16,9 @@ TIMEFRAMES = {
     "1h": (3600, "1h", "60m"),
     "4h": (14400, "4h", "4h"),
     "1d": (86400, "1d", "1d"),
+    # Weekly bars exist on both venues; TSE derives them from its daily history
+    # (Saturday-anchored) because no intraday series is published.
+    "1w": (604800, "1w", "1w"),
 }
 
 
@@ -298,8 +301,18 @@ def normalize_pair(symbol: str) -> str:
     return f"{parts[0]}_{parts[1]}"
 
 
-def validate_klines(bars: list[Kline], timeframe: str, now: float, staleness_limit: float) -> tuple[list[Kline], list[str]]:
-    """Return usable closed bars plus the problems found; problems fail the gate."""
+def validate_klines(
+    bars: list[Kline],
+    timeframe: str,
+    now: float,
+    staleness_limit: float,
+    gap_ok: Callable[[float, float], bool] | None = None,
+) -> tuple[list[Kline], list[str]]:
+    """Return usable closed bars plus the problems found; problems fail the gate.
+
+    ``gap_ok`` lets a session venue declare that a calendar gap is expected
+    (TSE closes Thursday/Friday). ``None`` keeps the strict 24/7 rule.
+    """
     warnings: list[str] = []
     step = seconds_per_bar(timeframe)
     if not bars:
@@ -319,8 +332,9 @@ def validate_klines(bars: list[Kline], timeframe: str, now: float, staleness_lim
 
     for index in range(1, len(usable)):
         if usable[index].open_time - usable[index - 1].open_time != step:
-            warnings.append("time_gap")
-            break
+            if gap_ok is None or not gap_ok(usable[index - 1].open_time, usable[index].open_time):
+                warnings.append("time_gap")
+                break
 
     newest_close = usable[-1].open_time + step
     age = now - newest_close
@@ -339,11 +353,21 @@ def fetch_snapshot(
     limit: int = 300,
     staleness_seconds: float = 120.0,
     max_price_disagreement_pct: float = 0.5,
+    staleness_reference_ts: float | None = None,
+    gap_ok: Callable[[float, float], bool] | None = None,
 ) -> MarketSnapshot:
+    """Collect and validate one instrument's data.
+
+    ``staleness_reference_ts`` exists for session venues (TSE closes at 12:30):
+    it is the newest instant at which new data could have arrived, so bars are
+    judged against the session clock instead of the wall clock. Left as ``None``
+    for 24/7 exchanges, which keeps the previous behaviour untouched.
+    """
     now = utc_now().timestamp()
+    reference = now if staleness_reference_ts is None else min(now, float(staleness_reference_ts))
     warnings: list[str] = []
     bars_raw = gate.klines(symbol, timeframe, limit)
-    usable, bar_warnings = validate_klines(bars_raw, timeframe, now, staleness_seconds)
+    usable, bar_warnings = validate_klines(bars_raw, timeframe, reference, staleness_seconds, gap_ok)
     warnings.extend(bar_warnings)
 
     quote = gate.quote(symbol)
@@ -352,12 +376,12 @@ def fetch_snapshot(
     if higher_timeframe:
         try:
             higher_raw = gate.klines(symbol, higher_timeframe, limit)
-            higher, higher_warnings = validate_klines(higher_raw, higher_timeframe, now, staleness_seconds)
+            higher, higher_warnings = validate_klines(higher_raw, higher_timeframe, reference, staleness_seconds, gap_ok)
             warnings.extend(f"higher_{w}" for w in higher_warnings)
         except DataUnavailable as exc:
             warnings.append(f"higher_timeframe_unavailable:{exc}")
 
-    quote_age = now - quote.ts
+    quote_age = reference - quote.ts
     if quote_age > staleness_seconds:
         warnings.append("stale_quote")
 
@@ -384,7 +408,7 @@ def fetch_snapshot(
         sources_agree=sources_agree,
     )
     return MarketSnapshot(
-        symbol=normalize_pair(symbol),
+        symbol=symbol_key(gate, symbol),
         timeframe=timeframe,
         klines=usable,
         higher_klines=higher,
@@ -394,3 +418,14 @@ def fetch_snapshot(
         quality=quality,
         fetched_at=now,
     )
+
+
+def symbol_key(provider: Any, symbol: str) -> str:
+    """Canonical id for a snapshot.
+
+    Crypto pairs keep ``normalize_pair``; a venue with its own instrument model
+    (TSE uses a numeric ``insCode``) supplies ``canonical_symbol`` on the
+    provider, so the allowlist comparison stays exact.
+    """
+    canonical = getattr(provider, "canonical_symbol", None)
+    return str(canonical(symbol)) if callable(canonical) else normalize_pair(symbol)

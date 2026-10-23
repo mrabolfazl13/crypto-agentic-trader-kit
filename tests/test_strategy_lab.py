@@ -1,0 +1,183 @@
+"""Offline tests for the alternative entry families and the month-scan aggregation."""
+
+from __future__ import annotations
+
+import math
+
+from conftest import make_snapshot
+
+from cat.month_scan import _breadth_wrapper, _pooled, breadth_at, breadth_series, render_report
+from cat.strategy_lab import LAB_STRATEGIES, propose_breakout, propose_momentum, propose_pullback
+
+
+def signal_kwargs(config, **overrides):
+    base = {
+        "confidence_threshold": config.confidence_threshold,
+        "require_multiple_signals": config.require_multiple_signals,
+        "no_trade_if_signals_conflict": config.no_trade_if_signals_conflict,
+        "min_reward_risk_ratio": config.limits.min_reward_risk_ratio,
+        "maker_fee_pct": config.maker_fee_pct,
+        "taker_fee_pct": config.taker_fee_pct,
+        "est_slippage_pct": config.limits.max_slippage_pct,
+    }
+    base.update(overrides)
+    return base
+
+
+def breakout_prices(n: int = 140) -> list[float]:
+    prices = [100.0 + index * 0.3 + 6.0 * math.sin(index / 4.0) for index in range(n)]
+    prior_high = max(price * 1.004 for price in prices[-31:-1])
+    prices[-1] = prior_high * 1.002
+    return prices
+
+
+def momentum_prices(n: int = 140) -> list[float]:
+    return [100.0 + index * 0.3 + 8.0 * math.sin(index / 4.0) for index in range(n)]
+
+
+def pullback_prices() -> list[float]:
+    prices = [100.0 + index * 0.6 + 3.0 * math.sin(index / 4.0) for index in range(110)]
+    last = prices[-1]
+    for _ in range(4):
+        last *= 0.98
+        prices.append(last)
+    prices.append(last * 1.02)
+    return prices
+
+
+def downtrend_prices(n: int = 140) -> list[float]:
+    return [200.0 - index * 0.6 + 4.0 * math.sin(index / 4.0) for index in range(n)]
+
+
+def test_breakout_enters_on_a_confirmed_breakout(config):
+    proposal = propose_breakout(make_snapshot(prices=breakout_prices()), None, **signal_kwargs(config))
+    assert proposal.action == "BUY"
+    assert proposal.stop < proposal.entry < proposal.target
+    assert proposal.confidence >= config.confidence_threshold
+
+
+def test_breakout_rejects_without_a_breakout(config):
+    proposal = propose_breakout(make_snapshot(prices=momentum_prices()), None, **signal_kwargs(config))
+    assert proposal.action == "NO_TRADE"
+    assert proposal.reason == "no_breakout"
+
+
+def test_momentum_enters_on_sustained_roc(config):
+    proposal = propose_momentum(make_snapshot(prices=momentum_prices()), None, **signal_kwargs(config))
+    assert proposal.action == "BUY"
+    assert proposal.stop < proposal.entry < proposal.target
+
+
+def test_pullback_enters_after_an_rsi_reset(config):
+    proposal = propose_pullback(make_snapshot(prices=pullback_prices()), None, **signal_kwargs(config))
+    assert proposal.action == "BUY"
+    assert proposal.stop < proposal.entry < proposal.target
+
+
+def test_every_family_refuses_a_downtrend(config):
+    snapshot = make_snapshot(prices=downtrend_prices())
+    for name in ("breakout_30", "momentum_20"):
+        proposal = LAB_STRATEGIES[name](snapshot, None, **signal_kwargs(config))
+        assert proposal.action == "NO_TRADE", name
+
+
+def test_confidence_ceiling_blocks_entries(config):
+    kwargs = signal_kwargs(config, confidence_threshold=0.99)
+    proposal = propose_breakout(make_snapshot(prices=breakout_prices()), None, **kwargs)
+    assert proposal.action == "NO_TRADE"
+    assert proposal.reason == "confidence"
+
+
+def test_pooled_summary_aggregates_pooled_trades_not_averaged_ratios():
+    rows = [
+        {"metrics": {"net_return_pct": 2.0, "net_pnl": 20.0, "max_drawdown_pct": 1.0, "fees_paid": 1.0},
+         "buy_hold_pct": 5.0,
+         "trades": [{"pnl": 10.0, "fees": 0.5, "reason": "target"}, {"pnl": -4.0, "fees": 0.5, "reason": "stop"}],
+         "rejected": {"regime_filter": 3}},
+        {"metrics": {"net_return_pct": -1.0, "net_pnl": -10.0, "max_drawdown_pct": 3.0, "fees_paid": 1.0},
+         "buy_hold_pct": -2.0,
+         "trades": [{"pnl": 6.0, "fees": 0.5, "reason": "target"}],
+         "rejected": {"regime_filter": 1, "no_breakout": 4}},
+    ]
+    summary = _pooled(rows)
+    assert summary["symbols"] == 2
+    assert summary["symbols_with_trades"] == 2
+    assert summary["trades"] == 3
+    assert summary["win_rate_pct"] == 66.67
+    assert summary["profit_factor"] == 4.0  # (10 + 6) / 4
+    assert summary["net_pnl_sum"] == 10.0
+    assert summary["mean_net_return_pct"] == 0.5
+    assert summary["positive_symbols_pct"] == 50.0
+    assert summary["beat_buy_hold_pct"] == 50.0
+    assert summary["rejected"]["no_breakout"] == 4
+
+
+def test_report_renders_without_fabricated_values():
+    scan = {
+        "meta": {
+            "source": "gate:spot/candlesticks", "coverage_end": 1_700_000_000,
+            "symbols_with_data": 0, "symbols_requested": 100, "generated_at": "2026-10-24T00:00:00+00:00",
+            "disclaimer": "historical only",
+        },
+        "strategies": {},
+        "latest": {},
+    }
+    text = render_report(scan)
+    assert "اسکن ۳۰ روزه" in text
+    assert "1.3" not in text  # no invented percentages anywhere
+
+
+STEP = 3600
+START = 1_700_000_000
+
+
+def _breadth_data(ups: int, downs: int, n: int = 80) -> dict:
+    symbols = {}
+    for index in range(ups):
+        prices = [100.0 * (1 + 0.005 * step) for step in range(n)]
+        symbols[f"UP{index}_USDT"] = {"bars": [[START + step * STEP, p, p, p, p, 1.0, 100.0, True] for step, p in enumerate(prices)]}
+    for index in range(downs):
+        prices = [100.0 * (1 - 0.005 * step) for step in range(n)]
+        symbols[f"DN{index}_USDT"] = {"bars": [[START + step * STEP, p, p, p, p, 1.0, 100.0, True] for step, p in enumerate(prices)]}
+    return symbols
+
+
+def test_breadth_series_counts_symbols_above_their_own_ema50():
+    data = _breadth_data(ups=8, downs=2)
+    series = breadth_series(data, list(data), STEP)
+    assert series == sorted(series)
+    assert series[-1][1] == 0.8
+    assert series[-1][0] == START + 79 * STEP + STEP
+
+
+def test_breadth_at_returns_the_latest_snapshot_not_a_future_one():
+    data = _breadth_data(ups=5, downs=5)
+    series = breadth_series(data, list(data), STEP)
+    assert series
+    assert breadth_at(series, series[0][0]) == series[0][1]
+    assert breadth_at(series, series[-1][0] + 10) == series[-1][1]
+    assert breadth_at(series, series[0][0] - 1) is None
+    assert breadth_at([], 1_000) is None
+
+
+def test_breadth_gate_blocks_entries_when_the_market_is_weak(config):
+    data = _breadth_data(ups=2, downs=8)
+    series = breadth_series(data, list(data), STEP)
+    last_stamp = series[-1][0]
+    wrapped = _breadth_wrapper(LAB_STRATEGIES["momentum_20"], series, 0.5)
+    snapshot = make_snapshot(prices=momentum_prices(), now=last_stamp)
+    blocked = wrapped(snapshot, None, **signal_kwargs(config))
+    assert blocked.action == "NO_TRADE"
+    assert blocked.reason == "market_breadth"
+
+    strong_data = _breadth_data(ups=10, downs=0)
+    strong = _breadth_wrapper(LAB_STRATEGIES["momentum_20"], breadth_series(strong_data, list(strong_data), STEP), 0.5)
+    allowed = strong(snapshot, None, **signal_kwargs(config))
+    assert allowed.action == "BUY"
+
+
+def test_breadth_gate_fails_closed_without_a_snapshot(config):
+    wrapped = _breadth_wrapper(LAB_STRATEGIES["momentum_20"], [], 0.5)
+    proposal = wrapped(make_snapshot(prices=momentum_prices()), None, **signal_kwargs(config))
+    assert proposal.action == "NO_TRADE"
+    assert proposal.reason == "market_breadth_unavailable"

@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import requests
@@ -27,6 +28,7 @@ class HttpClient:
     timeout: float = 15.0
     max_attempts: int = 3
     backoff: float = 1.5
+    headers: dict[str, str] | None = None
 
     def _proxies(self) -> dict[str, str] | None:
         if not self.proxy:
@@ -37,7 +39,9 @@ class HttpClient:
         last_error: Exception | None = None
         for attempt in range(1, self.max_attempts + 1):
             try:
-                response = requests.get(url, params=params, proxies=self._proxies(), timeout=self.timeout)
+                response = requests.get(
+                    url, params=params, proxies=self._proxies(), headers=self.headers, timeout=self.timeout
+                )
                 if response.status_code == 429 or response.status_code >= 500:
                     raise DataError(f"rate limited/server error {response.status_code} for {url}")
                 if 400 <= response.status_code < 500:
@@ -51,6 +55,29 @@ class HttpClient:
                 if attempt < self.max_attempts:
                     time.sleep(self.backoff * attempt)
         raise DataError(f"request failed after {self.max_attempts} attempts: {url} ({last_error})")
+
+    def date_header_epoch(self, url: str) -> float | None:
+        """Server clock from the HTTP ``Date`` header, for venues with no time endpoint.
+
+        Returns ``None`` instead of raising: the caller must fail closed (a clock
+        we cannot check is a clock we may not trust), and 1-second header
+        resolution is still a real measurement rather than an assumption.
+        """
+        try:
+            response = requests.get(
+                url, proxies=self._proxies(), headers=self.headers, timeout=self.timeout, stream=True
+            )
+        except requests.RequestException:
+            return None
+        try:
+            raw = response.headers.get("Date")
+            if not raw:
+                return None
+            return parsedate_to_datetime(raw).timestamp()
+        except (TypeError, ValueError):
+            return None
+        finally:
+            response.close()
 
 
 def utc_now() -> datetime:

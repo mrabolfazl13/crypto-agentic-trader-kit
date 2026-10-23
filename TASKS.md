@@ -1,9 +1,98 @@
 # TASKS
 
 معیار پذیرش هر آیتم: کد قابل‌اجرا + تست سبز + شواهد اندازه‌گیری‌شده. بدون «طرح» به‌عنوان خروجی نهایی.
-وضعیت تا 2026-10-23 — مجموعه‌ی تست: **۱۴۲ passed** (`python -m pytest -q`).
+وضعیت تا 2026-10-24 — مجموعه‌ی تست: **۱۸۱ passed** (`python -m pytest -q`: ۱۵۴ کریپتو + ۲۷ بورس).
+
+---
+
+# فاز بورس ایران (TSE) — ماژولار، بدون آسیب به مسیر کریپتو
+
+این بخش **تنها مرجع** کار بورس است: قرارداد کشف‌شده، تصمیم‌ها، وضعیت فایل‌به‌فایل و کارهای باقی‌مانده. به‌روز می‌شود تا فاز بسته شود.
+معیار سخت: هیچ تست کریپتویی (۱۵۴) نباید بشکند و هیچ رفتار مسیر `market: crypto` نباید تغییر کند.
+
+## ۰) قرارداد داده‌ی TSETMC — کشف و تأیید با اجرای واقعی (نه حدس)
+ماشین به اینترنت داخلی دسترسی مستقیم دارد (بدون پروکسی). نتایج آزمون‌های انجام‌شده:
+- `www.tsetmc.com/tsev2/data/*.aspx` و `Loader.aspx` **مرده‌اند**: SPA shell (۸۲۴ بایت، `text/html`) برمی‌گردانند.
+- `api.tsetmc.com` فقط بنر `Api Serivce For tsetmc.com v:151` می‌دهد؛ همه‌ی route حدسی 404.
+- **منبع کارکرد: `https://cdn.tsetmc.com/api`** — با User-Agent مرورگر JSON می‌دهد؛ با UA پیش‌فرضِ python همان shell را می‌دهد (به همین دلیل `HttpClient.headers` و `TseProvider.USER_AGENT` لازم است).
+
+| endpoint | پاسخ واقعی (ثبت‌شده) | استفاده |
+|---|---|---|
+| `GET /api/ClosingPrice/GetMarketWatch?market=0&paperTypes[0]=1&withBestLimits=false&hEven=0&RefID=0` | `{"marketwatch":[…]}` — **۱۰۱۷ ابزار**؛ کلیدها: `insCode insID lva lvc py pf pcl pdv pmd pmo pmn pmx pMin pMax qtj qtc ztt bv pe csv ztd blDs` | universe، bid/ask (`pmd/pmo`)، دامنه‌ی مجاز روز (`pMin/pMax`)، حجم مبنا (`bv`) |
+| `GET /api/ClosingPrice/GetClosingPriceDailyList/{insCode}/{top}` | `{"closingPriceDaily":[…]}` — `top=1000` واقعی تا `20220820`؛ `priceFirst priceMax priceMin pClosing pDrCotVal qTotTran5J qTotCap zTotTran dEven hEven yClose iClose priceYesterday priceChange` | کندل روزانه: open=`priceFirst`، high=`priceMax`، low=`priceMin`، close=`pClosing` |
+| `GET /api/BestLimits/{insCode}` | `{"bestLimits":[…]}` — `pMeDem/pMeOf + qTitMeDem/qTitMeOf + zOrdMe*` | عمق سفارش برای داشبورد |
+| `GET /api/ClosingPrice/GetClosingPriceInfo/{insCode}` | `closingPriceInfo` + `instrumentState.cEtavalTitle: "مجاز"` | وضعیت ابزار/آخرین به‌روزرسانی |
+| `GET /api/MarketData/GetMarketOverview/{flow}` | `indexLastValue 67443.70 / 817367376…`, `marketStateTitle: "بسته"`, `marketActivityDEven 20261021` | وضعیت بازار و شاخص (flow 1=بورس، 2=فرابورس) |
+| `GET /api/Instrument/GetInstrumentSearch/{query}?instrumentType[0]=1&…` | `{"instrumentSearch":[…]}` با `insCode lVal18AFC lVal30 flow cgrValCot` | جست‌وجوی نماد (فارسی URL-encode) |
+
+شواهد خام در `tests/fixtures/tse_*.json` ذخیره شد (marketwatch بورس، daily/٣۰ روزه‌ی فولاد مبارکه، bestLimits، marketOverview).
+
+**استخراج تقویم از خود داده:** تاریخ‌های `dEven` پشت‌سرهم `20261017,18,19,20,21` و بعد `20261014` — یعنی شنبه تا چهارشنبه جلسه دارد و پنجشنبه/جمعه نه. `hEven` آخرین معاملات `122959`/`123002` → پایان دادوستد پیوسته ۱۲:۳۰. (`marketActivityHEven=180933` زمان گزارش است، نه جلسه — در کد استفاده نشده.)
+
+## ۱) تصمیم‌های معماری (چرا این‌شکل، تا کریپتو لطمه نبیند)
+- [x] **مرکز ثقل = registry، نه fork**: `src/cat/markets/` با `MarketSpec` (provider/cross/clock/freshness/allowlist). مسیر فعلی کریپتو فقط یک spec نازک است که به `GateProvider`/`MexcCrossCheck`/همان URL ساعت delegate می‌کند — بدون بازنویسی منطق.
+- [x] **`canonical_symbol` اختیاری (duck-typed)**: `fetch_snapshot` به‌جای `normalize_pair(symbol)` از `getattr(gate,"canonical_symbol",normalize_pair)` استفاده می‌کند. کریپتو این متد را ندارد → دقیقاً رفتار قبلی؛ بورس کد عددی `insCode` را canonical می‌کند (تیکر ۴ حرفی فارسی فقط alias).
+- [x] **تازگی داده جلسه‌محور**: مشکل واقعی — با منطق ۲۴/۷، هر اسنپ‌شات بورس در شب `stale_klines`/`stale_quote` می‌خورد و کل سیستم عملاً خاموش می‌شد. راه‌حل: `staleness_reference_ts` اختیاری در `validate_klines`/`fetch_snapshot` (پیش‌فرض `None` = ساعت واقعی = تغییرناپذیر برای کریپتو) و `calendar.staleness_reference()` که ساعت تازگی را در پایان آخرین جلسه نگه می‌دارد.
+- [x] **کارمزد/tick ساختگی نیست**: گام قیمت از جدول حدسی نمی‌آید؛ از `pMin/pMax` خود صرافی و `price_precision=0` (ریال صحیح) استفاده می‌شود. `LOT_SIZE=100` به‌عنوان قانون تالار با کامنت «با کارگزار تأیید شود». `min_quote/max_quote = 0` (چنین سقفی از TSETMC منتشر نشده).
+- [x] **cross-check صادقانه**: بورس منبع دوم مستقل ندارد → `cross=None` و هشدار `single_source_tsetmc` روی هر snapshot (نه یک منبع جعلی).
+- [x] **clock**: TSETMC endpoint زمان ندارد → `HttpClient.date_header_epoch()` از هدر `Date` خود CDN (رکور واقعی، دقت ۱ ثانیه).
+- [x] **کارایی**: یک `GetMarketWatch` کل بورد را با TTL ۲۰s کش می‌کند → سیکل ۱۰۰ نمادی بورس چند درخواست است نه چندصد؛ `klines` هم per-symbol کش دارد.
+- [x] **UI**: مسیر و صفحه‌ی جدا (`/tse`) با client جدا (`web/src/api/tseClient.ts`)؛ صفحات فعلی دست‌نخورده.
+- [ ] **live**: برای بورس هم هیچ مسیر اجرا زنده‌ای ساخته نمی‌شود (بدون API رسمی کارگزار؛ فقط تحلیل/بک‌تست/Paper).
+
+## ۲) وضعیت فایل‌ها
+### بک‌اند
+- [x] `src/cat/markets/calendar.py` — تقویم Tehran (شنبه–چهارشنبه، ۰۹:۰۰–۱۲:۳۰)، `last_session_close`، `next_session_open`، `phase()`، `staleness_reference()`
+- [x] `src/cat/markets/base.py` — `MarketSpec` + registry (`register/get_spec/names/describe`)
+- [x] `src/cat/markets/crypto.py` — spec کریپتو روی همان کلاس‌های قبلی (رفتار قبلی، بدون تغییر)
+- [x] `src/cat/markets/tse.py` — `TseProvider` (watch/quote/book/closing_info/klines/klines_range/filters/price_band/market_state/server_time/search) + `InstrumentIndex` از `universe_tse.json`
+- [x] `src/cat/markets/__init__.py` — export registry
+- [x] `src/cat/http.py` — `headers` روی `HttpClient`، `date_header_epoch()`
+- [x] `src/cat/data.py` — hook های `canonical_symbol`، `staleness_reference_ts` و `gap_ok`
+- [x] `src/cat/config.py` — `trading.market` (پیش‌فرض `crypto`) + بخش `markets:` + allowlist/fee از بورس + warning برای تایم‌فریم نامعتبر
+- [x] `src/cat/engine.py` — provider/cross/clock از spec + `spec.freshness_reference` + `spec.gap_is_expected`
+- [x] `src/cat/api.py` — route های فقط‌خواندنی `/api/v1/tse/*` با `provenance`
+- [x] `tools/build_tse_universe.py` + `universe_tse.json` — ۵۰۰ سهم عادی، snapshot/digest/منبع، حذف ۴۱۶ ردیف غیرعادی
+- [x] `config.tse.example.yaml` — پیکربندی Paper بورس (timeframe 1d، `max_spread_pct 3.0`، تازگی ۴ روزه، بودجه‌ی ریالی)
+
+### تست (۱۵۴ تست قبلی سبز ماند؛ کل مجموعه ۱۸۱)
+- [x] `tests/test_markets_tse.py` — ۱۵ تست آفلاین با fixtureهای ضبط‌شده: mapping فیلدها، canonical symbol، book، band، timeframe نامعتبر → `DataUnavailable`، single-source، تقویم، لنگر شنبه، نقل‌قول جلسه‌محور
+- [x] `tests/test_tse_freshness.py` — ۴ تست: snapshot بورس در شب/آخر هفته stale **نیست**، کریپتو همچنان stale می‌شود، شکاف واقعی جلسه هنوز `time_gap` است
+- [x] `tests/test_tse_safety.py` — ۸ تست: با `market: tse` هیچ مسیر LIVE نیست، `LIVE` به PAPER برمی‌گردد، short/margin/leverage خاموش، allowlist/universe اجباری، API فقط GET، kill switch موجود
+- [x] `pytest -q` کل مجموعه → **181 passed**
+
+### UI
+- [x] `web/src/api/tseClient.ts` — تایپ‌ها + fetch مسیرهای بورس
+- [x] `web/src/pages/tse/TseMarket.tsx` — وضعیت بازار/شاخص، جدول universe با جستجو، کندل+عمق، band روز، برچسب منبع
+- [x] `web/src/nav.ts` + `web/src/App.tsx` — آیتم «بورس ایران» و route (فقط افزودن)
+- [x] `npx tsc --noEmit` صفر خطا + `vite build` موفق
+- [ ] رندر واقعی `/tse` در Edge هدلس (دسکتاپ و موبایل) — انجام نشده
+
+### مستندات
+- [x] `docs/TSE_MARKET_FA.md` — قرارداد endpointها، محدودیت‌ها (بدون منبع دوم، بدون API رسمی سفارش، lot/tick)، نحوه‌ی تولید universe
+- [x] به‌روزرسانی `docs/API_CONTRACT_FA.md` (بخش `/tse/*`) و `CURRENT_STATE.md`
+
+## ۳) بازمانده و ریسک‌های_known_
+- spread تابلوی بورس اغلب ۰.۲–۱٪ است؛ با `max_spread_pct: 0.30` پیش‌فرض، بیشتر نمادها رد می‌شوند (دروازه‌ی درست، اما config بورس باید آستانه را مستند و بازتعریف کند).
+- تأیید `top` آستانه‌ی daily: ۱۰۰۰ رکورد تا ۲۰۲۲-۰۸-۲۰ واقعی؛ قدیمی‌تر نیازمند pagination است (هنوز پیاده نشده).
+- حقوق تقدم/اوراق/صندوق: snapshot ۱۰۱۷ ردیفی شامل ۴۱۶ ردیف غیرعادی است و `paperTypes` آن‌ها را حذف نمی‌کرد → فیلتر ISIN (`IRO1/IRO3/IRO5/IRO7` + سریال `0001/0011`) در builder اعمال شد.
+- کارمزد واقعی هر حساب با کارگزار فرق می‌کند → مقدار پیش‌فرض `0.325%` در `config.tse.example.yaml` با برچسب «تأییدنشده» آمده است.
+- بک‌تست بورس (`backtest.py`/`month_scan.py`) هنوز `GateProvider` را مستقیم صدا می‌زند؛ اتصال کامل بک‌تست به spec یک مرحله‌ی جداست.
+- تاریخ نقل‌قول `marketwatch` همیشه `dEven=0` است → timestamp از `marketActivityDEven` جلسه گرفته می‌شود؛ fallback ساعت دیوار حذف شد.
+- `week_anchor` یک روز خطا داشت (یکشنبه) → اکنون شنبه‌محور است و تست تجمیع هفتگی آن را ثابت می‌کند.
+
+## ۴) مرزهای ایمنی این فاز
+- پیش‌فرض `trading.market: crypto` و `mode: PAPER` باقی می‌ماند؛ هیچ فایل موجودی که کریپتو را می‌خواند حذف/بازنویسی نمی‌شود.
+- هیچ route یا دکمه‌ای برای بورس نمی‌تواند سفارش زنده بسازد؛ هیچ اعتبارنامه‌ی کارگزاری/رمز عبور ذخیره یا درخواست نمی‌شود.
+- هیچ عدد ساختگی (کارمزد، گام قیمت، قیمت) تولید نمی‌شود؛ نبود داده = `null` + پیام صریح.
+
+## ۵) تسک‌های ردیابی‌شده در جلسه
+`#1` کشف قرارداد داده — **انجام شد** · `#2` لایه‌ی markets بک‌اند — **انجام شد** · `#3` صفحه‌ی UI بورس — **build شد، رندر مرورگری باقی** · `#4` تست و عدم‌رگرسیون — **۱۸۱ سبز**
+
+---
 
 ## فاز جهان ۱۰۰ نمادی و نمودار زنده (2026-10-23)
+
 - [x] `tools/build_universe.py`: رتبه‌بندی واقعی CoinGecko (`market_cap_desc`) + تطبیق با جفت‌های tradable گیت، حذف استیبل‌کوین/طلا/نسخه‌های رپ‌شده، نوشتن `universe.json` با منبع و digest. نتیجه: **۱۰۰ نماد**، ۳۰ حذف‌شده، digest `65f5f4cb…`، snapshot `2026-10-23T20:39:25Z`؛ `config.yaml` با جراحی regex و بدون آسیب به کامنت‌ها به‌روزرسانی شد
 - [x] موتور مقیاس‌پذیر برای ۱۰۰ نماد: `ThreadPoolExecutor` با سقف `data.max_concurrency=4`، کش فیلترهای نماد با TTL 3600s، ترتیب نتیجه‌ها همان ترتیب allowlist، و قرنطینه‌ی نماد خراب بدون مصرف بودجه‌ی خطای حساب (`test_one_dead_symbol_is_quarantined_without_halting_the_account`)
 - [x] چرخه‌ی واقعی ۱۰۰ نمادی (اجرا‌شده، نه ادعا): ۱۰۰ outcome، یک BUY واقعی `BNB_USDT` (۰.۰۶۷ @ ۷۴۲.۶، کارمزد ۰.۰۴۹۸)، `safe_state=false`، صفر خطا، ۵m۳۹s؛ چرخه‌ی دوم: `HOLD` روی BNB، بدون سفارش تکراری، صفر خطا، ۴m۴۴s (کش فیلترها)

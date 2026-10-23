@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-به‌روزرسانی: 2026-10-23T21:25Z (UTC) — جهان معاملاتی ۱۰۰ نمادی، نمودار کندل زنده برای همه‌ی نمادها، فهرست تصمیم‌ها با اسکرول داخلی و سقف `/decisions`؛ **۱۴۲ تست سبز**.
+به‌روزرسانی: 2026-10-24 (UTC) — فاز بورس تهران: universe واقعی ۵۰۰ سهم، adapter خواندنی TSETMC، تقویم جلسه‌محور، صفحه‌ی `/tse` و **۱۸۱ تست سبز** (۱۵۴ کریپتو + ۲۷ بورس).
 
 ## لایه‌هایی که الان کار می‌کنند (راستی‌آزمایی‌شده با اجرا)
 | لایه | وضعیت | شواهد (همه اجراشده، نه ادعا) |
@@ -10,7 +10,7 @@
 | نمایش جهان در UI/API | سبز | `GET /api/v1/universe` منبع و snapshot را برمی‌گرداند؛ کارت «جهان معاملاتی» در داشبورد تعداد/منبع/digest را نشان می‌دهد؛ `GET /config` شمارش را تأیید می‌کند |
 | موتور روی ۱۰۰ نماد | سبز | چرخه‌ی paper واقعی: **۱۰۰ outcome، ۰ خطا**، ۵m39s؛ یک BUY: BNB_USDT ۰٫۰۶۷ @ 742.6، کارمزد 0.049754، stop 731.959819، target 767.427089، equity ≈ 999.95؛ چرخه‌ی دوم ۴m44s → HOLD، بدون سفارش تکراری، ۰ خطا؛ `max_concurrency: 4` |
 | اعتبارسنجی داده | سبز | `tests/test_datasets.py` (۲۰ تست آفلاین) + `python trader.py quality --dataset …` روی داده‌ی واقعی |
-| استراتژی + Risk Gate قطعی | سبز | **۱۴۲ تست آفلاین سبز** (`pytest -q` → `142 passed`)؛ شامل رگرسیون تاریخچه‌ی کوتاه (EMA خالی) |
+| استراتژی + Risk Gate قطعی | سبز | **۱۸۱ تست آفلاین سبز** (`pytest -q` → `181 passed`)؛ ۱۵۴ تست کریپتو بدون تغییر + ۲۷ تست بورس (mapping/تقویم/freshness/safety) |
 | بک‌تست رویدادمحور | سبز | `POST /api/v1/runs/backtest` روی ۳۶۵ روز واقعی BTC → `run-6cbbd7a9b577`: ۲۳ معامله، خالص `−1.848%`، PF `0.203`، DD `1.85%` |
 | موتور تحقیق (ضد overfit) | سبز | `python trader.py research … --grid "ema_fast=15,20;atr_stop_mult=1.5,2.5"` → split 1314/438/438، **REJECTED**؛ champion حفظ شد |
 | walk-forward از API | سبز | `POST /runs/walk-forward` با `dataset_id` + ۴۰۰ روز واقعی → ۲۰۰ OK؛ «rejected» (۰ از ۲ پنجره سودآور، PF 0.298)، ۱۲ معامله‌ی OOS، `risk_limits_untouched: true` |
@@ -19,11 +19,12 @@
 | Store (SQLite) | سبز | `state/platform.sqlite3`: datasets 3 / bars 6780 / runs 7 / decisions 226 / orders 1 / fills 1 / portfolio_snapshots 16 / strategy_versions 2 |
 | Mirror رویدادها | سبز | چرخه‌ی CLI و `POST /cycles/paper` از یک مسیر (`src/cat/mirror.py`) می‌نویسند؛ dedupe روی کلید طبیعی |
 | کندل زنده‌ی بازار | سبز (این مرحله) | `GET /api/v1/market/candles?symbol=SOL_USDT&timeframe=4h&limit=180` → ۱۸۰ کندل، ۱۷۹ بسته، `source gate:SOL_USDT:4h`، window `2026-09-24 → 2026-10-23`؛ allowlist خارج از جهان → 404؛ timeframe نامعتبر → 400؛ صرافی در دسترس نیست → 503؛ کش ۲۰ ثانیه‌ای درون‌فرآیندی |
+| بورس تهران (TSE) | سبز | `universe_tse.json`: ۵۰۰ سهم عادی از ۱۰۱۷ ردیف تابلو (digest `4600d16a…`)؛ `quote()` زنده‌ی فولاد با `ts=2026-10-21T09:00:02Z`؛ مسیرهای `/tse/market`، `/tse/instruments`، `/tse/instrument` و `/tse/book` فقط‌خواندنی با `single_source=true`؛ صفحه‌ی `/tse` build شده (رندر مرورگری هنوز نه) |
 | نمودار همه‌ی نمادها | سبز (این مرحله) | کارت بازار به `getUniverse` وصل شد: **۱۰۰ گزینه** در انتخابگر (جستجو + select)، پیش‌فرض BTC_USDT، نمودار پس از انتخاب SOL با ۱۷۹ مستطیل کندل در Edge هدلس رندر شد؛ صفر خطای کنسول |
 | فهرست تصمیم‌ها با اسکرول | سبز (این مرحله) | `/decisions?limit=50` → دقیقاً ۵۰ رکورد؛ کادر `.feed-scroll` با ارتفاع 46vh، اسکرول‌بار مرئی و `tabIndex=0`؛ اندازه‌گیری: viewport ۴۱۲px / content ۲۷۰۶px، چرخ ماوس ۰→۳۲۰ بدون جابه‌جایی کل صفحه؛ ارتفاع کل صفحه از ۷۳۷۶px به ۲۲۸۸px رسید |
 | نشانی کش پوسته | سبز | `SpaStaticFiles`: shell → `no-store, must-revalidate`؛ asset هش‌دار → `immutable` (رفع پوسته‌ی کهنه پس از deploy) |
 | API محلی | سبز | سرور واقعی روی `127.0.0.1:8177`؛ health/config/portfolio/runs/datasets/bars/analysis/risk/logs/reports/universe/market-candles + import/fetch/backtest/walk-forward/cycle/kill-switch |
-| داشبورد (Vite+React+TS) | سبز (build + رندر) | ۱۳ صفحه؛ `npx tsc --noEmit` صفر خطا؛ `vite build` موفق؛ مسیرها در Edge هدلس PASS (RTL/fa، صفر خطای کنسول/شبکه، ۳ مسیر موبایل ۳۹۰×۸۴۴) |
+| داشبورد (Vite+React+TS) | سبز (build + رندر) | ۱۴ صفحه (شامل `/tse`)؛ `npx tsc --noEmit` صفر خطا؛ `vite build` موفق؛ ۱۳ مسیر قبلی در Edge هدلس PASS؛ رندر `/tse` هنوز بررسی نشده |
 | CI | push شد | مخزن خصوصی `mrabolfazl13/crypto-agentic-trader-kit`؛ workflow: pytest + دروازه‌ی LIVE + audit + tsc + build؛ وضعیت اجرا از این ماشین قابل‌مشاهده نیست (بدون gh/Actions tools) |
 
 ## مسیرهای رفع‌شده در این مرحله
@@ -34,11 +35,17 @@
 - اسکرول نامرئی بود → کادر مرزدار با پس‌زمینه‌ی متمایز، اسکرول‌بار ضخیم‌تر و فوکوس‌پذیر + هدر `no-store` برای پوسته.
 - نمودار فقط از datasetهای ذخیره‌شده می‌خواند (عملاً BTC) → endpoint زنده‌ی `/market/candles` روی allowlist جهان و اتصال کارت بازار به `getUniverse`؛ حالا هر ۱۰۰ نماد انتخاب‌شدنی‌اند.
 - deep-linkهای SPA از API 404 می‌گرفتند → `SpaStaticFiles` با fallback به shell؛ assetهای گم‌شده همچنان 404.
+- تاریخ نقل‌قول TSETMC در `marketwatch` همیشه `dEven=0` بود و adapter ساعت دیوار را جای آن می‌گذاشت → timestamp از `marketActivityDEven` جلسه گرفته می‌شود و در نبودش `DataUnavailable` است.
+- لنگر هفته‌ی بورس یک روز خطا داشت (یکشنبه به‌جای شنبه) → `week_anchor` اصلاح شد؛ تست تجمیع هفتگی اکنون شنبه‌محور بودن را ثابت می‌کند.
+- `time_gap` در تعطیلی پنجشنبه/جمعه و آخر هفته false positive بود → `MarketSpec.gap_is_expected` + `calendar.bar_gap_ok`؛ مسیر کریپتو بدون تغییر.
+- فیلتر `paperTypes` حق تقدم/صندوق را حذف نمی‌کرد → universe با ISIN `IRO1/IRO3/IRO5/IRO7` و سریال `0001/0011` فقط سهام عادی را نگه می‌دارد (۴۱۶ ردیف غیرعادی حذف شد).
 
 ## باقی‌مانده
 - تست یکپارچگی end-to-end با زنجیره‌ی کامل API.
 - paper چندروزه برای دروازه‌ی B.
 - بررسی واکنش‌گرایی جدول‌های بک‌تست در موبایل (خارج از این مرحله).
+- بک‌تست/اسکن ماهانه‌ی بورس هنوز به spec وصل نیست و `GateProvider` را مستقیم صدا می‌زند.
+- راستی‌آزمایی رندر صفحه‌ی `/tse` در Edge هدلس (دسکتاپ و موبایل) انجام نشده است.
 
 ## مرزهای ایمنی که دست‌نخورده می‌مانند
 - پیش‌فرض و حالت فعلی: `PAPER`. `live_trading_enabled: false`. هیچ adapter زنده‌ای وجود ندارد و هیچ route یا دکمه‌ای LIVE را فعال نمی‌کند (تست: «no path contains live»).
@@ -59,3 +66,28 @@
 - دروازه‌ی B (paper): در حال جمع‌آوری — چرخه‌ها ثبت و پس از restart بازیابی می‌شوند؛ برای «چند روز متوالی» هنوز شواهد کامل نیست.
 - دروازه‌ی C (امنیت): تست‌های secrets/redaction و زنجیره‌ی ممیزی سبز.
 - دروازه‌ی D (live): عمداً غیرقابل‌دسترس.
+
+## تحویل کار — اسکن ماهانه‌ی چند استراتژی (۲۰۲۶-۱۰-۲۴)
+
+**چه چیزی اضافه شد**
+- `src/cat/strategy_lab.py`: سه خانواده‌ی ورود جدید (`breakout_30`، `momentum_20`، `pullback_rsi`) با همان قرارداد `Proposal`؛ خروج و مدیریت موقعیت به استراتژی پایه delegate می‌شود تا مقایسه، خروج را قاطی نکند.
+- `src/cat/month_scan.py`: اسکن read-only روی جهان تأییدشده؛ کندل ۴ ساعتی + تأیید روزانه، تقسیم train/validation، آمار pooled، فاز بهبود با انتخاب روی train و داوری یک‌باره روی validation، فیلتر وسعت بازار (breadth)، گزارش فارسی.
+- CLI: `python trader.py month-scan --days 30 --warmup 180 --timeframe 4h` (سابقه: `--refresh`، `--no-improve`، `--strategies`، `--out`).
+- `docs/SCENARIO_FA.md`: سناریوی کلی خرید/فروش + شرایط «معامله نکن» + اعداد اندازه‌گیری‌شده.
+- تست: `tests/test_strategy_lab.py` (۱۲ تست: ورود هر خانواده، رد روند نزولی، سقف اطمینان، تجمیع pooled، رندر گزارش بدون عدد ساختگی، breadth series/at/gate/fail-closed). کل مجموعه: **۱۸۱ passed**.
+
+**نتیجه‌ی اندازه‌گیری (۹۸ نماد، ۳۰ روز تا ۲۰۲۶-۱۰-۲۳ ۲۰:۰۰Z)**
+- `momentum_20` بهترین حجم معامله را داشت: train ۲۵۲ معامله/PF ۰٫۷۳۳/میانگین −۰٫۱۵٪ → validation ۹۸ معامله/PF ۰٫۴۷۶/میانگین −۰٫۱۲٪.
+- `breakout_30`: train ۱۰۴/PF ۰٫۷۰ → validation ۲۶/PF ۰٫۳۳۵.
+- `trend_v1`: validation صفر معامله (رژیم نزولی؛ `regime_filter`).
+- `pullback_rsi`: تنها خانواده‌ی مثبت اما با نمونه‌ی ناچیز (train ۱۵ معامله +۰٫۰۰٪، validation ۲ معامله).
+- بهبود انتخابی روی train (`momentum_20:stop2_target4`: ۱۹۱ معامله/PF ۰٫۸۶) روی validation تکرار نشد (۸۳ معامله/PF ۰٫۵۲).
+- زمینه: میانه‌ی بازده نمادها ۵٫۴۲٪−، فقط ۳۵ از ۹۸ نماد مثبت → long-only در بازار نزولی می‌بازد.
+- **داوری: هیچ edge اثبات‌شده‌ای در این نمونه وجود ندارد؛ LIVE توجیه ندارد.**
+
+**باقی‌مانده (برای نفر بعدی)**
+1. اندازه‌گیری کامل کاندیدهای breadth: پیاده‌سازی و تست شده، اما اجرای کامل فاز بهبود تمام نشد (اجرا کند است: ~۲–۳ دقیقه برای هر کاندید × ۹۸ نماد). شاهد جزئی ثبت‌شده: `momentum_20:breadth50` روی train = ۲۳۶ معامله، PF ۰٫۷۴۵، میانگین −۰٫۱۳۴٪ (در برابر پایه ۲۵۲/PF ۰٫۷۳۳/−۰٫۱۴۹٪). فرمان: `python trader.py month-scan --days 30 --warmup 180 --timeframe 4h`؛ کش کندل‌ها در `state/research/scan_4h_60d.json` است و دوباره دانلود نمی‌شود.
+2. اتصال `month_scan.py`/`backtest.py` به registry بازار (همان بدهی ثبت‌شده در `TASKS.md` برای بورس).
+3. paper چندروزه برای دروازه‌ی B و تست یکپارچگی end-to-end.
+
+**مرزهای ایمنی:** بدون تغییر — `PAPER`، `live_trading_enabled: false`، هیچ adapter زنده، هیچ endpoint برای افزایش سقف ریسک یا بودجه، kill switch فعال. `month-scan` فقط می‌خواند و گزارش می‌نویسد؛ هیچ سفارشی نمی‌سازد.

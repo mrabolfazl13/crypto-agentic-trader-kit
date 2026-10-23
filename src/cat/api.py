@@ -31,9 +31,10 @@ from pydantic import BaseModel, Field
 
 from .backtest import run_backtest
 from .config import Config, ConfigError, config_digest, load_config
-from .data import TIMEFRAMES, DataError, DataUnavailable, Kline
+from .data import DataError, DataUnavailable, Kline
 from .engine import Engine
 from .http import HttpClient
+from .markets import calendar as tse_calendar
 from .mirror import mirror_cycle
 from .portfolio import load_state
 from .report import DISCLAIMER, audit_day
@@ -110,19 +111,38 @@ def _normalize_symbol(symbol: str) -> str:
 _CANDLES_TTL = 20.0
 _candles_lock = threading.Lock()
 _candles_cache: dict[tuple[str, str, str, int], tuple[float, list[Kline], str]] = {}
-_gate_providers: dict[str, Any] = {}
+_providers: dict[str, Any] = {}
 
 
 def _gate_provider(config: Config):
-    from .data import GateProvider
+    """The cached data provider for this workspace — built from the market spec.
 
+    ``gate`` is the historical name of the primary provider slot; for
+    ``trading.market: tse`` it is a TSETMC provider with the venue's own headers.
+    """
     key = str(config.root)
     with _candles_lock:
-        provider = _gate_providers.get(key)
+        provider = _providers.get(key)
         if provider is None:
-            provider = GateProvider(HttpClient(proxy=config.proxy), filters_ttl_seconds=config.filters_cache_seconds)
-            _gate_providers[key] = provider
+            client = HttpClient(proxy=config.proxy, headers=dict(config.spec.http_headers))
+            provider = config.spec.build_provider(client, config)
+            _providers[key] = provider
     return provider
+
+
+def _venue_symbol(config: Config, symbol: str) -> str:
+    """Identity the venue understands, or a 404. Unknown TSE tickers are refused,
+    never guessed — inventing an instrument code is worse than a missing chart."""
+    from .data import DataUnavailable, symbol_key
+
+    provider = _gate_provider(config)
+    try:
+        key = symbol_key(provider, _normalize_symbol(symbol))
+    except DataUnavailable as exc:
+        raise HTTPException(status_code=404, detail=f"نماد شناخته نشد: {exc}") from exc
+    if key not in config.symbols:
+        raise HTTPException(status_code=404, detail="نماد خارج از فهرست مجاز است؛ نمودار فقط جهان معاملاتی را نشان می‌دهد.")
+    return key
 
 
 def _window_for(store, dataset_id: str | None) -> str:
@@ -227,6 +247,7 @@ def create_app(root: Path | None = None) -> FastAPI:
             "owner_confirmed": config.owner_confirmed,
             "last_data_at": datetime.fromtimestamp(newest, tz=timezone.utc).isoformat(timespec="seconds") if newest else None,
             "last_cycle_at": cycle[0]["last"] if cycle else None,
+            "market": config.spec.describe(),
             "server_time": now_iso(),
         }
 
@@ -239,6 +260,9 @@ def create_app(root: Path | None = None) -> FastAPI:
             data["proxy_configured"] = bool(config.proxy)
         return {
             "mode": config.mode,
+            "market": config.spec.name,
+            "market_spec": config.spec.describe(),
+            "market_options": dict(config.market_options),
             "symbols": list(config.symbols),
             "timeframe": config.timeframe,
             "confirm_timeframe": config.confirm_timeframe,
@@ -311,12 +335,14 @@ def create_app(root: Path | None = None) -> FastAPI:
         for a few seconds so switching symbols does not hammer the exchange.
         """
         config = get_config()
-        normalized = _normalize_symbol(symbol)
-        if normalized not in config.symbols:
-            raise HTTPException(status_code=404, detail="نماد خارج از فهرست مجاز است؛ نمودار فقط جهان معاملاتی را نشان می‌دهد.")
+        provider = _gate_provider(config)
+        normalized = _venue_symbol(config, symbol)
         tf = timeframe or config.timeframe
-        if tf not in TIMEFRAMES:
-            raise HTTPException(status_code=400, detail=f"تایم‌فریم پشتیبانی نمی‌شود: {tf}")
+        if tf not in config.spec.timeframes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"تایم‌فریم {tf} برای بازار {config.spec.title} منتشر نمی‌شود؛ مجاز: {', '.join(config.spec.timeframes)}",
+            )
 
         key = (str(app_root), normalized, tf, limit)
         monotonic_now = time.monotonic()
@@ -326,7 +352,6 @@ def create_app(root: Path | None = None) -> FastAPI:
                 bars, fetched_at = cached[1], cached[2]
                 cache_hit = True
         if cached is None or monotonic_now - cached[0] >= _CANDLES_TTL:
-            provider = _gate_provider(config)
             try:
                 bars = provider.klines(normalized, tf, limit=limit)
             except DataError as exc:
@@ -358,10 +383,143 @@ def create_app(root: Path | None = None) -> FastAPI:
             "count": len(bars),
             "closed_count": len(closed),
             "provenance": {
-                **_provenance("history", f"gate:{normalized}:{tf}", window),
+                **_provenance("history", f"{provider.name}:{normalized}:{tf}", window),
                 "fetched_at": fetched_at,
                 "cached": cache_hit,
             },
+        }
+
+    # ---- بورس ایران: فقط خواندنی، بدون هیچ مسیر سفارش -------------------
+    def _tse_provider(config: Config):
+        if config.spec.name != "tse":
+            raise HTTPException(
+                status_code=409,
+                detail="بازارِ فعال در config.yaml بورس نیست؛ برای این دیدگاه trading.market را روی tse بگذارید.",
+            )
+        return _gate_provider(config)
+
+    @router.get("/tse/market")
+    def tse_market(flow: int = Query(default=1, ge=1, le=2)) -> dict[str, Any]:
+        """Session state and the board summary, straight from TSETMC.
+
+        ``session`` is computed from the recorded Tehran calendar, ``board`` is
+        the exchange's own overview payload. Nothing here is estimated.
+        """
+        config = get_config()
+        provider = _tse_provider(config)
+        session = tse_calendar.phase(datetime.now(timezone.utc))
+        freshness_ref = config.spec.freshness_reference(datetime.now(timezone.utc).timestamp())
+        try:
+            board = provider.market_state(flow)
+            rows = provider.watch()
+        except DataError as exc:
+            raise HTTPException(status_code=503, detail=f"تابلوی بورس در دسترس نیست: {exc}")
+        return {
+            "session": session,
+            "freshness_reference": datetime.fromtimestamp(freshness_ref, tz=timezone.utc).isoformat(timespec="seconds"),
+            "board": board,
+            "board_size": len(rows),
+            "allowlist": list(config.symbols),
+            "currency": config.spec.currency,
+            "quantity_unit": config.spec.quantity_unit,
+            "provenance": {
+                **_provenance("history", f"tsetmc:marketwatch+overview:{flow}", str(board.get("activity_date"))),
+                "single_source": True,
+            },
+        }
+
+    @router.get("/tse/instruments")
+    def tse_instruments(limit: int = Query(default=50, ge=1, le=500)) -> dict[str, Any]:
+        """Ranked instruments with their live board prices (last session values)."""
+        config = get_config()
+        provider = _tse_provider(config)
+        try:
+            rows = provider.watch()
+        except DataError as exc:
+            raise HTTPException(status_code=503, detail=f"تابلوی بورس در دسترس نیست: {exc}")
+        allowed = set(config.symbols)
+        out = []
+        for row in rows.values():
+            code = str(row.get("insCode"))
+            if allowed and code not in allowed:
+                continue
+            last = float(row.get("pcl") or row.get("pdv") or 0.0)
+            yesterday = float(row.get("py") or 0.0)
+            out.append({
+                "ins_code": code,
+                "ticker": str(row.get("lva") or "").strip() or None,
+                "name": str(row.get("lvc") or "").strip() or None,
+                "isin": str(row.get("insID") or "").strip() or None,
+                "group": str(row.get("csv") or "").strip() or None,
+                "last_price": last or None,
+                "price_yesterday": yesterday or None,
+                "change_pct": round((last / yesterday - 1) * 100, 3) if last and yesterday else None,
+                "best_bid": float(row.get("pmd") or 0.0) or None,
+                "best_ask": float(row.get("pmo") or 0.0) or None,
+                "volume_shares": float(row.get("qtj") or 0.0) or None,
+                "trade_value_rial": float(row.get("qtc") or 0.0) or None,
+                "trade_count": float(row.get("ztt") or 0.0) or None,
+                "base_volume": float(row.get("bv") or 0.0) or None,
+                "band_low": float(row.get("pMin") or 0.0) or None,
+                "band_high": float(row.get("pMax") or 0.0) or None,
+                "session_date": row.get("dEven"),
+                "session_time": row.get("hEven"),
+            })
+        out.sort(key=lambda item: item["trade_value_rial"] or 0.0, reverse=True)
+        return {
+            "count": len(out),
+            "returned": min(limit, len(out)),
+            "instruments": out[:limit],
+            "universe": provider.index.summary(),
+            "provenance": {**_provenance("history", "tsetmc:marketwatch", f"top:{limit}"), "single_source": True},
+        }
+
+    @router.get("/tse/instrument")
+    def tse_instrument(symbol: str) -> dict[str, Any]:
+        config = get_config()
+        provider = _tse_provider(config)
+        code = _venue_symbol(config, symbol)
+        try:
+            band = provider.price_band(code)
+            quote = provider.quote(code)
+        except DataError as exc:
+            raise HTTPException(status_code=503, detail=f"داده‌ی این ابزار خوانده نشد: {exc}")
+        if quote.ask < quote.bid:
+            raise HTTPException(status_code=503, detail="کتاب قیمت این ابزار وارونه است — fail-closed")
+        return {
+            "display": provider.display(code),
+            "band": band,
+            "quote": {
+                "symbol": quote.symbol, "bid": quote.bid, "ask": quote.ask,
+                "mid": round(quote.mid, 4), "spread_pct": round(quote.spread_pct, 4),
+                "ts": datetime.fromtimestamp(quote.ts, tz=timezone.utc).isoformat(timespec="seconds"),
+                "source": quote.source,
+            },
+            "venue_rules": {
+                "lot_size": provider.filters(code).min_qty,
+                "price_currency": config.spec.currency,
+                "quantity_unit": config.spec.quantity_unit,
+            },
+            "provenance": {**_provenance("history", f"tsetmc:{code}", str(band.get("band_source"))), "single_source": True},
+        }
+
+    @router.get("/tse/book")
+    def tse_book(symbol: str) -> dict[str, Any]:
+        """Real order-book depth (BestLimits) — display only; the paper broker still fills at the touch."""
+        config = get_config()
+        provider = _tse_provider(config)
+        code = _venue_symbol(config, symbol)
+        try:
+            levels = provider.book(code)
+        except DataError as exc:
+            raise HTTPException(status_code=503, detail=f"عمق بازار خوانده نشد: {exc}")
+        if not levels:
+            raise HTTPException(status_code=503, detail="عمق بازار برای این ابزار منتشر نشده است")
+        return {
+            "symbol": code,
+            "levels": levels,
+            "count": len(levels),
+            "provenance": {**_provenance("history", f"tsetmc:{code}:bestlimits", f"levels:{len(levels)}"), "single_source": True},
         }
 
     @router.get("/portfolio")
@@ -694,7 +852,7 @@ def create_app(root: Path | None = None) -> FastAPI:
         config = get_config()
         _guard_paper(config)
         symbol = _normalize_symbol(body.symbol)
-        _require_symbol(config, symbol)
+        symbol = _require_symbol(config, symbol)
         tf = body.timeframe or config.timeframe
         if not body.dataset_id and not body.days:
             raise HTTPException(status_code=422, detail="یا dataset_id یا days باید داده شود.")
@@ -734,7 +892,7 @@ def create_app(root: Path | None = None) -> FastAPI:
         config = get_config()
         _guard_paper(config)
         symbol = _normalize_symbol(body.symbol)
-        _require_symbol(config, symbol)
+        symbol = _require_symbol(config, symbol)
         tf = body.timeframe or config.timeframe
         evaluations = _grid_evaluations(body.grid)
         if evaluations > 60:
@@ -920,18 +1078,29 @@ def _guard_paper(config: Config) -> None:
         )
 
 
-def _require_symbol(config: Config, symbol: str) -> None:
-    if symbol not in config.symbols:
+def _require_symbol(config: Config, symbol: str) -> str:
+    """Resolve the venue's identity for a requested symbol, then enforce the allowlist.
+
+    Crypto keeps its literal ``BASE_QUOTE`` behaviour; a TSE board ticker resolves
+    to its numeric insCode through the universe snapshot. An unresolvable symbol
+    falls through to the plain allowlist check, which is a 422 — never a guess.
+    """
+    from .data import DataUnavailable, symbol_key
+
+    try:
+        resolved = symbol_key(_gate_provider(config), symbol)
+    except DataUnavailable:
+        resolved = symbol
+    if resolved not in config.symbols:
         raise HTTPException(
             status_code=422,
-            detail=f"نماد {symbol} در فهرست مجاز ({', '.join(config.symbols)}) نیست.",
+            detail=f"نماد {symbol} در فهرست مجاز نیست (تعداد نمادهای مجاز: {len(config.symbols)}).",
         )
+    return resolved
 
 
 def _make_gate(config: Config):
-    from .data import GateProvider
-
-    return GateProvider(HttpClient(proxy=config.proxy))
+    return _gate_provider(config)
 
 
 def _snapshot_from_bars(symbol: str, timeframe: str, bars: list[Kline], config: Config):

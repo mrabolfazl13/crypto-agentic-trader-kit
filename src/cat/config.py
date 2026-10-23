@@ -10,14 +10,18 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import yaml
 
+from .http import DataError
+from .markets import MarketSpec, get_spec
 from .strategies import StrategyParams, params_from_dict
 
 MODES = ("PAPER", "LIVE", "PAUSED")
 OWNER_CONFIRMATION_FILE = "owner_confirmation.json"
+DEFAULT_MARKET = "crypto"
 
 
 class ConfigError(RuntimeError):
@@ -84,6 +88,13 @@ class Config:
     warnings: tuple[str, ...] = ()
     data_concurrency: int = 4
     filters_cache_seconds: int = 3600
+    market: str = DEFAULT_MARKET
+    market_options: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def spec(self) -> MarketSpec:
+        """The venue adapter this config was validated against."""
+        return get_spec(self.market)
 
     @property
     def is_live(self) -> bool:
@@ -150,6 +161,20 @@ def load_config(path: str | os.PathLike[str] | None = None, root: Path | None = 
 
     warnings: list[str] = []
 
+    # Venue first: everything below (symbols, timeframes, fees) is validated
+    # against the adapter, so a market that cannot be resolved never runs.
+    market = str(trading.get("market", DEFAULT_MARKET)).strip().lower()
+    try:
+        spec = get_spec(market)
+    except KeyError:
+        warnings.append(f"unknown market {market!r}; forced to {DEFAULT_MARKET!r}")
+        market, spec = DEFAULT_MARKET, get_spec(DEFAULT_MARKET)
+
+    markets_section = raw.get("markets") if isinstance(raw.get("markets"), dict) else {}
+    if raw.get("markets") is not None and not isinstance(raw.get("markets"), dict):
+        warnings.append("markets section is not a mapping; ignored")
+    market_options = dict(markets_section.get(market) or {}) if isinstance(markets_section.get(market), dict) else {}
+
     mode = str(trading.get("mode", "PAPER")).upper()
     if mode not in MODES:
         warnings.append(f"unknown mode {mode!r}; forced to PAPER")
@@ -184,13 +209,44 @@ def load_config(path: str | os.PathLike[str] | None = None, root: Path | None = 
         raise ConfigError("allow_withdrawals must stay false in this build")
     if str(trading.get("market_type", "spot")).lower() != "spot":
         raise ConfigError("market_type must be spot in this build")
+    if mode == "LIVE" and spec.name != DEFAULT_MARKET:
+        warnings.append(f"mode=LIVE on market {spec.name!r}: no live order path exists for this venue; forced to PAPER")
+        mode = "PAPER"
+    allow_short = bool(trading.get("allow_short", False))
+    if allow_short and spec.name != DEFAULT_MARKET:
+        warnings.append(f"allow_short on {spec.name}: short selling is not possible on this venue; disabled")
+        allow_short = False
 
-    symbols = tuple(str(s).upper().replace("/", "_").replace("-", "_") for s in trading.get("symbols", []))
-    if not symbols:
-        raise ConfigError("trading.symbols is empty")
+    if spec.name == DEFAULT_MARKET:
+        symbols = tuple(str(s).upper().replace("/", "_").replace("-", "_") for s in trading.get("symbols", []))
+        if not symbols:
+            raise ConfigError("trading.symbols is empty")
+    else:
+        # The venue owns its instrument identity (TSE uses numeric insCodes), so the
+        # allowlist the risk gate enforces is resolved through the adapter.
+        probe = SimpleNamespace(root=root, market_options=market_options, symbols=())
+        try:
+            symbols = tuple(spec.allowlist(probe))
+        except DataError as exc:
+            raise ConfigError(f"market {spec.name}: {exc}") from exc
+        if not symbols:
+            raise ConfigError(f"market {spec.name}: allowlist resolved to zero instruments")
 
     fees = raw.get("fees") if isinstance(raw.get("fees"), dict) else {}
     data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+
+    timeframe = str(trading.get("timeframe", "1h"))
+    if spec.name != DEFAULT_MARKET and timeframe not in spec.timeframes:
+        warnings.append(f"timeframe {timeframe!r} is not published by {spec.name}; forced to {spec.timeframes[0]!r}")
+        timeframe = spec.timeframes[0]
+    venue_fees = market_options.get("fees") if isinstance(market_options.get("fees"), dict) else fees
+    maker_default = 0.10 if spec.default_maker_pct is None else spec.default_maker_pct
+    taker_default = 0.10 if spec.default_taker_pct is None else spec.default_taker_pct
+    if spec.default_maker_pct is not None and not market_options.get("fees"):
+        warnings.append(
+            f"{spec.name}: کارمزد از پیش‌فرض venue خوانده شد ({maker_default}% / {taker_default}%); "
+            f"نرخ دقیق را با کارگزار تأیید و در markets.{spec.name}.fees بنویسید"
+        )
 
     limits = _risk_limits(risk)
     if security.get("reject_withdraw_permission", True) is not True:
@@ -204,10 +260,10 @@ def load_config(path: str | os.PathLike[str] | None = None, root: Path | None = 
         exchange=str(trading.get("exchange", "gate")).lower(),
         market_type="spot",
         symbols=symbols,
-        timeframe=str(trading.get("timeframe", "1h")),
-        confirm_timeframe=str(data.get("confirm_timeframe", _default_confirm_tf(str(trading.get("timeframe", "1h"))))),
+        timeframe=timeframe,
+        confirm_timeframe=str(data.get("confirm_timeframe") or spec.confirm_timeframe or _default_confirm_tf(timeframe)),
         max_open_positions=int(trading.get("max_open_positions", 2)),
-        allow_short=bool(trading.get("allow_short", False)),
+        allow_short=allow_short,
         allow_margin=False,
         allow_leverage=False,
         allow_withdrawals=False,
@@ -221,13 +277,15 @@ def load_config(path: str | os.PathLike[str] | None = None, root: Path | None = 
         idempotency_required=bool(execution.get("idempotency_required", True)),
         kill_switch_file=(root / str(monitoring.get("kill_switch_file", "./STOP_TRADING"))).resolve(),
         allocated_capital=float(risk.get("allocated_capital", 0) or _default_allocated(root)),
-        maker_fee_pct=_num(fees, "maker_pct", 0.10),
-        taker_fee_pct=_num(fees, "taker_pct", 0.10),
+        maker_fee_pct=_num(venue_fees, "maker_pct", maker_default),
+        taker_fee_pct=_num(venue_fees, "taker_pct", taker_default),
         max_clock_skew_seconds=float(risk.get("max_clock_skew_seconds", 2.0)),
         fallback_exchange=str(raw.get("data", {}).get("fallback_exchange", "mexc")) if isinstance(raw.get("data"), dict) else "mexc",
         proxy=os.environ.get("CAT_PROXY") or data.get("proxy"),
         data_concurrency=max(1, min(8, int(data.get("max_concurrency", 4) or 4))),
         filters_cache_seconds=max(0, int(data.get("filters_cache_seconds", 3600) or 0)),
+        market=market,
+        market_options=market_options,
         strategy_params=params_from_dict(
             strategy.get("params") if isinstance(strategy.get("params"), dict) else None,
             base=StrategyParams(

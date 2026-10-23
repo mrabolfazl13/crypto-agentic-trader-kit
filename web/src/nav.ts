@@ -29,6 +29,10 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    title: "بورس ایران",
+    items: [{ to: "/tse", label: "بورس تهران", id: "tse" }],
+  },
+  {
     title: "پژوهش استراتژی",
     items: [
       { to: "/strategies", label: "آزمایشگاه استراتژی", id: "strategies" },

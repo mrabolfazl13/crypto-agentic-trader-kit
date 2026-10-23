@@ -16,9 +16,9 @@ from typing import Any
 from .audit import AuditLog
 from .broker import LiveExecutor, PaperBroker
 from .config import Config, config_digest, load_config
-from .data import Quote, DataError, GateProvider, MarketSnapshot, MexcCrossCheck, estimate_slippage_pct, fetch_snapshot
+from .data import Quote, DataError, MarketSnapshot, estimate_slippage_pct, fetch_snapshot
 from .decision import build_decision, validate_decision
-from .http import HttpClient, check_clock_skew
+from .http import HttpClient
 from .portfolio import AccountState, atomic_write, load_state
 from .risk import RiskResult, evaluate
 from .strategy import Position, Proposal, analyze, propose
@@ -64,11 +64,14 @@ class Engine:
     def __init__(self, config: Config | None = None, *, allocated_capital: float | None = None):
         self.config = config or load_config()
         root = self.config.root
+        self.spec = self.config.spec
         self.state_path = root / "state" / "account.json"
         self.audit = AuditLog(root / "state" / "audit" / "events.jsonl")
-        self.client = HttpClient(proxy=self.config.proxy)
-        self.gate = GateProvider(self.client, filters_ttl_seconds=self.config.filters_cache_seconds)
-        self.cross = MexcCrossCheck(self.client) if self.config.fallback_exchange == "mexc" else None
+        self.client = HttpClient(proxy=self.config.proxy, headers=dict(self.spec.http_headers))
+        # ``gate`` is the historical name for "primary data provider" and cli/api
+        # depend on it; the market spec decides which provider answers.
+        self.gate = self.spec.build_provider(self.client, self.config)
+        self.cross = self.spec.build_cross(self.client, self.config)
         starting = allocated_capital if allocated_capital is not None else (self.config.allocated_capital or 1000.0)
         self.state: AccountState = load_state(self.state_path, starting)
         self.broker = PaperBroker(config=self.config, state=self.state, audit=self.audit)
@@ -85,19 +88,29 @@ class Engine:
         return Path(self.config.kill_switch_file).exists()
 
     def clock_check(self) -> dict[str, Any]:
+        if self.spec.clock is None:
+            return {"acceptable": False, "error": f"market {self.spec.name} publishes no clock source"}
         try:
-            return check_clock_skew(
-                self.client, "https://api.gateio.ws/api/v4/spot/time", ("server_time",), self.config.max_clock_skew_seconds
-            )
+            return self.spec.clock(self.client, self.config)
         except DataError as exc:
             return {"acceptable": False, "error": str(exc)}
 
+    def freshness_reference(self) -> float:
+        """Freshness anchor: wall clock for a 24/7 venue, last session close for TSE."""
+        return self.spec.freshness_reference(datetime.now(timezone.utc).timestamp())
+
     def snapshot(self, symbol: str) -> MarketSnapshot:
-        return fetch_snapshot(
+        snap = fetch_snapshot(
             self.gate, self.cross, symbol, self.config.timeframe,
             higher_timeframe=self.config.confirm_timeframe, limit=300,
             staleness_seconds=self.config.limits.stop_on_data_staleness_seconds,
+            staleness_reference_ts=self.freshness_reference(),
+            gap_ok=self.spec.gap_is_expected,
         )
+        for code in self.spec.quality_warnings:
+            if code not in snap.quality.warnings:
+                snap.quality.warnings.append(code)
+        return snap
 
     def _safe_snapshot(self, symbol: str) -> tuple[MarketSnapshot | None, str | None]:
         try:
@@ -157,7 +170,8 @@ class Engine:
 
         self.audit.append(
             "cycle_start",
-            {"mode": self.config.mode, "config_digest": config_digest(self.config.raw),
+            {"mode": self.config.mode, "market": self.spec.name,
+             "config_digest": config_digest(self.config.raw),
              "symbols": list(self.config.symbols), "config_warnings": list(self.config.warnings)},
             mode=self.config.mode,
         )

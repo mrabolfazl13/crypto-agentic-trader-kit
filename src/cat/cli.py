@@ -12,7 +12,7 @@ from pathlib import Path
 from .audit import AuditLog
 from .backtest import run_backtest
 from .config import load_config, owner_confirmation_valid
-from .data import seconds_per_bar  # noqa: F401
+from .data import seconds_per_bar, symbol_key  # noqa: F401
 from .engine import Engine
 from .report import backtest_markdown, build_report, write_report
 
@@ -174,11 +174,10 @@ def cmd_import_csv(engine: Engine, path: str, symbol: str, timeframe: str | None
 
 def cmd_fetch_history(engine: Engine, symbol: str, timeframe: str, days: int) -> int:
     from . import datasets
-    from .data import GateProvider
     from .store import open_store
 
     try:
-        result = datasets.ingest_exchange(open_store(engine.config.root), GateProvider(engine.client),
+        result = datasets.ingest_exchange(open_store(engine.config.root), engine.gate,
                                           symbol, timeframe, days)
     except datasets.DatasetError as exc:
         print(f"fetch failed: {exc}", file=sys.stderr)
@@ -300,6 +299,43 @@ def cmd_research(engine: Engine, symbol: str, timeframe: str | None, days: int, 
           f"pf={cwf.get('profit_factor')} dd={cwf.get('max_drawdown_pct')}%")
     print(f"  grid evaluated {len(result['grid'])} candidates; risk checks: {result['risk_checks']}")
     print(f"  {result['disclaimer']}")
+    return 0
+
+
+def cmd_month_scan(engine: Engine, days: int, warmup: int, timeframe: str | None, strategies: str | None,
+                   refresh: bool, improve: bool, out: Path | None) -> int:
+    """Multi-strategy scan over the approved universe; writes a report, never an order."""
+    from .data import DataUnavailable
+    from .month_scan import ScanOptions, run_scan, write_report
+    from .strategy_lab import LAB_STRATEGIES
+
+    config = engine.config
+    names = tuple(item.strip() for item in strategies.split(",") if item.strip()) if strategies else tuple(LAB_STRATEGIES)
+    unknown = [name for name in names if name not in LAB_STRATEGIES]
+    if unknown:
+        print(f"unknown strategies: {', '.join(unknown)}; choose from {', '.join(LAB_STRATEGIES)}", file=sys.stderr)
+        return 2
+    options = ScanOptions(
+        days=days, warmup_bars=warmup, timeframe=timeframe or config.timeframe,
+        strategies=names, refresh=refresh, improve=improve,
+    )
+    try:
+        scan = run_scan(config, options)
+    except (DataUnavailable, ValueError) as exc:
+        print(f"month-scan failed: {exc}", file=sys.stderr)
+        return 1
+    markdown, payload = write_report(scan, out, config)
+    print(f"report: {markdown}")
+    print(f"json:   {payload}")
+    for name, block in scan["strategies"].items():
+        train, validation = block["train"], block["validation"]
+        print(f"  {name:<14} train trades={train['trades']:>4} pf={train['profit_factor']} net={train['mean_net_return_pct']}% | "
+              f"validation trades={validation['trades']:>4} pf={validation['profit_factor']} net={validation['mean_net_return_pct']}%")
+    chosen = (scan.get("improvement") or {}).get("chosen")
+    if chosen:
+        print(f"  improvement chosen on train: {chosen['label']} -> validation pf={chosen['validation']['profit_factor']} "
+              f"net={chosen['validation']['mean_net_return_pct']}% trades={chosen['validation']['trades']}")
+    print(f"  {scan['meta']['disclaimer']}")
     return 0
 
 
@@ -462,6 +498,14 @@ def main(argv: list[str] | None = None) -> int:
     res.add_argument("--dataset", default=None, help="existing dataset id instead of a fresh fetch")
     res.add_argument("--grid", default=None, help='"ema_fast=10,20;atr_stop_mult=1.5,2.5" or a JSON object')
     res.add_argument("--folds", type=int, default=4)
+    scan = sub.add_parser("month-scan", help="one-month, multi-strategy scan over the approved universe (read-only)")
+    scan.add_argument("--days", type=int, default=30)
+    scan.add_argument("--warmup", type=int, default=180)
+    scan.add_argument("--timeframe", default=None)
+    scan.add_argument("--strategies", default=None, help="comma separated: trend_v1,breakout_30,momentum_20,pullback_rsi")
+    scan.add_argument("--refresh", action="store_true", help="ignore the cached candles and fetch again")
+    scan.add_argument("--no-improve", action="store_true", help="skip the train-selected improvement phase")
+    scan.add_argument("--out", default=None)
     args = parser.parse_args(argv)
 
     try:
@@ -501,6 +545,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_versions(engine)
     if args.command == "research":
         return cmd_research(engine, args.symbol, args.timeframe, args.days, args.dataset, args.grid, args.folds)
+    if args.command == "month-scan":
+        return cmd_month_scan(engine, args.days, args.warmup, args.timeframe, args.strategies, args.refresh, not args.no_improve, Path(args.out) if args.out else None)
     if args.command == "stop":
         return cmd_stop(engine)
     if args.command == "resume":

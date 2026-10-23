@@ -9,6 +9,7 @@ import {
   GitBranch,
   History,
   LayoutDashboard,
+  Landmark,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -40,6 +41,7 @@ import Risk from "./pages/Risk";
 import SettingsPage from "./pages/Settings";
 import StrategyLab from "./pages/StrategyLab";
 import Trades from "./pages/Trades";
+import TseMarket from "./pages/tse/TseMarket";
 import Versions from "./pages/Versions";
 
 const COLLAPSE_KEY = "cat.sidebar.collapsed";
@@ -61,6 +63,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   reports: FileText,
   logs: ScrollText,
   settings: Settings,
+  tse: Landmark,
 };
 
 function readStored(key: string): string | null {
@@ -243,6 +246,7 @@ function Shell() {
             <Route index element={<Dashboard />} />
             <Route path="/data" element={<Data />} />
             <Route path="/analysis" element={<Analysis />} />
+            <Route path="/tse" element={<TseMarket />} />
             <Route path="/strategies" element={<StrategyLab />} />
             <Route path="/backtests" element={<Backtesting />} />
             <Route path="/paper" element={<PaperTrading />} />
