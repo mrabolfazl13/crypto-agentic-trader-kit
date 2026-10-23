@@ -163,6 +163,20 @@ def test_spa_fallback_serves_shell_for_client_routes_but_assets_404(workspace: P
     assert missing_asset.status_code == 404  # a broken asset must fail loudly, not return HTML
     assert local.get("/api/v1/health").status_code == 200  # API still wins over the mount
 
+    # An unknown API path must stay a JSON 404. Serving the shell here is what made an
+    # old server silently answer /api/v1/tse/* with HTML and blank the whole page.
+    # Windows caught this: Starlette hands StaticFiles an OS-normalised path
+    # ("api\v1\..."), so any guard written against forward slashes is dead there.
+    for probe in ("/api/v1/tse/does-not-exist", "/api/v1/nope", "/api/nope"):
+        missing_api = local.get(probe)
+        assert missing_api.status_code == 404, probe
+        assert "text/html" not in missing_api.headers["content-type"], probe
+        assert missing_api.json()["detail"]
+
+    # A real client-side deep link still gets the shell.
+    assert local.get("/tse").status_code == 200
+    assert 'id="root"' in local.get("/tse").text
+
 
 def test_portfolio_returns_nulls_on_empty_ledger(client: TestClient):
     body = client.get(f"{BASE}/portfolio").json()

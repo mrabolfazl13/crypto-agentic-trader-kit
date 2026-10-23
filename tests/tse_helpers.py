@@ -95,6 +95,7 @@ def write_tse_config(
     mode: str = "PAPER",
     live: bool = False,
     max_symbols: int = 5,
+    filename: str = "config.yaml",
 ) -> Path:
     raw = yaml.safe_load((REPO / "config.example.yaml").read_text(encoding="utf-8"))
     raw["trading"].update({
@@ -118,6 +119,15 @@ def write_tse_config(
     if symbols is not None:
         tse_options["symbols"] = list(symbols)
     raw["markets"] = {"tse": tse_options}
+    path = workspace / filename
+    path.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def write_crypto_config(workspace: Path, *, symbols: tuple[str, ...] = ("BTC_USDT",)) -> Path:
+    """The unmodified crypto primary: what a default install ships as config.yaml."""
+    raw = yaml.safe_load((REPO / "config.example.yaml").read_text(encoding="utf-8"))
+    raw["trading"]["symbols"] = list(symbols)
     path = workspace / "config.yaml"
     path.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
     return path

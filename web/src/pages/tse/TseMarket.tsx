@@ -15,7 +15,7 @@ import Badge, { ToneBadge } from "../../components/Badge";
 import { EmptyBlock, ErrorBlock, LoadingBlock } from "../../components/StateBlocks";
 import Table, { type Column } from "../../components/Table";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
-import { NO_DATA, dateTime, num, pct, text } from "../../format";
+import { NO_DATA, dateTime, num, pct, signed, text } from "../../format";
 
 const TEHRAN_FORMAT = new Intl.DateTimeFormat("fa-IR-u-nu-latn", {
   dateStyle: "short",
@@ -87,6 +87,7 @@ export default function TseMarket() {
   }, [rows, query]);
 
   const selectedRow = rows.find((row) => row.ins_code === symbol) ?? null;
+  const quote = detail.data?.quote ?? null;
   const series: Bar[] = useMemo(
     () => (candles.data?.bars ?? []).filter((bar) => bar.closed !== false),
     [candles.data],
@@ -95,6 +96,15 @@ export default function TseMarket() {
   const last = selectedRow?.last_price ?? detail.data?.band.last_price ?? null;
   const yesterday = selectedRow?.price_yesterday ?? detail.data?.band.price_yesterday ?? null;
   const changePct = last !== null && yesterday !== null && yesterday !== 0 ? ((last - yesterday) / yesterday) * 100 : null;
+
+  // TSETMC publishes the index change in index *points*; rendering it with a "%" suffix
+  // would print a number no market has ever moved by. The percent is derived from the
+  // two published values instead.
+  const indexChange = market.data?.board.index_change ?? null;
+  const indexLast = market.data?.board.index_last_value ?? null;
+  const indexPrevious = indexChange !== null && indexLast !== null ? indexLast - indexChange : null;
+  const indexChangePct =
+    indexChange !== null && indexPrevious !== null && indexPrevious !== 0 ? (indexChange / indexPrevious) * 100 : null;
 
   const columns = useMemo<Column<TseInstrumentRow>[]>(
     () => [
@@ -150,10 +160,12 @@ export default function TseMarket() {
   const bookColumns = useMemo<Column<TseBookLevel>[]>(
     () => [
       { key: "level", header: "سطح", numeric: true, render: (row) => num(row.level, { max: 0 }) },
+      { key: "bid_orders", header: "سفارش خرید", numeric: true, render: (row) => num(row.bid_orders, { max: 0 }) },
       { key: "bid_qty", header: "حجم خرید", numeric: true, render: (row) => num(row.bid_qty, { max: 0 }) },
       { key: "bid", header: "قیمت خرید", numeric: true, render: (row) => num(row.bid_price, { max: 0 }) },
       { key: "ask", header: "قیمت فروش", numeric: true, render: (row) => num(row.ask_price, { max: 0 }) },
       { key: "ask_qty", header: "حجم فروش", numeric: true, render: (row) => num(row.ask_qty, { max: 0 }) },
+      { key: "ask_orders", header: "سفارش فروش", numeric: true, render: (row) => num(row.ask_orders, { max: 0 }) },
     ],
     [],
   );
@@ -185,7 +197,15 @@ export default function TseMarket() {
             <>
               <div className="grid stats">
                 {compactStat("شاخص کل", num(market.data.board.index_last_value, { max: 0 }), "TSETMC، جریان بازار")}
-                {compactStat("تغییر شاخص", pct(market.data.board.index_change), "نسبت به مقدار پیشین تابلو")}
+                {compactStat(
+                  "تغییر شاخص",
+                  signed(indexChange, { max: 2 }),
+                  indexChangePct === null
+                    ? "واحد شاخص، نسبت به مقدار پیشین"
+                    // LRI/PDI isolate the signed number: inside an RTL sentence a bare
+                    // "−1.19%" reorders to "1.19%−" and a fall reads like a gain.
+                    : `واحد شاخص · معادل ⁦${pct(indexChangePct, { max: 2 })}⁩ از ${num(indexPrevious, { max: 0 })}`,
+                )}
                 {compactStat("تعداد معاملات", num(market.data.board.trade_count, { max: 0 }), "آخرین روز معاملاتی")}
                 {compactStat("ارزش معاملات", num(
                   market.data.board.value_rial === null ? null : market.data.board.value_rial / 1_000_000_000,
@@ -242,12 +262,29 @@ export default function TseMarket() {
                       {compactStat("تغییر روزانه", pct(changePct), "نسبت به قیمت دیروز")}
                       {compactStat("کف مجاز", num(detail.data.band.band_low, { max: 0 }), "بازه‌ی نوسان بورس")}
                       {compactStat("سقف مجاز", num(detail.data.band.band_high, { max: 0 }), "بازه‌ی نوسان بورس")}
-                      {compactStat("بهترین خرید", num(detail.data.quote.bid, { max: 0 }), `اسپرد ${pct(detail.data.quote.spread_pct)}`)}
-                      {compactStat("بهترین فروش", num(detail.data.quote.ask, { max: 0 }), `حداقل حجم ${num(detail.data.venue_rules.lot_size, { max: 0 })} سهم`)}
+                      {compactStat(
+                        "بهترین خرید",
+                        num(quote?.bid ?? null, { max: 0 }),
+                        quote ? `اسپرد ${pct(quote.spread_pct)}` : "تابلو قیمت دوطرفه ندارد",
+                      )}
+                      {compactStat(
+                        "بهترین فروش",
+                        num(quote?.ask ?? null, { max: 0 }),
+                        `حداقل حجم ${num(detail.data.venue_rules.lot_size, { max: 0 })} سهم`,
+                      )}
                     </div>
+                    {quote === null ? (
+                      <p className="notice" role="status">
+                        تابلوی TSETMC برای این نماد قیمت دوطرفه (خرید و فروش هم‌زمان) منتشر نکرده است؛ نماد ممکن است متوقف باشد یا فقط یک سمت کتاب پر باشد.
+                        بازه‌ی مجاز، قیمت آخر و کندل‌های روزانه همچنان از همان منبع خوانده می‌شوند و عددی ساخته نمی‌شود.
+                        {detail.data.quote_note ? (
+                          <span className="text-[11px] text-mute num" dir="ltr"> ({detail.data.quote_note})</span>
+                        ) : null}
+                      </p>
+                    ) : null}
                     <p className="stat-meta">
-                      <span>زمان قیمت (تهران): {tehran(detail.data.quote.ts)}</span>
-                      <span>منبع: {text(detail.data.quote.source)}</span>
+                      <span>زمان قیمت (تهران): {tehran(quote?.ts ?? null)}</span>
+                      <span>منبع: {text(quote?.source ?? "TSETMC")}</span>
                       <span>مبنای بازه: {text(detail.data.band.band_source)}</span>
                     </p>
                   </>
@@ -291,14 +328,22 @@ export default function TseMarket() {
                 {book.loading ? <LoadingBlock label="خواندن کتاب سفارش…" /> : null}
                 {book.error ? <ErrorBlock message={book.error} onRetry={book.reload} /> : null}
                 {book.data ? (
-                  <Table
-                    columns={bookColumns}
-                    rows={book.data.levels}
-                    getRowId={(row, index) => `${row.level ?? index}`}
-                    caption="بهترین سفارش‌های خرید و فروش در لحظه‌ی ثبت‌شده"
-                    emptyLabel={NO_DATA}
-                    emptyHint="کتاب سفارش برای این نماد خالی برگشت."
-                  />
+                  <>
+                    <Table
+                      columns={bookColumns}
+                      rows={book.data.levels}
+                      getRowId={(row, index) => `${row.level ?? index}`}
+                      caption="بهترین سفارش‌های خرید و فروش در لحظه‌ی ثبت‌شده"
+                      emptyLabel={NO_DATA}
+                      emptyHint={book.data.note ?? "کتاب سفارش برای این نماد خالی برگشت."}
+                    />
+                    {book.data.note && book.data.count > 0 ? (
+                      <p className="stat-meta">
+                        <span>{text(book.data.note)}</span>
+                        <span>سطحی که سفارش ندارد قیمت ندارد؛ به‌جای آن عدد صفر چاپ نمی‌شود.</span>
+                      </p>
+                    ) : null}
+                  </>
                 ) : null}
               </CardContent>
             </Card>

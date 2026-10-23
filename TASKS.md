@@ -1,7 +1,7 @@
 # TASKS
 
 معیار پذیرش هر آیتم: کد قابل‌اجرا + تست سبز + شواهد اندازه‌گیری‌شده. بدون «طرح» به‌عنوان خروجی نهایی.
-وضعیت تا 2026-10-24 — مجموعه‌ی تست: **۱۸۱ passed** (`python -m pytest -q`: ۱۵۴ کریپتو + ۲۷ بورس).
+وضعیت تا 2026-10-24 — مجموعه‌ی تست: **۱۸۹ passed** (`python -m pytest -q`: ۱۵۶ تست قبلی + ۳۳ تست بورس).
 
 ---
 
@@ -55,22 +55,35 @@
 - [x] `tools/build_tse_universe.py` + `universe_tse.json` — ۵۰۰ سهم عادی، snapshot/digest/منبع، حذف ۴۱۶ ردیف غیرعادی
 - [x] `config.tse.example.yaml` — پیکربندی Paper بورس (timeframe 1d، `max_spread_pct 3.0`، تازگی ۴ روزه، بودجه‌ی ریالی)
 
-### تست (۱۵۴ تست قبلی سبز ماند؛ کل مجموعه ۱۸۱)
-- [x] `tests/test_markets_tse.py` — ۱۵ تست آفلاین با fixtureهای ضبط‌شده: mapping فیلدها، canonical symbol، book، band، timeframe نامعتبر → `DataUnavailable`، single-source، تقویم، لنگر شنبه، نقل‌قول جلسه‌محور
+### تست (۱۵۶ تست قبلی سبز ماند؛ کل مجموعه ۱۸۹)
+- [x] `tests/test_markets_tse.py` — 17 تست آفلاین با fixtureهای ضبط‌شده: mapping فیلدها، canonical symbol، book، band، timeframe نامعتبر → `DataUnavailable`، single-source، تقویم، لنگر شنبه، نقل‌قول جلسه‌محور
 - [x] `tests/test_tse_freshness.py` — ۴ تست: snapshot بورس در شب/آخر هفته stale **نیست**، کریپتو همچنان stale می‌شود، شکاف واقعی جلسه هنوز `time_gap` است
-- [x] `tests/test_tse_safety.py` — ۸ تست: با `market: tse` هیچ مسیر LIVE نیست، `LIVE` به PAPER برمی‌گردد، short/margin/leverage خاموش، allowlist/universe اجباری، API فقط GET، kill switch موجود
-- [x] `pytest -q` کل مجموعه → **181 passed**
+- [x] `tests/test_tse_safety.py` — 12 تست: با `market: tse` هیچ مسیر LIVE نیست، `LIVE` به PAPER برمی‌گردد، short/margin/leverage خاموش، allowlist/universe اجباری، API فقط GET، kill switch موجود
+- [x] `pytest -q` کل مجموعه → **189 passed**
 
 ### UI
 - [x] `web/src/api/tseClient.ts` — تایپ‌ها + fetch مسیرهای بورس
 - [x] `web/src/pages/tse/TseMarket.tsx` — وضعیت بازار/شاخص، جدول universe با جستجو، کندل+عمق، band روز، برچسب منبع
 - [x] `web/src/nav.ts` + `web/src/App.tsx` — آیتم «بورس ایران» و route (فقط افزودن)
 - [x] `npx tsc --noEmit` صفر خطا + `vite build` موفق
-- [ ] رندر واقعی `/tse` در Edge هدلس (دسکتاپ و موبایل) — انجام نشده
+- [x] رندر واقعی `/tse` در Edge هدلس (دسکتاپ ۱۴۴۰×۹۰۰ و موبایل ۳۹۰×۸۴۴) — صفر خطای کنسول، بدون overflow افقی
 
 ### مستندات
 - [x] `docs/TSE_MARKET_FA.md` — قرارداد endpointها، محدودیت‌ها (بدون منبع دوم، بدون API رسمی سفارش، lot/tick)، نحوه‌ی تولید universe
 - [x] به‌روزرسانی `docs/API_CONTRACT_FA.md` (بخش `/tse/*`) و `CURRENT_STATE.md`
+
+## ۲-ب) ایرادهای دنیای‌واقعی که از داشبورد زنده گزارش شدند و رفع شدند (2026-10-24)
+هر پنج مورد از صفحه‌ی در حال اجرا دیده شد، نه از تست؛ همه با شواهد مرورگری بسته شدند.
+
+- [x] **`/tse/market` خروجی `text/html` می‌داد**: سرورِ روی ۸۱۷۷ قبل از ساخت route های بورس بالا آمده بود. فرانت حالا دو لایه تشخیص می‌دهد: اگر `content-type` JSON نبود یا ساختار پاسخ با تایپ اعلام‌شده نمی‌خواند، `ApiError` صریح («نسخه‌ی قدیمی سرور در حال اجراست») می‌شود — نه بلنک رندر (`web/src/api/tseClient.ts`: `getJSON` + `requireShape`).
+- [x] **باگ ویندوزی SPA fallback**: `StaticFiles.get_path` مسیر را با `\` می‌دهد (`api\v1\…`)، پس `startswith("api/")` روی ویندوز هرگز درست نبود و ۴۰۴های API به shell تبدیل می‌شدند. تصمیم حالا از `scope["path"]` (URL) با `_is_client_route` گرفته می‌شود؛ `/api/v1/tse/does-not-exist` → ۴۰۴ JSON، `/tse` → shell (تست: `tests/test_api.py`).
+- [x] **بن‌بست «سرویس جدا بگیرید» (409)**: به‌جای راه‌اندازی دوم، دیدگاه دوم اضافه شد — `config.tse.yaml` در همان ریشه، فقط‌خواندنی (`_venue_view_config` + `SECONDARY_VIEWS` + `_resolve_symbol_config`)؛ `/health` همچنان `crypto`/`PAPER` است و موتور/ریسک/paper دست‌نخورده. کش کندل و provider حالا با `market` نام‌فضایی‌شده‌اند (تست‌ها: `test_tse_board_is_readable_from_a_crypto_primary_service`، `test_tse_view_config_cannot_smuggle_the_primary_market`). فایل `config.tse.yaml` نمونه در ریشه‌ی مخزن اضافه شد.
+- [x] **تغییر شاخص به‌صورت درصد چاپ می‌شد** (`−98,676.99%`): TSETMC مقدار `indexChange` را بر حسب **واحد شاخص** منتشر می‌کند؛ درصد از `index_last_value − index_change` مشتق می‌شود و با ایزولاتورهای دوجهته (U+2066/U+2069) داخل جمله‌ی RTL قرار می‌گیرد، وگرنه `−1.19%` به شکل `1.19%−` (شبیه رشد) خوانده می‌شود. راستی‌آزمایی با dump کدپوینت و برش اسکرین‌شات.
+- [x] **«داده‌ی این ابزار خوانده نشد: no two-sided quote for … (خبهمن)» — ۵۰۳ اشتباه بود**: نداشتن قیمت دوطرفه «داده‌ی غایب» است نه قطعی سرویس. `/tse/instrument` حالا `200` با `quote: null` + `quote_note` برمی‌گرداند (band، venue_rules و کندل‌ها از همان منبع واقعی می‌مانند) و UI حالت «بدون نقل‌قول» را با متن فارسی + دلیل فنی `dir=ltr` توضیح می‌دهد. در `/tse/book` هم سطحِ بدون سفارش `price: null` است (نه `0`) و `note` می‌گوید «صف خرید/فروش قفل است»؛ قطع واقعی TSETMC همچنان `503` و fail-closed است.
+  - تست‌ها: `test_one_sided_board_degrades_to_null_instead_of_failing_the_card`، `test_locked_queue_is_named_in_the_book_note` (safety) و `test_empty_side_of_the_book_is_an_absent_price_not_zero`، `test_one_sided_marketwatch_row_refuses_a_quote` (provider).
+  - شواهد زنده روی `127.0.0.1:8177` (Edge CDP 9344، `~/.qoder-tmp/tse_both_states.mjs`): فولاد دوطرفه → خرید 4,230 / فروش 4,240 / اسپرد 0.24%؛ خبهمن → «داده‌ای موجود نیست» + یادداشت، ۱۸۷ کندل بسته از `tsetmc:26824673819862694:1d`، کتاب ۵ سطحه با ۰ سفارش فروش؛ بازگشت به فولاد → همان اعداد قبلی. صفر خطای کنسول، صفر پاسخ غیر ۲۰۰، صفر بلوک خطای مرئی.
+  - `~/.qoder-tmp/tse-8177/quote-two-sided.png` · `quote-one-sided.png` · `crypto-after-tse-fixes.png` (داشبورد کریپتو روی همان build: عنوان «داشبورد»، PAPER، صفر بلوک خطا).
+- [x] `month_scan.py` و زیردستور `research` هم venue-aware شدند (کلید کش و منبع `market` در payload) — بدون تغییر نام‌ها/رفتار برای کریپتو.
 
 ## ۳) بازمانده و ریسک‌های_known_
 - spread تابلوی بورس اغلب ۰.۲–۱٪ است؛ با `max_spread_pct: 0.30` پیش‌فرض، بیشتر نمادها رد می‌شوند (دروازه‌ی درست، اما config بورس باید آستانه را مستند و بازتعریف کند).
@@ -87,7 +100,7 @@
 - هیچ عدد ساختگی (کارمزد، گام قیمت، قیمت) تولید نمی‌شود؛ نبود داده = `null` + پیام صریح.
 
 ## ۵) تسک‌های ردیابی‌شده در جلسه
-`#1` کشف قرارداد داده — **انجام شد** · `#2` لایه‌ی markets بک‌اند — **انجام شد** · `#3` صفحه‌ی UI بورس — **build شد، رندر مرورگری باقی** · `#4` تست و عدم‌رگرسیون — **۱۸۱ سبز**
+`#1` کشف قرارداد داده — **انجام شد** · `#2` لایه‌ی markets بک‌اند — **انجام شد** · `#3` صفحه‌ی UI بورس — **رندر مرورگری شد** · `#4` تست و عدم‌رگرسیون — ۱۸۹ سبز (۱۵۶ تست قبلی بدون شکست) · `#5` دیدگاه دوم چندتالاری (config.tse.yaml) — انجام شد و از مرورگر راستی‌آزمایی شد · `#6` افت‌کیفیت صادقانه (نبود نقل‌قول/عمق یک‌طرفه) — انجام شد
 
 ---
 

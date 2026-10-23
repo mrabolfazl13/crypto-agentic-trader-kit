@@ -117,14 +117,35 @@ def test_report_renders_without_fabricated_values():
         "meta": {
             "source": "gate:spot/candlesticks", "coverage_end": 1_700_000_000,
             "symbols_with_data": 0, "symbols_requested": 100, "generated_at": "2026-10-24T00:00:00+00:00",
-            "disclaimer": "historical only",
+            "disclaimer": "historical only", "days": 30, "timeframe": "4h",
         },
         "strategies": {},
         "latest": {},
     }
     text = render_report(scan)
-    assert "اسکن ۳۰ روزه" in text
+    assert "اسکن 30 روزه" in text
     assert "1.3" not in text  # no invented percentages anywhere
+
+
+def test_report_names_the_requested_window_and_keeps_other_windows(config):
+    from cat.month_scan import write_report
+
+    base = {
+        "meta": {
+            "source": "gate:spot/candlesticks", "coverage_end": 1_700_000_000,
+            "symbols_with_data": 0, "symbols_requested": 100, "generated_at": "2026-10-24T00:00:00+00:00",
+            "disclaimer": "historical only", "timeframe": "4h",
+        },
+        "strategies": {},
+        "latest": {},
+    }
+    sixty = dict(base, meta=dict(base["meta"], days=60))
+    thirty = dict(base, meta=dict(base["meta"], days=30))
+    sixty_path, _ = write_report(sixty, None, config)
+    thirty_path, _ = write_report(thirty, None, config)
+    assert sixty_path != thirty_path  # a longer scan must not overwrite a shorter one
+    assert "_60d_" in sixty_path.name and "_30d_" in thirty_path.name
+    assert "اسکن 60 روزه" in sixty_path.read_text(encoding="utf-8")
 
 
 STEP = 3600

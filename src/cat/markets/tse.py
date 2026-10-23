@@ -349,13 +349,15 @@ class TseProvider:
         rows = payload.get("bestLimits") if isinstance(payload, dict) else None
         if not isinstance(rows, list):
             raise DataUnavailable(f"no book for {code}")
+        # A level with no orders publishes price 0. That is an absent price, not a
+        # free one, so it leaves the venue as null and the UI renders NO_DATA.
         return [
             {
                 "level": row.get("number"),
-                "bid_price": float(row.get("pMeDem") or 0.0),
+                "bid_price": float(row.get("pMeDem") or 0.0) or None,
                 "bid_qty": float(row.get("qTitMeDem") or 0.0),
                 "bid_orders": int(row.get("zOrdMeDem") or 0),
-                "ask_price": float(row.get("pMeOf") or 0.0),
+                "ask_price": float(row.get("pMeOf") or 0.0) or None,
                 "ask_qty": float(row.get("qTitMeOf") or 0.0),
                 "ask_orders": int(row.get("zOrdMeOf") or 0),
             }
@@ -502,6 +504,8 @@ class TseProvider:
         return {
             "flow": int(flow),
             "index_last_value": float(overview.get("indexLastValue") or 0.0) or None,
+            # ``indexChange`` is in index points (verified against the live board:
+            # 8,173,767.36 with -98,676.99 = -1.19%), not a percentage.
             "index_change": float(overview.get("indexChange") or 0.0) or None,
             "index_equal_weighted": float(overview.get("indexEqualWeightedLastValue") or 0.0) or None,
             "trade_count": float(overview.get("marketActivityZTotTran") or 0.0) or None,

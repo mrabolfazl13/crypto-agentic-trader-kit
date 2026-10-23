@@ -1,6 +1,6 @@
 # CURRENT_STATE
 
-به‌روزرسانی: 2026-10-24 (UTC) — فاز بورس تهران: universe واقعی ۵۰۰ سهم، adapter خواندنی TSETMC، تقویم جلسه‌محور، صفحه‌ی `/tse` و **۱۸۱ تست سبز** (۱۵۴ کریپتو + ۲۷ بورس).
+به‌روزرسانی: 2026-10-24 (UTC) — فاز بورس تهران: universe واقعی ۵۰۰ سهم، adapter خواندنی TSETMC، تقویم جلسه‌محور، صفحه‌ی `/tse`، دیدگاه فقط‌خواندنیِ بورس از سرویس کریپتو (`config.tse.yaml`) و **۱۸۹ تست سبز** (۱۵۶ تست قبلی + ۳۳ تست بورس).
 
 ## لایه‌هایی که الان کار می‌کنند (راستی‌آزمایی‌شده با اجرا)
 | لایه | وضعیت | شواهد (همه اجراشده، نه ادعا) |
@@ -10,7 +10,7 @@
 | نمایش جهان در UI/API | سبز | `GET /api/v1/universe` منبع و snapshot را برمی‌گرداند؛ کارت «جهان معاملاتی» در داشبورد تعداد/منبع/digest را نشان می‌دهد؛ `GET /config` شمارش را تأیید می‌کند |
 | موتور روی ۱۰۰ نماد | سبز | چرخه‌ی paper واقعی: **۱۰۰ outcome، ۰ خطا**، ۵m39s؛ یک BUY: BNB_USDT ۰٫۰۶۷ @ 742.6، کارمزد 0.049754، stop 731.959819، target 767.427089، equity ≈ 999.95؛ چرخه‌ی دوم ۴m44s → HOLD، بدون سفارش تکراری، ۰ خطا؛ `max_concurrency: 4` |
 | اعتبارسنجی داده | سبز | `tests/test_datasets.py` (۲۰ تست آفلاین) + `python trader.py quality --dataset …` روی داده‌ی واقعی |
-| استراتژی + Risk Gate قطعی | سبز | **۱۸۱ تست آفلاین سبز** (`pytest -q` → `181 passed`)؛ ۱۵۴ تست کریپتو بدون تغییر + ۲۷ تست بورس (mapping/تقویم/freshness/safety) |
+| استراتژی + Risk Gate قطعی | سبز | **۱۸۹ تست آفلاین سبز** (`pytest -q` → `189 passed`)؛ ۱۵۶ تست قبلی بدون شکست + ۳۳ تست بورس (mapping/تقویم/freshness/safety/دیدگاه دوم/افت‌کیفیت صادقانه)
 | بک‌تست رویدادمحور | سبز | `POST /api/v1/runs/backtest` روی ۳۶۵ روز واقعی BTC → `run-6cbbd7a9b577`: ۲۳ معامله، خالص `−1.848%`، PF `0.203`، DD `1.85%` |
 | موتور تحقیق (ضد overfit) | سبز | `python trader.py research … --grid "ema_fast=15,20;atr_stop_mult=1.5,2.5"` → split 1314/438/438، **REJECTED**؛ champion حفظ شد |
 | walk-forward از API | سبز | `POST /runs/walk-forward` با `dataset_id` + ۴۰۰ روز واقعی → ۲۰۰ OK؛ «rejected» (۰ از ۲ پنجره سودآور، PF 0.298)، ۱۲ معامله‌ی OOS، `risk_limits_untouched: true` |
@@ -19,12 +19,12 @@
 | Store (SQLite) | سبز | `state/platform.sqlite3`: datasets 3 / bars 6780 / runs 7 / decisions 226 / orders 1 / fills 1 / portfolio_snapshots 16 / strategy_versions 2 |
 | Mirror رویدادها | سبز | چرخه‌ی CLI و `POST /cycles/paper` از یک مسیر (`src/cat/mirror.py`) می‌نویسند؛ dedupe روی کلید طبیعی |
 | کندل زنده‌ی بازار | سبز (این مرحله) | `GET /api/v1/market/candles?symbol=SOL_USDT&timeframe=4h&limit=180` → ۱۸۰ کندل، ۱۷۹ بسته، `source gate:SOL_USDT:4h`، window `2026-09-24 → 2026-10-23`؛ allowlist خارج از جهان → 404؛ timeframe نامعتبر → 400؛ صرافی در دسترس نیست → 503؛ کش ۲۰ ثانیه‌ای درون‌فرآیندی |
-| بورس تهران (TSE) | سبز | `universe_tse.json`: ۵۰۰ سهم عادی از ۱۰۱۷ ردیف تابلو (digest `4600d16a…`)؛ `quote()` زنده‌ی فولاد با `ts=2026-10-21T09:00:02Z`؛ مسیرهای `/tse/market`، `/tse/instruments`، `/tse/instrument` و `/tse/book` فقط‌خواندنی با `single_source=true`؛ صفحه‌ی `/tse` build شده (رندر مرورگری هنوز نه) |
+| بورس تهران (TSE) | سبز | `universe_tse.json`: ۵۰۰ سهم عادی از ۱۰۱۷ ردیف تابلو (digest `4600d16a…`)؛ مسیرهای `/tse/market`، `/tse/instruments`، `/tse/instrument` و `/tse/book` فقط‌خواندنی با `single_source=true`؛ از سرویس کریپتو هم با `config.tse.yaml` کار می‌کنند (دیدگاه دوم؛ موتور/ریسک/paper روی `crypto` — `/health` روی همان `127.0.0.1:8177` هنوز `crypto`/`PAPER` می‌دهد)؛ صفحه‌ی `/tse` در Edge هدلس دسکتاپ ۱۴۴۰×۹۰۰ و موبایل ۳۹۰×۸۴۴ با داده‌ی زنده رندر شد: صفر خطای کنسول، صفر پاسخ غیر ۲۰۰، بدون overflow؛ فولاد (دوطرفه) خرید 4,230 / فروش 4,240 / اسپرد 0.24% و خبهمن (صف خرید قفل) همان کارت را با `quote: null` + یادداشت و ۱۸۷ کندل بسته نشان می‌دهد
 | نمودار همه‌ی نمادها | سبز (این مرحله) | کارت بازار به `getUniverse` وصل شد: **۱۰۰ گزینه** در انتخابگر (جستجو + select)، پیش‌فرض BTC_USDT، نمودار پس از انتخاب SOL با ۱۷۹ مستطیل کندل در Edge هدلس رندر شد؛ صفر خطای کنسول |
 | فهرست تصمیم‌ها با اسکرول | سبز (این مرحله) | `/decisions?limit=50` → دقیقاً ۵۰ رکورد؛ کادر `.feed-scroll` با ارتفاع 46vh، اسکرول‌بار مرئی و `tabIndex=0`؛ اندازه‌گیری: viewport ۴۱۲px / content ۲۷۰۶px، چرخ ماوس ۰→۳۲۰ بدون جابه‌جایی کل صفحه؛ ارتفاع کل صفحه از ۷۳۷۶px به ۲۲۸۸px رسید |
 | نشانی کش پوسته | سبز | `SpaStaticFiles`: shell → `no-store, must-revalidate`؛ asset هش‌دار → `immutable` (رفع پوسته‌ی کهنه پس از deploy) |
 | API محلی | سبز | سرور واقعی روی `127.0.0.1:8177`؛ health/config/portfolio/runs/datasets/bars/analysis/risk/logs/reports/universe/market-candles + import/fetch/backtest/walk-forward/cycle/kill-switch |
-| داشبورد (Vite+React+TS) | سبز (build + رندر) | ۱۴ صفحه (شامل `/tse`)؛ `npx tsc --noEmit` صفر خطا؛ `vite build` موفق؛ ۱۳ مسیر قبلی در Edge هدلس PASS؛ رندر `/tse` هنوز بررسی نشده |
+| داشبورد (Vite+React+TS) | سبز (build + رندر) | ۱۴ صفحه (شامل `/tse`)؛ `npx tsc --noEmit` صفر خطا؛ `vite build` موفق؛ ۱۳ مسیر قبلی + `/tse` در Edge هدلس PASS؛ دسکتاپ ۱۴۴۰×۹۰۰ و موبایل ۳۹۰×۸۴۴ بدون overflow افقی |
 | CI | push شد | مخزن خصوصی `mrabolfazl13/crypto-agentic-trader-kit`؛ workflow: pytest + دروازه‌ی LIVE + audit + tsc + build؛ وضعیت اجرا از این ماشین قابل‌مشاهده نیست (بدون gh/Actions tools) |
 
 ## مسیرهای رفع‌شده در این مرحله
@@ -39,13 +39,17 @@
 - لنگر هفته‌ی بورس یک روز خطا داشت (یکشنبه به‌جای شنبه) → `week_anchor` اصلاح شد؛ تست تجمیع هفتگی اکنون شنبه‌محور بودن را ثابت می‌کند.
 - `time_gap` در تعطیلی پنجشنبه/جمعه و آخر هفته false positive بود → `MarketSpec.gap_is_expected` + `calendar.bar_gap_ok`؛ مسیر کریپتو بدون تغییر.
 - فیلتر `paperTypes` حق تقدم/صندوق را حذف نمی‌کرد → universe با ISIN `IRO1/IRO3/IRO5/IRO7` و سریال `0001/0011` فقط سهام عادی را نگه می‌دارد (۴۱۶ ردیف غیرعادی حذف شد).
+- پاسخ‌های `/tse/*` روی سرور کهنه `text/html` بودند و UI بی‌صدا خالی می‌ماند → `tseClient` هم `content-type` و هم ساختار پاسخ را اعتبارسنجی می‌کند و پیام «نسخه‌ی قدیمی سرور» می‌دهد.
+- روی ویندوز `SpaStaticFiles` مسیر را با بک‌اسلش می‌گرفت و ۴۰۴های API را به shell تبدیل می‌کرد → تصمیم از `scope["path"]` (URL) گرفته می‌شود؛ `/api/v1/…` گمشده JSON ۴۰۴ است و `/tse` پوسته.
+- تغییر شاخص بورس (که TSETMC بر حسب واحد شاخص منتشر می‌کند) با پسوند٪ چاپ می‌شد → درصد از `index_last_value − index_change` مشتق می‌شود و با ایزولاتورهای دوجهته در جمله‌ی RTL قرار می‌گیرد.
+- بن‌بست «برای بورس سرویس جدا بگیرید» (409) → دیدگاه فقط‌خواندنیِ دوم از `config.tse.yaml` در همان سرویس؛ کلید کش کندل و provider با بازار نام‌فضایی شد.
+- نماد بدون قیمت دوطرفه (خبهمن) کل کارت را ۵۰۳ می‌کرد → `200` با `quote: null` + `quote_note`؛ سطح بدون سفارش در کتاب هم `price: null` است نه `0` و `note` می‌گوید کدام صف قفل است.
 
 ## باقی‌مانده
 - تست یکپارچگی end-to-end با زنجیره‌ی کامل API.
 - paper چندروزه برای دروازه‌ی B.
 - بررسی واکنش‌گرایی جدول‌های بک‌تست در موبایل (خارج از این مرحله).
-- بک‌تست/اسکن ماهانه‌ی بورس هنوز به spec وصل نیست و `GateProvider` را مستقیم صدا می‌زند.
-- راستی‌آزمایی رندر صفحه‌ی `/tse` در Edge هدلس (دسکتاپ و موبایل) انجام نشده است.
+- `month_scan.py`/`research` حالا provider را از spec می‌سازند و کش/منبع گزارش با `market` نام‌فضایی می‌شود؛ اجرای کامل اسکن/بک‌تست بورس روی داده‌ی واقعی هنوز انجام نشده (شواهد کریپتو دست‌نخورده).
 
 ## مرزهای ایمنی که دست‌نخورده می‌مانند
 - پیش‌فرض و حالت فعلی: `PAPER`. `live_trading_enabled: false`. هیچ adapter زنده‌ای وجود ندارد و هیچ route یا دکمه‌ای LIVE را فعال نمی‌کند (تست: «no path contains live»).
@@ -87,7 +91,7 @@
 
 **باقی‌مانده (برای نفر بعدی)**
 1. اندازه‌گیری کامل کاندیدهای breadth: پیاده‌سازی و تست شده، اما اجرای کامل فاز بهبود تمام نشد (اجرا کند است: ~۲–۳ دقیقه برای هر کاندید × ۹۸ نماد). شاهد جزئی ثبت‌شده: `momentum_20:breadth50` روی train = ۲۳۶ معامله، PF ۰٫۷۴۵، میانگین −۰٫۱۳۴٪ (در برابر پایه ۲۵۲/PF ۰٫۷۳۳/−۰٫۱۴۹٪). فرمان: `python trader.py month-scan --days 30 --warmup 180 --timeframe 4h`؛ کش کندل‌ها در `state/research/scan_4h_60d.json` است و دوباره دانلود نمی‌شود.
-2. اتصال `month_scan.py`/`backtest.py` به registry بازار (همان بدهی ثبت‌شده در `TASKS.md` برای بورس).
+2. اتصال registry بازار به `month_scan.py` انجام شد (provider از spec + کلید کش per-market)؛ اجرای end-to-end بورس باقی است.
 3. paper چندروزه برای دروازه‌ی B و تست یکپارچگی end-to-end.
 
 **مرزهای ایمنی:** بدون تغییر — `PAPER`، `live_trading_enabled: false`، هیچ adapter زنده، هیچ endpoint برای افزایش سقف ریسک یا بودجه، kill switch فعال. `month-scan` فقط می‌خواند و گزارش می‌نویسد؛ هیچ سفارشی نمی‌سازد.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -17,10 +18,18 @@ def schema_path(root: Path) -> Path:
     return Path(root) / "schemas" / "trade_decision.schema.json"
 
 
-def validator(root: Path) -> Draft202012Validator:
-    schema = json.loads(schema_path(root).read_text(encoding="utf-8"))
+@lru_cache(maxsize=32)
+def _compiled(path: str, mtime_ns: int, size: int) -> Draft202012Validator:
+    """Compile a schema once per (file, mtime, size); recompiles only when the file changes."""
+    schema = json.loads(Path(path).read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
     return Draft202012Validator(schema)
+
+
+def validator(root: Path) -> Draft202012Validator:
+    path = schema_path(root)
+    stat = path.stat()
+    return _compiled(str(path.resolve()), stat.st_mtime_ns, stat.st_size)
 
 
 def build_decision(

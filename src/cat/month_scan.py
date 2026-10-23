@@ -62,10 +62,12 @@ def _bar_from_row(row: list[Any]) -> Kline:
 def _cache_path(config: Config, options: ScanOptions) -> Path:
     root = options.cache_dir or (Path(config.root) / "state" / "research")
     root.mkdir(parents=True, exist_ok=True)
-    return root / f"scan_{options.timeframe}_{options.days + options.warmup_bars // 6}d.json"
+    # The market belongs in the key: a 30d/1d scan of TSE must never be served
+    # from the cache of a 30d/1d scan of Gate.
+    return root / f"scan_{config.market}_{options.timeframe}_{options.days + options.warmup_bars // 6}d.json"
 
 
-def _fetch_symbol(config: Config, provider: GateProvider, symbol: str, options: ScanOptions, end: int) -> dict[str, Any]:
+def _fetch_symbol(config: Config, provider: Any, symbol: str, options: ScanOptions, end: int) -> dict[str, Any]:
     step = seconds_per_bar(options.timeframe)
     start = end - (options.days * 86400) - options.warmup_bars * step - 5 * step
     higher_end = end
@@ -104,9 +106,13 @@ def load_history(config: Config, symbols: list[str], options: ScanOptions, *, pr
         except (ValueError, OSError):
             pass
 
-    provider = GateProvider(HttpClient(proxy=config.proxy), filters_ttl_seconds=config.filters_cache_seconds)
+    spec = config.spec
+    provider = spec.build_provider(HttpClient(proxy=config.proxy, headers=dict(spec.http_headers)), config)
     workers = max(1, min(8, int(getattr(config, "max_concurrency", 4) or 4)))
-    progress(f"fetch: {len(symbols)} symbols × {options.timeframe} + {config.confirm_timeframe} via {config.proxy or 'direct'} (workers={workers})")
+    progress(
+        f"fetch: {len(symbols)} symbols × {options.timeframe} + {config.confirm_timeframe} "
+        f"on {spec.name} via {provider.name} ({config.proxy or 'direct'}, workers={workers})"
+    )
     results: dict[str, Any] = {}
     errors: dict[str, str] = {}
     started = time.time()
@@ -127,7 +133,8 @@ def load_history(config: Config, symbols: list[str], options: ScanOptions, *, pr
         "timeframe": options.timeframe,
         "days": options.days,
         "warmup_bars": options.warmup_bars,
-        "source": "gate:spot/candlesticks",
+        "source": f"{provider.name}:{config.market}",
+        "market": config.market,
         "symbols": results,
         "errors": errors,
     }
@@ -539,7 +546,7 @@ def _fmt(value: Any, suffix: str = "", *, signed: bool = False) -> str:
 def render_report(scan: dict[str, Any]) -> str:
     meta = scan["meta"]
     lines = [
-        "# اسکن ۳۰ روزه‌ی چند استراتژی (۴ ساعتی)",
+        f"# اسکن {meta['days']} روزه‌ی چند استراتژی ({meta['timeframe']})",
         "",
         f"- داده: `{meta['source']}` · آخرین کندل بسته: `{datetime.fromtimestamp(int(meta['coverage_end']), tz=timezone.utc):%Y-%m-%d %H:%M}Z`",
         f"- نمادها: {meta['symbols_with_data']} از {meta['symbols_requested']} · تولید: {meta['generated_at']}",
@@ -551,11 +558,12 @@ def render_report(scan: dict[str, Any]) -> str:
         "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     labels = {"trend_v1": "trend v1 (EMA)", "breakout_30": "breakout 30", "momentum_20": "momentum 20", "pullback_rsi": "pullback RSI"}
+    halves = {True: "train (نیمه‌ی اول بازه)", False: "validation (نیمه‌ی دوم بازه)"}
     for name, block in scan["strategies"].items():
         for segment in ("train", "validation"):
             row = block[segment]
             lines.append(
-                f"| {labels.get(name, name)} | {'train (۱۵ روز اول)' if segment == 'train' else 'validation (۱۵ روز دوم)'} "
+                f"| {labels.get(name, name)} | {halves[segment == 'train']} "
                 f"| {row['trades']} | {row['symbols_with_trades']} | {_fmt(row['win_rate_pct'])} "
                 f"| {_fmt(row['profit_factor'])} | {_fmt(row['mean_net_return_pct'], signed=True)} "
                 f"| {_fmt(row['median_net_return_pct'], signed=True)} "
@@ -619,9 +627,10 @@ def render_report(scan: dict[str, Any]) -> str:
 
 def write_report(scan: dict[str, Any], out: Path | None, config: Config) -> tuple[Path, Path]:
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    days = int(scan["meta"]["days"])
     reports = Path(config.root) / "state" / "reports"
     reports.mkdir(parents=True, exist_ok=True)
-    markdown = out or reports / f"month_scan_{stamp}.md"
+    markdown = out or reports / f"month_scan_{days}d_{stamp}.md"
     markdown.parent.mkdir(parents=True, exist_ok=True)
     markdown.write_text(render_report(scan), encoding="utf-8")
     payload = markdown.with_suffix(".json")

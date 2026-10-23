@@ -106,11 +106,29 @@ def _normalize_symbol(symbol: str) -> str:
     return str(symbol).upper().replace("/", "_").replace("-", "_")
 
 
+#: Top URL segments that belong to the server, never to a client-side route.
+_SHELL_PASSTHROUGH_SEGMENTS = {"api", "assets"}
+
+
+def _is_client_route(url_path: str) -> bool:
+    """Only a client-side route may fall back to the SPA shell.
+
+    An unknown API path or a missing hashed asset must answer 404 in its own
+    language: a shell here makes the browser see "200 OK" with HTML and the
+    dashboard silently renders empty cards instead of reporting a stale server.
+    """
+    clean = str(url_path).strip("/")
+    if not clean:
+        return True
+    first = clean.split("/")[0].lower()
+    return first not in _SHELL_PASSTHROUGH_SEGMENTS and "." not in Path(clean).name
+
+
 # Short-lived cache for /market/candles so a symbol switch does not hit the exchange
 # again. Keyed by (symbol, timeframe, limit); TTL is intentionally small.
 _CANDLES_TTL = 20.0
 _candles_lock = threading.Lock()
-_candles_cache: dict[tuple[str, str, str, int], tuple[float, list[Kline], str]] = {}
+_candles_cache: dict[tuple[str, str, str, str, int], tuple[float, list[Kline], str]] = {}
 _providers: dict[str, Any] = {}
 
 
@@ -120,7 +138,7 @@ def _gate_provider(config: Config):
     ``gate`` is the historical name of the primary provider slot; for
     ``trading.market: tse`` it is a TSETMC provider with the venue's own headers.
     """
-    key = str(config.root)
+    key = f"{config.root}#{config.market}"
     with _candles_lock:
         provider = _providers.get(key)
         if provider is None:
@@ -128,6 +146,65 @@ def _gate_provider(config: Config):
             provider = config.spec.build_provider(client, config)
             _providers[key] = provider
     return provider
+
+
+def _venue_view_config(primary: Config, market: str) -> Config:
+    """The config behind a read-only second-venue view of the same dashboard.
+
+    The engine, the risk gate and the paper cycle keep running on ``primary`` —
+    this object is only ever read by the display routes of one venue. A non-crypto
+    board therefore needs its own ``config.<market>.yaml`` (PAPER by construction:
+    :func:`cat.config.load_config` refuses LIVE on any other venue) instead of
+    forcing the user to run a second server on a second port.
+    """
+    if primary.spec.name == market:
+        return primary
+    path = Path(primary.root) / f"config.{market}.yaml"
+    if not path.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"نمایش «{market}» در این سرویس پیکربندی نشده است. فایلی به نشانی {path.name} در ریشه‌ی پروژه "
+                f"نیاز است؛ نمونه‌ی آماده: کپی {f'config.{market}.example.yaml'} به {path.name} و یک بار "
+                "راه‌اندازی دوباره‌ی سرویس. موتور و ریسک‌گیت همچنان روی بازار اصلی می‌مانند."
+            ),
+        )
+    try:
+        view = load_config(path, root=primary.root)
+    except ConfigError as exc:
+        raise HTTPException(status_code=409, detail=f"پیکربندی {path.name} خوانده نشد: {exc}") from exc
+    if view.spec.name != market:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{path.name} بازارِ «{view.market}» را انتخاب کرده؛ باید trading.market روی {market} باشد.",
+        )
+    return view
+
+
+#: Read-only venues the dashboard can show beside the primary market.
+SECONDARY_VIEWS = ("tse",)
+
+
+def _resolve_symbol_config(primary: Config, symbol: str) -> tuple[Config, str]:
+    """Which venue owns this symbol — the primary market first, then read-only views.
+
+    A crypto symbol never reaches the second branch, so its behaviour and error
+    text are exactly what they were. A TSE insCode is served when
+    ``config.tse.yaml`` exists and refused by the primary's 404 when it does not.
+    """
+    try:
+        return primary, _venue_symbol(primary, symbol)
+    except HTTPException as primary_error:
+        for market in SECONDARY_VIEWS:
+            try:
+                view = _venue_view_config(primary, market)
+            except HTTPException:
+                continue
+            try:
+                return view, _venue_symbol(view, symbol)
+            except HTTPException:
+                continue
+        raise primary_error
 
 
 def _venue_symbol(config: Config, symbol: str) -> str:
@@ -328,15 +405,14 @@ def create_app(root: Path | None = None) -> FastAPI:
         timeframe: str | None = None,
         limit: int = Query(default=180, ge=20, le=500),
     ) -> dict[str, Any]:
-        """Closed candles for one allow-listed symbol, read from the exchange.
+        """Closed candles for one allow-listed symbol, read from its own venue.
 
         This endpoint never invents data: a symbol outside ``trading.symbols`` is
         refused, and an unreachable feed is a 503. Candles are cached in-process
         for a few seconds so switching symbols does not hammer the exchange.
         """
-        config = get_config()
+        config, normalized = _resolve_symbol_config(get_config(), symbol)
         provider = _gate_provider(config)
-        normalized = _venue_symbol(config, symbol)
         tf = timeframe or config.timeframe
         if tf not in config.spec.timeframes:
             raise HTTPException(
@@ -344,7 +420,9 @@ def create_app(root: Path | None = None) -> FastAPI:
                 detail=f"تایم‌فریم {tf} برای بازار {config.spec.title} منتشر نمی‌شود؛ مجاز: {', '.join(config.spec.timeframes)}",
             )
 
-        key = (str(app_root), normalized, tf, limit)
+        # The venue is part of the key: one process now answers for the primary
+        # market and any read-only view, and a candle is only ever valid for its own feed.
+        key = (str(app_root), config.market, normalized, tf, limit)
         monotonic_now = time.monotonic()
         with _candles_lock:
             cached = _candles_cache.get(key)
@@ -390,14 +468,8 @@ def create_app(root: Path | None = None) -> FastAPI:
         }
 
     # ---- بورس ایران: فقط خواندنی، بدون هیچ مسیر سفارش -------------------
-    def _tse_provider(config: Config):
-        if config.spec.name != "tse":
-            raise HTTPException(
-                status_code=409,
-                detail="بازارِ فعال در config.yaml بورس نیست؛ برای این دیدگاه trading.market را روی tse بگذارید.",
-            )
-        return _gate_provider(config)
-
+    # The venue config comes from _venue_view_config(): a crypto-primary service
+    # still serves this board from config.tse.yaml, and never lets it touch the engine.
     @router.get("/tse/market")
     def tse_market(flow: int = Query(default=1, ge=1, le=2)) -> dict[str, Any]:
         """Session state and the board summary, straight from TSETMC.
@@ -405,8 +477,8 @@ def create_app(root: Path | None = None) -> FastAPI:
         ``session`` is computed from the recorded Tehran calendar, ``board`` is
         the exchange's own overview payload. Nothing here is estimated.
         """
-        config = get_config()
-        provider = _tse_provider(config)
+        config = _venue_view_config(get_config(), "tse")
+        provider = _gate_provider(config)
         session = tse_calendar.phase(datetime.now(timezone.utc))
         freshness_ref = config.spec.freshness_reference(datetime.now(timezone.utc).timestamp())
         try:
@@ -431,8 +503,8 @@ def create_app(root: Path | None = None) -> FastAPI:
     @router.get("/tse/instruments")
     def tse_instruments(limit: int = Query(default=50, ge=1, le=500)) -> dict[str, Any]:
         """Ranked instruments with their live board prices (last session values)."""
-        config = get_config()
-        provider = _tse_provider(config)
+        config = _venue_view_config(get_config(), "tse")
+        provider = _gate_provider(config)
         try:
             rows = provider.watch()
         except DataError as exc:
@@ -476,25 +548,34 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @router.get("/tse/instrument")
     def tse_instrument(symbol: str) -> dict[str, Any]:
-        config = get_config()
-        provider = _tse_provider(config)
+        config = _venue_view_config(get_config(), "tse")
+        provider = _gate_provider(config)
         code = _venue_symbol(config, symbol)
         try:
             band = provider.price_band(code)
-            quote = provider.quote(code)
         except DataError as exc:
             raise HTTPException(status_code=503, detail=f"داده‌ی این ابزار خوانده نشد: {exc}")
-        if quote.ask < quote.bid:
-            raise HTTPException(status_code=503, detail="کتاب قیمت این ابزار وارونه است — fail-closed")
+        # A one-sided board (no pmd/pmo) is absent data, not a service failure: the
+        # band, venue rules and candles are still real, so the card renders with
+        # quote=null plus the reason instead of throwing the whole view away.
+        quote: Any = None
+        quote_note: str | None = None
+        try:
+            quote = provider.quote(code)
+        except DataUnavailable as exc:
+            quote_note = str(exc)
+        except DataError as exc:
+            raise HTTPException(status_code=503, detail=f"قیمت این ابزار خوانده نشد: {exc}")
         return {
             "display": provider.display(code),
             "band": band,
-            "quote": {
+            "quote": None if quote is None else {
                 "symbol": quote.symbol, "bid": quote.bid, "ask": quote.ask,
                 "mid": round(quote.mid, 4), "spread_pct": round(quote.spread_pct, 4),
                 "ts": datetime.fromtimestamp(quote.ts, tz=timezone.utc).isoformat(timespec="seconds"),
                 "source": quote.source,
             },
+            "quote_note": quote_note,
             "venue_rules": {
                 "lot_size": provider.filters(code).min_qty,
                 "price_currency": config.spec.currency,
@@ -506,19 +587,27 @@ def create_app(root: Path | None = None) -> FastAPI:
     @router.get("/tse/book")
     def tse_book(symbol: str) -> dict[str, Any]:
         """Real order-book depth (BestLimits) — display only; the paper broker still fills at the touch."""
-        config = get_config()
-        provider = _tse_provider(config)
+        config = _venue_view_config(get_config(), "tse")
+        provider = _gate_provider(config)
         code = _venue_symbol(config, symbol)
         try:
             levels = provider.book(code)
+        except DataUnavailable:
+            levels = []
         except DataError as exc:
             raise HTTPException(status_code=503, detail=f"عمق بازار خوانده نشد: {exc}")
+        note = None
         if not levels:
-            raise HTTPException(status_code=503, detail="عمق بازار برای این ابزار منتشر نشده است")
+            note = "تابلو برای این نماد عمق بازار منتشر نکرده است (متوقف یا خارج از جلسه)"
+        elif all(level["ask_price"] is None for level in levels):
+            note = "در پنج سطح نخست هیچ سفارش فروشی ثبت نشده — صف خرید قفل است"
+        elif all(level["bid_price"] is None for level in levels):
+            note = "در پنج سطح نخست هیچ سفارش خریدی ثبت نشده — صف فروش قفل است"
         return {
             "symbol": code,
             "levels": levels,
             "count": len(levels),
+            "note": note,
             "provenance": {**_provenance("history", f"tsetmc:{code}:bestlimits", f"levels:{len(levels)}"), "single_source": True},
         }
 
@@ -1021,13 +1110,16 @@ def create_app(root: Path | None = None) -> FastAPI:
     dist = app_root / "web" / "dist"
     if dist.exists():
         class SpaStaticFiles(StaticFiles):
-            """Serve the SPA shell for client-side routes; missing assets still 404."""
+            """Serve the SPA shell for client-side routes; missing assets and API paths still 404."""
 
             async def get_response(self, path: str, scope):  # type: ignore[override]
+                # ``path`` arrives normalised with OS separators (``api\v1\...`` on Windows),
+                # so the API-vs-route decision has to come from the URL, not from it.
+                url_path = str(scope.get("path", ""))
                 try:
                     response = await super().get_response(path, scope)
                 except StarletteHTTPException as exc:
-                    if exc.status_code == 404 and "." not in Path(path).name:
+                    if exc.status_code == 404 and _is_client_route(url_path):
                         response = await super().get_response("index.html", scope)
                     else:
                         raise

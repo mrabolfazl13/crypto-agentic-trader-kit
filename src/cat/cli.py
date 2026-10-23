@@ -261,16 +261,15 @@ def cmd_research(engine: Engine, symbol: str, timeframe: str | None, days: int, 
     from .store import open_store
 
     config = engine.config
-    pair = symbol.upper().replace("/", "_")
+    # Venue-canonical identity: Gate wants BTC_USDT, TSE wants its numeric insCode.
+    pair = symbol_key(engine.gate, symbol)
     tf = timeframe or config.timeframe
     store = open_store(config.root)
     if dataset:
         dataset_id = dataset
         bars = datasets.load_klines(store, dataset_id)
     else:
-        from .data import GateProvider
-
-        created = datasets.ingest_exchange(store, GateProvider(engine.client), pair, tf, days)
+        created = datasets.ingest_exchange(store, engine.gate, pair, tf, days)
         dataset_id = created["dataset_id"]
         bars = datasets.load_klines(store, dataset_id)
     if len(bars) < 400:

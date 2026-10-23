@@ -165,6 +165,37 @@ def test_book_maps_best_limits(workspace: Path):
     assert levels[0]["bid_qty"] == float(recorded[0]["qTitMeDem"])
 
 
+def test_empty_side_of_the_book_is_an_absent_price_not_zero(workspace: Path):
+    """A level with no orders publishes 0; reporting 0 ریال would be a lie."""
+    write_universe(workspace)
+    provider = fixture_provider(workspace, {
+        "book": {
+            "bestLimits": [
+                {"number": 1, "pMeDem": 3050, "qTitMeDem": 81930117, "zOrdMeDem": 293,
+                 "pMeOf": 0, "qTitMeOf": 0, "zOrdMeOf": 0},
+            ]
+        }
+    })
+
+    level = provider.book(FOLD_CODE)[0]
+    assert level["bid_price"] == 3050.0
+    assert level["ask_price"] is None
+    assert level["ask_qty"] == 0.0
+
+
+def test_one_sided_marketwatch_row_refuses_a_quote(workspace: Path):
+    """Suspended/blocked names have no two-sided price, so no Quote is built."""
+    write_universe(workspace)
+    rows = marketwatch_rows()
+    for row in rows:
+        if str(row.get("insCode")) == FOLD_CODE:
+            row["pmo"] = 0
+    provider = fixture_provider(workspace, {"marketwatch": {"marketwatch": rows}})
+
+    with pytest.raises(DataUnavailable, match="no two-sided quote"):
+        provider.quote(FOLD_CODE)
+
+
 def test_market_state_is_the_exchange_overview(workspace: Path):
     write_universe(workspace)
     provider = fixture_provider(workspace)
