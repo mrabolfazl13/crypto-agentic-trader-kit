@@ -181,3 +181,24 @@ def test_breadth_gate_fails_closed_without_a_snapshot(config):
     proposal = wrapped(make_snapshot(prices=momentum_prices()), None, **signal_kwargs(config))
     assert proposal.action == "NO_TRADE"
     assert proposal.reason == "market_breadth_unavailable"
+
+
+def test_improvement_phase_builds_breadth_candidates(config, monkeypatch):
+    import cat.month_scan as ms
+
+    data = _breadth_data(ups=10, downs=2)
+    calls: list[dict] = []
+
+    def fake_window_rows(*args, **kwargs):
+        calls.append(kwargs)
+        return [], {}
+
+    monkeypatch.setattr(ms, "_window_rows", fake_window_rows)
+    result = ms._run_improvements(
+        config, data, list(data), {}, ms.ScanOptions(strategies=("momentum_20",)), progress=lambda _: None,
+    )
+    assert result["breadth"] is not None
+    assert result["chosen"] is None  # no trades from the stub, so nothing may be selected
+    wrapped = [kw for kw in calls if getattr(kw.get("signal"), "__name__", "") == "wrapped"]
+    assert len(wrapped) == 2  # breadth50 and breadth50+stop2_target4
+    assert all(kw["params"] is None for kw in wrapped if kw["name"].endswith(":breadth50"))
