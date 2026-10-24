@@ -273,6 +273,37 @@ def test_grid_search_never_mutates_risk_or_sizing_config(config, engine):
     assert config.strategy_params == default_params()
 
 
+def test_silent_variant_never_outranks_a_measured_loss(config, monkeypatch):
+    """Regression: a 0.0%-with-zero-trades variant wasted three optimizer experiments.
+
+    Absence of evidence is not a neutral score — when every trading variant loses,
+    the grid must still select one that actually trades so the gate measures a hypothesis.
+    """
+    def fake(_config, symbol, *, bars, higher_bars, filters, timeframe=None, warmup=80,
+             assumed_spread_pct=0.05, params=None):
+        params = params or default_params()
+        silent = params.ema_fast == 8
+        trades = 0 if silent else 20
+        metrics = {"trades": trades, "win_rate_pct": 0.0,
+                   "profit_factor": None if silent else 0.4,
+                   "net_pnl": 0.0 if silent else -3.0, "net_return_pct": 0.0 if silent else -0.3,
+                   "max_drawdown_pct": 0.0 if silent else 0.6, "fees_paid": 0.0 if silent else 1.0}
+        result = BacktestResult(symbol=symbol, timeframe=timeframe or "4h", bars=len(bars),
+                                start=research._iso(bars[0].open_time), end=research._iso(bars[-1].open_time))
+        result.metrics = metrics
+        result.params_label = params.label()
+        result.params = params.tuning()
+        result.trades = [BacktestTrade(symbol, bars[warmup].open_time, bars[-1].open_time, 100.0, 99.0,
+                                       0.001, -0.15, 0.05, "synthetic") for _ in range(trades)]
+        return result
+
+    monkeypatch.setattr(research, "run_backtest", fake)
+    results = grid_search(config, "BTC_USDT", bars=_bars(_prices_rising(900)), higher_bars=[], filters=FILTERS,
+                          grid={"ema_fast": [8, 12]}, top=2)
+    assert results[0]["params"]["ema_fast"] == 12  # the losing-but-measured variant wins over silence
+    assert results[-1]["params"]["ema_fast"] == 8
+
+
 # ---- walk-forward ---------------------------------------------------------
 def test_walk_forward_never_scores_inside_its_own_training_window(config, engine):
     bars = _bars(_prices_rally_then_fade())

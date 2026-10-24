@@ -243,11 +243,18 @@ def params_from_report(report: dict[str, Any] | None, base: StrategyParams) -> S
                            for field in ("name", "version", "note")}, **changes)
 
 
-def _rank_key(entry: dict[str, Any]) -> tuple[float, float, str]:
+def _rank_key(entry: dict[str, Any]) -> tuple[int, float, float, str]:
+    """Never-trade variants rank last, even above losing ones.
+
+    A flat 0.0% with zero trades is the absence of evidence, not a neutral result:
+    the 400-day BTC optimizer wasted three experiments because a silent variant
+    outranked every trading one and then failed the gate with 0 out-of-sample trades.
+    """
     metrics = entry["metrics"]
     factor = metrics.get("profit_factor")
-    return (float(metrics.get("net_return_pct") or 0.0), float(factor) if isinstance(factor, (int, float)) else -1.0,
-            entry["params_label"])
+    measurable = 1 if int(metrics.get("trades") or 0) > 0 else 0
+    return (measurable, float(metrics.get("net_return_pct") or 0.0),
+            float(factor) if isinstance(factor, (int, float)) else -1.0, entry["params_label"])
 
 
 def grid_search(config: Config, symbol: str, *, bars: list[Kline], higher_bars: list[Kline],
