@@ -1005,7 +1005,10 @@ def create_app(root: Path | None = None) -> FastAPI:
         try:
             bars, higher, filters, dataset_id = _series_for(
                 store, config, datasets_mod, symbol, tf, body.days, body.dataset_id)
-            if len(bars) < 120 or len(higher) < 80:
+            # 60 is the threshold the engine itself uses (backtest.py: higher is
+            # passed to the confirm series only when len >= 60); a stricter check
+            # here rejected valid windows whose resampled confirm series had 60-79 bars.
+            if len(bars) < 120 or len(higher) < 60:
                 raise HTTPException(status_code=422,
                                     detail=f"داده کافی نیست: {len(bars)} کندل سیگنال، {len(higher)} کندل تأیید.")
             params = params_from_dict(body.params, base=config.strategy_params)

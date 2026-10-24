@@ -12,6 +12,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
+COPY schemas ./schemas
 COPY trader.py config.yaml config.tse.yaml universe.json universe_tse.json ./
 RUN mkdir -p state
 

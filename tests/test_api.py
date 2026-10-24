@@ -368,6 +368,21 @@ def test_backtest_success_path_runs_and_persists_the_strategy_version(client: Te
     assert len(run["equity_curve"]) > 0
 
 
+def test_backtest_accepts_a_window_whose_confirm_series_has_60_to_79_bars(
+        client: TestClient, store, workspace: Path):
+    """60-79 daily bars was a dead zone: the engine accepted >=60 but the API demanded >=80."""
+    csv_path = workspace / "hist.csv"
+    _write_csv(csv_path, _trending_prices(400))  # 400 x 4h ~= 67 daily confirm bars
+    imported = client.post(f"{BASE}/datasets/import",
+                           json={"path": str(csv_path), "symbol": "BTC/USDT", "timeframe": "4h"}).json()
+    _signal, higher, _filters, _dataset_id = api_module._series_for(
+        store, load_config(root=workspace), datasets_mod, "BTC_USDT", "4h", None, imported["dataset_id"])
+    assert 60 <= len(higher) <= 79
+    resp = client.post(f"{BASE}/runs/backtest",
+                       json={"symbol": "BTC/USDT", "dataset_id": imported["dataset_id"], "warmup": 80})
+    assert resp.status_code == 200, resp.text
+
+
 def test_dataset_bars_returns_real_candles_and_overlays(client: TestClient, workspace: Path):
     csv_path = workspace / "hist.csv"
     _write_csv(csv_path, _trending_prices(300))

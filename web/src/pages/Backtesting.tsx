@@ -156,7 +156,7 @@ export default function Backtesting() {
   const [form, setForm] = useState({
     symbol: "",
     timeframe: "",
-    source: "dataset",
+    source: "days",
     datasetId: "",
     days: "365",
     warmup: "80",
@@ -748,6 +748,9 @@ export default function Backtesting() {
                   </option>
                 ))}
               </select>
+              {datasetOptions.length === 0 ? (
+                <p className="muted">برای این نماد مجموعه‌داده‌ای ذخیره نشده؛ یا از «دریافت بازه‌ی روز از صرافی» استفاده کنید یا اول در صفحه‌ی داده‌ها داده وارد کنید.</p>
+              ) : null}
             </FormRow>
           ) : (
             <FormRow id="bt-days" label="روز" hint="۱ تا ۱۵۰۰ — سرویس برای همین بازه تاریخچه می‌گیرد و dataset می‌سازد.">
