@@ -323,6 +323,10 @@ def acceptance(candidate: dict[str, Any], champion: dict[str, Any], *, min_trade
         return False, ["champion has no out-of-sample baseline: measure the current build before replacing it"]
 
     reasons: list[str] = []
+    label = candidate.get("params_label")
+    if label and label == champion.get("params_label"):
+        reasons.append("candidate is the unchanged champion: the grid selected the current parameters, so this "
+                       "hypothesis did not alter behaviour on this dataset and nothing new was tested")
     evidence = candidate.get("risk_checks")
     if not isinstance(evidence, dict) or not evidence:
         reasons.append("no risk-limit evidence recorded for the candidate")

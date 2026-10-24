@@ -348,6 +348,8 @@ def _reason_groups(reasons: list[str]) -> set[str]:
             groups.add("edge")
         if "risk-limit" in lowered:
             groups.add("evidence")
+        if "unchanged champion" in lowered:
+            groups.add("no_op")
     return groups
 
 
@@ -398,8 +400,10 @@ def learning_text(body: dict[str, Any]) -> str:
         "risk": "افت سرمایه بیشتر از حد تحمل بود؛ آزمایش بعدی باید ریسک هر معامله را کم کند.",
         "edge": "بهبود بازده/فاکتور سود خارج از نمونه ثبت نشد؛ آزمایش بعدی باید کیفیت ورود یا خروج را هدف بگیرد.",
         "evidence": "شواهد محدودیت ریسک ناقص بود؛ سیستم fail-closed عمل کرد.",
+        "no_op": "گرید همان پارامترهای قهرمان را انتخاب کرد؛ این فرضیه روی این داده رفتار را تغییر نداد، "
+                 "پس نتیجه‌ی این آزمایش شواهد جدیدی برای آن نیست.",
     }
-    notes = " ".join(lesson[group] for group in ("more_trades", "risk", "edge", "evidence") if group in groups)
+    notes = " ".join(lesson[group] for group in ("no_op", "more_trades", "risk", "edge", "evidence") if group in groups)
     return f"رد شد ({body.get('candidate_label')}). {measured}. {notes}".strip()
 
 

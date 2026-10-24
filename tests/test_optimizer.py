@@ -77,6 +77,16 @@ def test_learning_text_records_the_reason_not_a_promise():
     assert "تضمین" not in text and "سود قطعی" not in text
 
 
+def test_learning_text_calls_an_unchanged_candidate_no_evidence():
+    text = optimizer.learning_text(_body(
+        "trend-pullback:v1@81646835a339", verdict="rejected", net=0.0,
+        reasons=["candidate is the unchanged champion: the grid selected the current parameters, "
+                 "so this hypothesis did not alter behaviour on this dataset and nothing new was tested"]))
+    assert "همان پارامترهای قهرمان" in text
+    assert "شواهد جدیدی" in text
+    assert "تضمین" not in text and "سود قطعی" not in text
+
+
 def test_new_state_only_queues_the_requested_number_of_experiments():
     state = optimizer.new_state(symbol="BTC_USDT", timeframe="4h", dataset_id="ds-1",
                                 max_experiments=2, folds=3, warmup=80, spread_pct=0.05)

@@ -419,6 +419,23 @@ def test_acceptance_requires_out_of_sample_data_and_risk_evidence():
     assert accepted is False and "champion has no out-of-sample baseline" in reasons[0]
 
 
+def test_acceptance_labels_an_experiment_that_changed_nothing_as_no_evidence():
+    # the portability runs showed the grid can hand back the champion's own params: that is not a test
+    champion = _report(0.5, 1.4, 20, 2.0)
+    champion["params_label"] = "trend-pullback:v1@81646835a339"
+    same = _report(0.5, 1.4, 20, 2.0)
+    same["params_label"] = champion["params_label"]
+    accepted, reasons = acceptance(same, champion)
+    assert accepted is False
+    assert any("unchanged champion" in reason for reason in reasons)
+
+    changed = _report(1.5, 2.4, 20, 1.0)
+    changed["params_label"] = "trend-pullback:v1@83e716cd235a"
+    accepted, reasons = acceptance(changed, champion)
+    assert accepted is True
+    assert not any("unchanged champion" in reason for reason in reasons)
+
+
 def test_acceptance_demands_enough_trades_a_clean_drawdown_and_half_the_folds_positive():
     champion = _report(0.5, 1.4, 20, 2.0)
     accepted, reasons = acceptance(_report(2.0, 2.0, 5, 1.0), champion)
