@@ -142,6 +142,22 @@ def split_bars(bars: list[Kline], *, train: float = 0.6, validation: float = 0.2
     return Split(train=segments[0], validation=segments[1], test=segments[2], step=step)
 
 
+def _sample_series(points: list[tuple[int, float]], max_points: int = 90) -> list[list[float]]:
+    """Down-sample a mark-to-market series for storage; first and last points always survive."""
+    if len(points) <= max_points:
+        return [[float(ts), round(float(value), 4)] for ts, value in points]
+    stride = (len(points) - 1) / (max_points - 1)
+    picked: list[list[float]] = []
+    last_index = -1
+    for step_index in range(max_points):
+        index = min(len(points) - 1, int(round(step_index * stride)))
+        if index == last_index:
+            continue
+        picked.append([float(points[index][0]), round(float(points[index][1]), 4)])
+        last_index = index
+    return picked
+
+
 def evaluate(config: Config, symbol: str, *, bars: list[Kline], higher_bars: list[Kline],
              filters: SymbolFilter, params: StrategyParams, warmup: int = 80,
              assumed_spread_pct: float = 0.05, timeframe: str | None = None,
@@ -154,11 +170,21 @@ def evaluate(config: Config, symbol: str, *, bars: list[Kline], higher_bars: lis
     result = run_backtest(config, symbol, bars=bars, higher_bars=higher_bars, filters=filters, timeframe=timeframe,
                           warmup=warmup, assumed_spread_pct=assumed_spread_pct, params=params,
                           propose_fn=propose_fn)
+    initial = float(config.allocated_capital or 1000.0)
+    equity = [(int(ts), float(value)) for ts, value in (result.equity_curve or [])]
+    equity_pct = [(ts, value / initial * 100.0) for ts, value in equity] if equity and initial > 0 else []
+    benchmark_pct: list[tuple[int, float]] = []
+    anchor = float(bars[warmup].close)
+    if equity_pct and anchor > 0:
+        closes_by_ts = {int(bar.open_time): float(bar.close) for bar in bars}
+        benchmark_pct = [(ts, closes_by_ts[ts] / anchor * 100.0) for ts, _value in equity_pct
+                         if ts in closes_by_ts and closes_by_ts[ts] > 0]
     metrics = dict(result.metrics or {})
     metrics.setdefault("trades", len(result.trades))
     return {"metrics": metrics, "buy_hold_pct": result.buy_hold_pct, "trades": len(result.trades),
             "rejected": dict(result.rejected or {}), "params_label": prefix + (result.params_label or params.label()),
-            "strategy": prefix.rstrip("|"), "start": result.start, "end": result.end, "bars": result.bars}
+            "strategy": prefix.rstrip("|"), "start": result.start, "end": result.end, "bars": result.bars,
+            "equity_curve": _sample_series(equity_pct), "benchmark_curve": _sample_series(benchmark_pct)}
 
 
 def aggregate_folds(folds: list[dict[str, Any]]) -> dict[str, Any]:
@@ -515,6 +541,7 @@ def run_research(store: Any, config: Config, *, symbol: str, timeframe: str | No
                  "validation_net_return_pct": entry["validation"]["metrics"].get("net_return_pct")}
                 for entry in grid_results],
             "train": candidate["train"], "validation": candidate["validation"], "test": candidate["test"],
+            "champion_validation": champion_report["validation"],
             "walk_forward": candidate["walk_forward"], "champion_walk_forward": champion_report["walk_forward"],
             "risk_checks": checks, "min_trades": min_trades,
             "test_note": "hold-out segment: measured for reporting only, never used by acceptance()",

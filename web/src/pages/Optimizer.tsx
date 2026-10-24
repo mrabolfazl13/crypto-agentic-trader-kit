@@ -13,6 +13,7 @@ import {
   type OptimizerState,
 } from "../api/optimizerClient";
 import { ToneBadge } from "../components/Badge";
+import EquityChart, { type EquitySeries } from "../components/EquityChart";
 import Modal from "../components/Modal";
 import ProvenanceNote from "../components/ProvenanceNote";
 import Stat from "../components/Stat";
@@ -66,11 +67,95 @@ function datasetLabel(row: DatasetInfo): string {
   return `${row.symbol} ${row.timeframe} · ${num(row.bars, { max: 0 })} کندل · ${span}`;
 }
 
+const CURVE_COLORS = { candidate: "#3b82f6", champion: "#64748b", benchmark: "#d97706" };
+
+function experimentSeries(row: OptimizerExperiment): EquitySeries[] {
+  const series: EquitySeries[] = [];
+  if (row.oos_equity_curve?.length) {
+    series.push({ label: "نامزد", color: CURVE_COLORS.candidate, points: row.oos_equity_curve });
+  }
+  if (row.champion_oos_equity_curve?.length) {
+    series.push({
+      label: "قهرمان (همان بازه)",
+      color: CURVE_COLORS.champion,
+      points: row.champion_oos_equity_curve,
+    });
+  }
+  if (row.oos_benchmark_curve?.length) {
+    series.push({
+      label: "خرید‌ونگه‌داری همان بازه",
+      color: CURVE_COLORS.benchmark,
+      points: row.oos_benchmark_curve,
+      dashed: true,
+    });
+  }
+  return series;
+}
+
+function marketContext(row: OptimizerExperiment): string | null {
+  const parts: string[] = [];
+  if (row.oos_net_return_pct != null) {
+    parts.push(`نامزد در بازه‌ی اعتبارسنجی ${pct(row.oos_net_return_pct, { max: 2 })}`);
+  }
+  if (row.buy_hold_pct != null) {
+    parts.push(`بازار همان بازه ${pct(row.buy_hold_pct, { max: 2 })} (خرید‌ونگه‌داری، بدون کارمزد)`);
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
+
+function verdictBadge(verdict: OptimizerExperiment["verdict"]): ReactNode {
+  return verdict === "accepted" ? (
+    <ToneBadge tone="pos">پذیرفته</ToneBadge>
+  ) : verdict === "rejected" ? (
+    <ToneBadge tone="neg">رد</ToneBadge>
+  ) : (
+    <ToneBadge tone="neutral">{text(verdict)}</ToneBadge>
+  );
+}
+
+/** Newest-first readable digest: what was learned, the market it raced against, and the equity picture. */
+function DigestList({ rows }: { rows: OptimizerExperiment[] }) {
+  const ordered = [...rows].reverse();
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      {ordered.map((row) => {
+        const series = experimentSeries(row);
+        const context = marketContext(row);
+        return (
+          <article className="panel" key={`${row.index}-${row.hypothesis_id}`}>
+            <header style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 8 }}>
+              <strong>
+                آزمایش {num(row.index, { max: 0 })} · <code dir="ltr">{row.hypothesis_id}</code>
+              </strong>
+              {verdictBadge(row.verdict)}
+              <span className="mute" style={{ marginInlineStart: "auto" }} title={text(row.decided_at)}>
+                {dateTime(row.decided_at)}
+              </span>
+            </header>
+            <p className="mute" style={{ margin: "4px 0" }}>{row.question}</p>
+            <p style={{ margin: "4px 0" }}>{row.learning}</p>
+            {context ? <p className="mute" style={{ margin: "4px 0" }}>{context}</p> : null}
+            {series.length >= 2 ? (
+              <EquityChart series={series} />
+            ) : (
+              <p className="mute" style={{ margin: "4px 0" }}>
+                منحنی سرمایه‌ای برای این آزمایش ذخیره نشده؛ در اجراهای پیش از افزودن این قابلیت فقط اعداد تجمیعی
+                ثبت شده است.
+              </p>
+            )}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Optimizer() {
   const [tick, setTick] = useState<number>(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [open, setOpen] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
+  const [view, setView] = useState<"digest" | "table">("digest");
   const [actionError, setActionError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -195,21 +280,21 @@ export default function Optimizer() {
     {
       key: "verdict",
       header: "داوری",
-      render: (row) =>
-        row.verdict === "accepted" ? (
-          <ToneBadge tone="pos">پذیرفته</ToneBadge>
-        ) : row.verdict === "rejected" ? (
-          <ToneBadge tone="neg">رد</ToneBadge>
-        ) : (
-          <ToneBadge tone="neutral">{text(row.verdict)}</ToneBadge>
-        ),
+      render: (row) => verdictBadge(row.verdict),
     },
     {
       key: "net",
       header: "خالص خارج از نمونه",
       numeric: true,
       sortValue: (row) => row.net_return_pct,
-      render: (row) => pct(row.net_return_pct),
+      render: (row) => (
+        <div>
+          {pct(row.net_return_pct)}
+          {row.buy_hold_pct != null ? (
+            <div className="mute">بازار {pct(row.buy_hold_pct, { max: 2 })}</div>
+          ) : null}
+        </div>
+      ),
     },
     {
       key: "drawdown",
@@ -509,18 +594,47 @@ export default function Optimizer() {
                 </div>
               </div>
 
-              <Table
-                columns={experimentColumns}
-                rows={state.experiments}
-                getRowId={(row) => `${state.run_id}-${String(row.index)}-${row.hypothesis_id}`}
-                caption="آزمایش‌ها، داوری خارج از نمونه و درس ثبت‌شده"
-                emptyLabel="هنوز آزمایشی کامل نشده"
-                emptyHint="پس از پایان اولین آزمایش، نتیجه و دلیل پذیرش/رد همین‌جا ثبت می‌شود."
-              />
+              <div className="btn-row" role="group" aria-label="نمای آزمایش‌ها" style={{ marginBlock: 4 }}>
+                <button
+                  type="button"
+                  className={`btn small${view === "digest" ? " primary" : ""}`}
+                  onClick={() => setView("digest")}
+                >
+                  خلاصه پژوهش
+                </button>
+                <button
+                  type="button"
+                  className={`btn small${view === "table" ? " primary" : ""}`}
+                  onClick={() => setView("table")}
+                >
+                  جدول کامل
+                </button>
+              </div>
+
+              {view === "digest" ? (
+                state.experiments.length ? (
+                  <DigestList rows={state.experiments} />
+                ) : (
+                  <EmptyBlock
+                    label="هنوز آزمایشی کامل نشده"
+                    hint="پس از پایان اولین آزمایش، درس ثبت‌شده و منحنی سرمایه‌اش همین‌جا می‌آید."
+                  />
+                )
+              ) : (
+                <Table
+                  columns={experimentColumns}
+                  rows={state.experiments}
+                  getRowId={(row) => `${state.run_id}-${String(row.index)}-${row.hypothesis_id}`}
+                  caption="آزمایش‌ها، داوری خارج از نمونه و درس ثبت‌شده"
+                  emptyLabel="هنوز آزمایشی کامل نشده"
+                  emptyHint="پس از پایان اولین آزمایش، نتیجه و دلیل پذیرش/رد همین‌جا ثبت می‌شود."
+                />
+              )}
 
               <p className="mute">
-                منحنی سرمایه‌ی هر آزمایش در این نسخه ذخیره نمی‌شود؛ افت سرمایه‌ی تجمیعی و بازده خالص همان اعدادی
-                هستند که موتور والک‌فورورد گزارش کرده است. {state.disclaimer}
+                نمودار هر آزمایش منحنی سرمایه‌ی لحظه‌ای (mark-to-market) در بازه‌ی اعتبارسنجی خارج از نمونه است،
+                روی سرمایه‌ی اولیه نرمال‌شده؛ خط مرجع، بازده خرید‌ونگه‌داری همان بازه بدون کارمزد است. آزمایش‌های
+                قدیمی‌تر منحنی ذخیره‌شده ندارند و فقط اعداد تجمیعی برایشان ثبت شده. {state.disclaimer}
               </p>
             </>
           )}

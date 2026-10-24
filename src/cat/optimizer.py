@@ -426,8 +426,13 @@ def learning_text(body: dict[str, Any]) -> str:
     net, _factor, drawdown = _aggregate_metrics(aggregate)
     trades = aggregate.get("trades")
     measured = f"خارج از نمونه: {trades} معامله، خالص {net}%، افت {drawdown}%"
+    validation = body.get("validation") if isinstance(body.get("validation"), dict) else {}
+    buy_hold = validation.get("buy_hold_pct")
+    market = ""
+    if isinstance(buy_hold, (int, float)) and not isinstance(buy_hold, bool):
+        market = f" بازار در همان بازه‌ی اعتبارسنجی {float(buy_hold):+.1f}% بود (خرید‌ونگه‌داری، بدون کارمزد)."
     if verdict == "accepted":
-        return f"پذیرفته شد ({body.get('candidate_label')}). {measured}. این نسخه جایگزین قهرمان شد."
+        return f"پذیرفته شد ({body.get('candidate_label')}). {measured}.{market} این نسخه جایگزین قهرمان شد."
     reasons = body.get("reasons") or []
     groups = _reason_groups([str(item) for item in reasons])
     lesson = {
@@ -439,12 +444,14 @@ def learning_text(body: dict[str, Any]) -> str:
                  "پس نتیجه‌ی این آزمایش شواهد جدیدی برای آن نیست.",
     }
     notes = " ".join(lesson[group] for group in ("no_op", "more_trades", "risk", "edge", "evidence") if group in groups)
-    return f"رد شد ({body.get('candidate_label')}). {measured}. {notes}".strip()
+    return f"رد شد ({body.get('candidate_label')}). {measured}.{market} {notes}".strip()
 
 
 def _record(body: dict[str, Any], hypothesis: dict[str, Any]) -> dict[str, Any]:
     aggregate = ((body.get("walk_forward") or {}).get("aggregate") or {})
     net, factor, drawdown = _aggregate_metrics(aggregate)
+    validation = body.get("validation") if isinstance(body.get("validation"), dict) else {}
+    champion_validation = body.get("champion_validation") if isinstance(body.get("champion_validation"), dict) else {}
     return {
         "index": None,
         "hypothesis_id": hypothesis["id"],
@@ -460,6 +467,12 @@ def _record(body: dict[str, Any], hypothesis: dict[str, Any]) -> dict[str, Any]:
         "max_drawdown_pct": drawdown,
         "profit_factor": factor,
         "trades": aggregate.get("trades"),
+        "oos_net_return_pct": (validation.get("metrics") or {}).get("net_return_pct"),
+        "champion_oos_net_return_pct": (champion_validation.get("metrics") or {}).get("net_return_pct"),
+        "buy_hold_pct": validation.get("buy_hold_pct"),
+        "oos_equity_curve": validation.get("equity_curve") or [],
+        "oos_benchmark_curve": validation.get("benchmark_curve") or [],
+        "champion_oos_equity_curve": champion_validation.get("equity_curve") or [],
         "dataset_id": body.get("dataset_id"),
         "split": body.get("split"),
         "learning": learning_text(body),
@@ -603,12 +616,14 @@ def export_csv(state: dict[str, Any]) -> str:
     writer = csv.writer(buffer)
     writer.writerow(["index", "hypothesis_id", "question", "verdict", "candidate_label",
                      "net_return_pct", "max_drawdown_pct", "profit_factor", "trades",
+                     "buy_hold_pct", "oos_net_return_pct",
                      "dataset_id", "decided_at", "reasons", "learning"])
     for item in state.get("experiments", []):
         writer.writerow([
             item.get("index"), item.get("hypothesis_id"), item.get("question"), item.get("verdict"),
             item.get("candidate_label"), item.get("net_return_pct"), item.get("max_drawdown_pct"),
-            item.get("profit_factor"), item.get("trades"), item.get("dataset_id"),
+            item.get("profit_factor"), item.get("trades"),
+            item.get("buy_hold_pct"), item.get("oos_net_return_pct"), item.get("dataset_id"),
             item.get("decided_at"), "; ".join(item.get("reasons") or []), item.get("learning"),
         ])
     return "\ufeff" + buffer.getvalue()

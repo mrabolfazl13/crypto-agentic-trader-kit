@@ -43,6 +43,14 @@ export interface OptimizerExperiment {
   max_drawdown_pct: number | null;
   profit_factor: number | null;
   trades: number | null;
+  /** Candidate's net return on the validation window and the same window's fee-free buy&hold reference. */
+  oos_net_return_pct?: number | null;
+  champion_oos_net_return_pct?: number | null;
+  buy_hold_pct?: number | null;
+  /** Mark-to-market curves, percent of initial capital, sampled; absent on experiments recorded before this field existed. */
+  oos_equity_curve?: [number, number][] | null;
+  oos_benchmark_curve?: [number, number][] | null;
+  champion_oos_equity_curve?: [number, number][] | null;
   dataset_id: string | null;
   split: Record<string, unknown> | null;
   learning: string;

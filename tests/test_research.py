@@ -159,7 +159,7 @@ def test_evaluate_returns_the_backtest_result_as_a_plain_dict(config, engine):
     report = evaluate(config, "BTC_USDT", bars=bars, higher_bars=[], filters=FILTERS, params=default_params(),
                       warmup=80)
     assert set(report) == {"metrics", "buy_hold_pct", "trades", "rejected", "params_label", "strategy",
-                           "start", "end", "bars"}
+                           "start", "end", "bars", "equity_curve", "benchmark_curve"}
     assert report["strategy"] == ""  # no family switch: the config build itself was measured
     assert report["bars"] == 400 and report["trades"] == report["metrics"]["trades"]
     assert report["params_label"] == default_params().label()
@@ -172,6 +172,47 @@ def test_evaluate_refuses_a_window_shorter_than_its_warmup(config, engine):
         evaluate(config, "BTC_USDT", bars=_bars(_prices_rising(80)), higher_bars=[], filters=FILTERS,
                  params=default_params(), warmup=80)
     assert engine.calls == []
+
+
+def _curve_engine(warmup_equity: float = 1000.0):
+    """Engine stand-in that emits a rising mark-to-market curve the way the real engine timestamps it."""
+
+    def engine(_config, symbol, *, bars, higher_bars, filters, timeframe=None, warmup=80,
+               assumed_spread_pct=0.05, params=None, propose_fn=None) -> BacktestResult:
+        result = BacktestResult(symbol=symbol, timeframe=timeframe or "4h", bars=len(bars),
+                                start=research._iso(bars[0].open_time), end=research._iso(bars[-1].open_time))
+        result.equity_curve = [(bars[i].open_time, warmup_equity + (i - warmup) * 2.0)
+                               for i in range(warmup + 1, len(bars))]
+        result.metrics = {"trades": 1, "net_return_pct": 1.0}
+        result.buy_hold_pct = 9.0
+        result.params_label = "synthetic"
+        return result
+
+    return engine
+
+
+def test_evaluate_records_an_oos_equity_curve_with_a_buy_hold_reference(config, monkeypatch):
+    bars = _bars(_prices_rising(140))
+    monkeypatch.setattr(research, "run_backtest", _curve_engine())
+    report = evaluate(config, "BTC_USDT", bars=bars, higher_bars=[], filters=FILTERS, params=default_params(),
+                      warmup=80)
+    curve, benchmark = report["equity_curve"], report["benchmark_curve"]
+    assert len(curve) == 140 - 80 - 1 == len(benchmark)
+    assert curve[0][1] == pytest.approx((1000.0 + 2.0) / float(config.allocated_capital or 1000.0) * 100.0)
+    assert [point[0] for point in curve] == [point[0] for point in benchmark]
+    last = float(bars[-1].close) / float(bars[80].close) * 100.0
+    assert benchmark[-1][1] == pytest.approx(last)
+
+
+def test_the_equity_curve_is_downsampled_for_storage_without_losing_the_endpoints(config, monkeypatch):
+    bars = _bars(_prices_rising(1200))
+    monkeypatch.setattr(research, "run_backtest", _curve_engine())
+    report = evaluate(config, "BTC_USDT", bars=bars, higher_bars=[], filters=FILTERS, params=default_params(),
+                      warmup=80)
+    curve = report["equity_curve"]
+    assert len(curve) == 90
+    assert curve[0][0] == bars[81].open_time and curve[-1][0] == bars[-1].open_time
+    assert all(curve[i][0] < curve[i + 1][0] for i in range(len(curve) - 1))
 
 
 # ---- grid search ----------------------------------------------------------
@@ -306,6 +347,10 @@ def test_run_research_judges_a_family_switch_against_the_build_actually_in_confi
     assert report["strategy"] == "breakout_30" and report["champion_strategy"] == ""
     assert report["candidate_label"].startswith("breakout_30|")
     assert report["champion_label"] == default_params().label()
+    # the panel charts the candidate and the incumbent on the same out-of-sample window
+    assert isinstance(report["champion_validation"].get("metrics"), dict)
+    assert report["champion_validation"]["equity_curve"] == []  # fake engine emits no curve; shape stays honest
+    assert report["validation"]["buy_hold_pct"] == report["champion_validation"]["buy_hold_pct"]
     # the incumbent must be measured with the entry rules the system runs today, not the challenger's
     assert {call["propose_fn"] for call in engine.calls} == {"propose_breakout", None}
     assert report["verdict"] == "rejected"  # identical fake metrics can never beat their own baseline

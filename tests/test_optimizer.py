@@ -87,6 +87,32 @@ def test_learning_text_calls_an_unchanged_candidate_no_evidence():
     assert "تضمین" not in text and "سود قطعی" not in text
 
 
+def test_learning_text_reports_the_market_the_candidate_raced_against():
+    body = _body("trend-pullback:v2", verdict="rejected", net=-1.5,
+                 reasons=["no out-of-sample net-return improvement"])
+    body["validation"]["buy_hold_pct"] = 12.3
+    text = optimizer.learning_text(body)
+    assert "+12.3%" in text
+    assert "بازار در همان بازه" in text
+
+
+def test_the_experiment_record_carries_the_oos_window_context_and_curves():
+    body = _body("trend-pullback:v2", verdict="rejected", net=-1.5,
+                 reasons=["only 4 out-of-sample trades, minimum is 8"])
+    body["validation"].update({"buy_hold_pct": 4.0,
+                               "equity_curve": [[1.0, 100.0], [2.0, 101.0]],
+                               "benchmark_curve": [[1.0, 100.0], [2.0, 104.0]]})
+    body["champion_validation"] = {"metrics": {"net_return_pct": 0.5},
+                                   "equity_curve": [[1.0, 100.0], [2.0, 100.5]]}
+    record = optimizer._record(body, {"id": "hyp", "question": "q", "grid": {}})
+    assert record["oos_net_return_pct"] == -1.5
+    assert record["champion_oos_net_return_pct"] == 0.5
+    assert record["buy_hold_pct"] == 4.0
+    assert record["oos_equity_curve"] == [[1.0, 100.0], [2.0, 101.0]]
+    assert record["oos_benchmark_curve"] == [[1.0, 100.0], [2.0, 104.0]]
+    assert record["champion_oos_equity_curve"] == [[1.0, 100.0], [2.0, 100.5]]
+
+
 def test_new_state_only_queues_the_requested_number_of_experiments():
     state = optimizer.new_state(symbol="BTC_USDT", timeframe="4h", dataset_id="ds-1",
                                 max_experiments=2, folds=3, warmup=80, spread_pct=0.05)
