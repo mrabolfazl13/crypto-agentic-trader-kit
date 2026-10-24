@@ -34,6 +34,49 @@ class BacktestTrade:
     pnl: float
     fees: float
     reason: str
+    side: str = "long"
+    entry_reason: str = ""
+    decision_time: int = 0
+    confidence: float | None = None
+    regime: str = ""
+    volume_state: str = ""
+    indicators: dict[str, Any] = field(default_factory=dict)
+    bullish: list[str] = field(default_factory=list)
+    bearish: list[str] = field(default_factory=list)
+    initial_stop: float | None = None
+    initial_target: float | None = None
+    final_stop: float | None = None
+    final_target: float | None = None
+    risk_pct: float | None = None
+    rr_ratio: float | None = None
+    capital_pct: float | None = None
+    mfe_pct: float | None = None
+    mae_pct: float | None = None
+    holding_hours: float | None = None
+
+    def evidence(self) -> dict[str, Any]:
+        """Fields beyond the base ledger, persisted as one JSON blob per trade."""
+        return {
+            "side": self.side,
+            "entry_reason": self.entry_reason,
+            "decision_time": self.decision_time,
+            "confidence": self.confidence,
+            "regime": self.regime,
+            "volume_state": self.volume_state,
+            "indicators": self.indicators,
+            "bullish": self.bullish,
+            "bearish": self.bearish,
+            "initial_stop": self.initial_stop,
+            "initial_target": self.initial_target,
+            "final_stop": self.final_stop,
+            "final_target": self.final_target,
+            "risk_pct": self.risk_pct,
+            "rr_ratio": self.rr_ratio,
+            "capital_pct": self.capital_pct,
+            "mfe_pct": self.mfe_pct,
+            "mae_pct": self.mae_pct,
+            "holding_hours": self.holding_hours,
+        }
 
 
 @dataclass
@@ -122,6 +165,41 @@ def run_backtest(
         return state.equity({symbol: bars[index].close})
 
     index = warmup
+    evidence: dict[str, Any] | None = None
+
+    def append_trade(trade: ClosedTrade | None, exit_ts: int, exit_price: float,
+                     final_stop: float | None, final_target: float | None) -> None:
+        """Persist a closed trade with the entry context captured at decision time."""
+        nonlocal evidence
+        if trade is None:
+            return
+        entry = trade.entry_avg
+        entry_time = _closed_ts(trade)
+        ev = evidence or {}
+        initial_stop = ev.get("initial_stop")
+        risk_pct = rr_ratio = None
+        if initial_stop is not None and entry > initial_stop:
+            risk_pct = (entry - initial_stop) / entry * 100.0
+            initial_target = ev.get("initial_target")
+            if initial_target is not None and initial_target > entry:
+                rr_ratio = (initial_target - entry) / (entry - initial_stop)
+        result.trades.append(BacktestTrade(
+            symbol=symbol, entry_time=entry_time, exit_time=exit_ts, entry=entry, exit=exit_price,
+            qty=trade.qty, pnl=trade.realized_pnl, fees=trade.fees, reason=trade.reason,
+            side="long", entry_reason=ev.get("entry_reason", ""), decision_time=ev.get("decision_time", 0),
+            confidence=ev.get("confidence"), regime=ev.get("regime", ""), volume_state=ev.get("volume_state", ""),
+            indicators=ev.get("indicators", {}), bullish=ev.get("bullish", []), bearish=ev.get("bearish", []),
+            initial_stop=initial_stop, initial_target=ev.get("initial_target"),
+            final_stop=final_stop, final_target=final_target,
+            risk_pct=round(risk_pct, 3) if risk_pct is not None else None,
+            rr_ratio=round(rr_ratio, 3) if rr_ratio is not None else None,
+            capital_pct=round(ev["capital_pct"], 3) if "capital_pct" in ev else None,
+            mfe_pct=round(ev["mfe_pct"], 3) if "mfe_pct" in ev else None,
+            mae_pct=round(ev["mae_pct"], 3) if "mae_pct" in ev else None,
+            holding_hours=round((exit_ts - entry_time) / 3600.0, 3) if entry_time else None,
+        ))
+        evidence = None
+
     while index < len(bars) - 1:
         window = bars[: index + 1]
         decision_time = bars[index].open_time + step
@@ -144,8 +222,9 @@ def run_backtest(
             now=datetime.fromtimestamp(decision_time, tz=timezone.utc),
             prices={symbol: bars[index].close}, kill_switch_active=False, clock_ok=True,
         )
+        analysis = analyze(snap, params)
         payload = build_decision(decision_id=f"bt-{index}", now=datetime.fromtimestamp(decision_time, tz=timezone.utc),
-                                 snapshot=snap, proposal=proposal, risk=risk, analysis=analyze(snap, params))
+                                 snapshot=snap, proposal=proposal, risk=risk, analysis=analysis)
         if validate_decision(config.root, payload["decision"]):
             risk.approved = False
             risk.reasons = ["schema invalid"]
@@ -168,31 +247,53 @@ def run_backtest(
                     held = state.positions[symbol]
                     shift = entry - risk.entry
                     held.stop, held.target = risk.stop + shift, risk.target + shift
+                    # Everything below was knowable at the decision bar; the exit
+                    # ledger keeps it separate from the post-trade analysis.
+                    evidence = {
+                        "entry": entry,
+                        "entry_reason": proposal.reason,
+                        "decision_time": decision_time,
+                        "confidence": float(proposal.confidence),
+                        "regime": analysis.regime,
+                        "volume_state": analysis.volume_state,
+                        "indicators": dict(analysis.indicators),
+                        "bullish": list(analysis.bullish),
+                        "bearish": list(analysis.bearish),
+                        "initial_stop": held.stop,
+                        "initial_target": held.target,
+                        "capital_pct": cost / mark(index) * 100.0,
+                        "mfe_pct": 0.0,
+                        "mae_pct": 0.0,
+                    }
             else:
                 exit_price = nxt.open * (1 - slip)
                 qty = risk.qty
                 fee = qty * exit_price * fee_pct
+                held_before = state.positions.get(symbol)
+                final_stop = held_before.stop if held_before else None
+                final_target = held_before.target if held_before else None
                 trade = state.record_close(symbol, qty, exit_price, fee, reason=proposal.reason,
                                           decision_id=payload["decision"]["decision_id"], at=nxt.open_time)
-                if trade:
-                    result.trades.append(BacktestTrade(symbol, _closed_ts(trade), nxt.open_time, trade.entry_avg, exit_price,
-                                                       trade.qty, trade.realized_pnl, trade.fees, trade.reason))
+                append_trade(trade, nxt.open_time, exit_price, final_stop, final_target)
 
         # Intrabar stop/target on the bar we just traded into.
         check_bar = bars[index + 1]
         held = state.positions.get(symbol)
         if held:
+            if evidence is not None:
+                entry_px = float(evidence["entry"])
+                evidence["mfe_pct"] = max(evidence["mfe_pct"], (check_bar.high - entry_px) / entry_px * 100.0)
+                evidence["mae_pct"] = min(evidence["mae_pct"], (check_bar.low - entry_px) / entry_px * 100.0)
             hit_stop = check_bar.low <= held.stop
             hit_target = check_bar.high >= held.target
             if hit_stop or hit_target:
                 price = held.stop if hit_stop else held.target
                 qty = held.qty
                 fee = qty * price * fee_pct
+                final_stop, final_target = held.stop, held.target
                 trade = state.record_close(symbol, qty, price, fee, reason="stop" if hit_stop else "target",
                                            decision_id=held.decision_id, at=check_bar.open_time)
-                if trade:
-                    result.trades.append(BacktestTrade(symbol, _closed_ts(trade), check_bar.open_time,
-                                                       trade.entry_avg, price, trade.qty, trade.realized_pnl, trade.fees, trade.reason))
+                append_trade(trade, check_bar.open_time, price, final_stop, final_target)
 
         state.roll_periods(datetime.fromtimestamp(check_bar.open_time, tz=timezone.utc))
         result.equity_curve.append((check_bar.open_time, mark(index + 1)))
@@ -206,10 +307,9 @@ def run_backtest(
         closed_at = bars[-1].open_time + step
         price = bars[-1].close
         fee = held.qty * price * fee_pct
+        final_stop, final_target = held.stop, held.target
         trade = state.record_close(symbol, held.qty, price, fee, reason="end_of_test", decision_id=held.decision_id, at=closed_at)
-        if trade:
-            result.trades.append(BacktestTrade(symbol, _closed_ts(trade), closed_at, trade.entry_avg, price, trade.qty,
-                                               trade.realized_pnl, trade.fees, trade.reason))
+        append_trade(trade, closed_at, price, final_stop, final_target)
         result.equity_curve[-1] = (bars[-1].open_time, state.cash)
 
     result.final_equity = state.cash

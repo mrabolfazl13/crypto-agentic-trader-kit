@@ -1,0 +1,193 @@
+"""Per-trade evidence from the real engine, verified against hand-computed numbers.
+
+Scenario (slippage and fees forced to 0 in config so every number is exact):
+bars are 1h; the stub signals BUY on the decision at bar 2, filled at bar 3 open=103,
+stop=100, target=112. Bar 3 spans high=106/low=102; bar 4 spans high=105/low=99.5
+and touches the stop.
+"""
+
+from __future__ import annotations
+
+import shutil
+import sqlite3
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from cat.backtest import run_backtest  # noqa: E402
+from cat.config import load_config  # noqa: E402
+from cat.data import Kline, SymbolFilter  # noqa: E402
+from cat.strategy import Analysis, Proposal  # noqa: E402
+
+REPO = Path(__file__).resolve().parents[1]
+STEP = 3600
+START = 1_700_000_000
+
+SYMBOL_FILTER = SymbolFilter(symbol="BTC/USDT", price_precision=1, qty_precision=6,
+                             min_qty=0.000001, min_quote=3.0, max_quote=5_000_000.0,
+                             tradable=True, fee_pct=0.1)
+
+
+def _bars(rows: list[tuple[float, float, float, float]]) -> list[Kline]:
+    return [Kline(open_time=START + i * STEP, open=o, high=h, low=l, close=c,
+                  base_volume=100.0, quote_volume=100.0 * c, closed=True)
+            for i, (o, h, l, c) in enumerate(rows)]
+
+
+@pytest.fixture()
+def config(tmp_path: Path):
+    shutil.copytree(REPO / "schemas", tmp_path / "schemas")
+    payload = yaml.safe_load((REPO / "config.yaml").read_text(encoding="utf-8"))
+    payload["risk"]["max_slippage_pct"] = 0.0
+    payload["fees"]["taker_pct"] = 0.0
+    payload["fees"]["maker_pct"] = 0.0
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump(payload), encoding="utf-8")
+    (tmp_path / "state").mkdir()
+    return load_config(root=tmp_path)
+
+
+def _stub(buy_at: int, sell_reason: str | None = None):
+    def propose(snap, position, **kwargs):
+        if position is None:
+            if snap.klines[-1].open_time == START + buy_at * STEP:
+                return Proposal(action="BUY", confidence=0.9, rationale=["test entry"],
+                                entry=103.0, stop=100.0, target=112.0,
+                                analysis=Analysis(regime="TRENDING_UP", summary="stub"),
+                                reason="entry_signal")
+            return Proposal(action="NO_TRADE", confidence=0.0, rationale=[], entry=None,
+                            stop=None, target=None, analysis=Analysis(regime="UNKNOWN", summary="stub"),
+                            reason="no_signal")
+        reason = sell_reason or "no_signal"
+        action = "SELL" if sell_reason else "NO_TRADE"
+        return Proposal(action=action, confidence=0.9, rationale=["test exit"], entry=None,
+                        stop=None, target=None, analysis=Analysis(regime="TRENDING_UP", summary="stub"),
+                        reason=reason)
+    return propose
+
+
+STOP_ROWS = [
+    (100.0, 100.5, 99.5, 100.0),
+    (100.0, 101.0, 99.8, 101.0),
+    (101.0, 101.8, 100.5, 103.0),
+    (103.0, 106.0, 102.0, 104.0),
+    (104.0, 105.0, 99.5, 100.2),
+    (100.2, 100.8, 100.0, 100.4),
+    (100.4, 101.0, 100.1, 100.6),
+    (100.6, 101.2, 100.2, 100.8),
+    (100.8, 101.4, 100.3, 101.0),
+    (101.0, 101.6, 100.4, 101.2),
+]
+
+
+def test_stop_exit_carries_the_full_hand_computed_entry_evidence(config):
+    result = run_backtest(config, config.symbols[0], bars=_bars(STOP_ROWS), higher_bars=[],
+                          filters=SYMBOL_FILTER, timeframe="1h", warmup=2,
+                          propose_fn=_stub(buy_at=2))
+
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    assert trade.side == "long"
+    assert trade.reason == "stop"
+    assert trade.entry_reason == "entry_signal"
+    assert trade.decision_time == START + 3 * STEP
+    assert trade.confidence == pytest.approx(0.9)
+    assert trade.regime in {"UNKNOWN", "TRENDING_UP", "TRENDING_DOWN", "RANGING", "HIGH_VOLATILITY"}
+    assert isinstance(trade.indicators, dict)
+    assert trade.entry == pytest.approx(103.0)
+    assert trade.exit == pytest.approx(100.0)
+    assert trade.initial_stop == pytest.approx(100.0)
+    assert trade.initial_target == pytest.approx(112.0)
+    assert trade.final_stop == pytest.approx(100.0)
+    assert trade.final_target == pytest.approx(112.0)
+    # risk = 3/103, reward/risk = 9/3
+    assert trade.risk_pct == pytest.approx(2.913, abs=0.001)
+    assert trade.rr_ratio == pytest.approx(3.0, abs=0.001)
+    # floating extremes across bar 3 (high 106 / low 102) and bar 4 (high 105 / low 99.5)
+    assert trade.mfe_pct == pytest.approx(2.913, abs=0.001)
+    assert trade.mae_pct == pytest.approx(-3.398, abs=0.001)
+    # fill at bar 3 open, closed on bar 4 -> exactly one hour held
+    assert trade.entry_time == START + 3 * STEP
+    assert trade.exit_time == START + 4 * STEP
+    assert trade.holding_hours == pytest.approx(1.0)
+    # deployed notional over the 1000 paper account, recorded at decision time
+    assert trade.capital_pct == pytest.approx(trade.qty * 103.0 / 1000.0 * 100.0, abs=0.01)
+    assert 0 < trade.capital_pct <= 100
+
+
+def test_signal_exit_keeps_entry_reason_separate_from_exit_reason(config):
+    rows = STOP_ROWS[:5]
+    result = run_backtest(config, config.symbols[0], bars=_bars(rows), higher_bars=[],
+                          filters=SYMBOL_FILTER, timeframe="1h", warmup=2,
+                          propose_fn=_stub(buy_at=2, sell_reason="exit_trend_broken"))
+
+    trade = result.trades[0]
+    assert trade.reason == "exit_trend_broken"
+    assert trade.entry_reason == "entry_signal"
+    # the position never existed during bar 4 (exited at its open), so only bar 3 counts
+    assert trade.mfe_pct == pytest.approx(2.913, abs=0.001)
+    assert trade.mae_pct == pytest.approx(-0.971, abs=0.001)
+    assert trade.final_stop == pytest.approx(100.0)
+    assert trade.final_target == pytest.approx(112.0)
+
+
+def test_end_of_test_close_reports_the_whole_holding_window(config):
+    hold = (103.5, 104.8, 102.6, 104.0)
+    rows = STOP_ROWS[:3] + [hold] * 7
+    result = run_backtest(config, config.symbols[0], bars=_bars(rows), higher_bars=[],
+                          filters=SYMBOL_FILTER, timeframe="1h", warmup=2,
+                          propose_fn=_stub(buy_at=2))
+
+    trade = result.trades[0]
+    assert trade.reason == "end_of_test"
+    assert trade.exit == pytest.approx(104.0)
+    assert trade.holding_hours == pytest.approx(7.0)
+    # entry fills at the first hold bar's open (103.5, not the stub's 103);
+    # seven identical bars: high 104.8 / low 102.6 against entry 103.5
+    assert trade.entry == pytest.approx(103.5)
+    assert trade.mfe_pct == pytest.approx(1.256, abs=0.001)
+    assert trade.mae_pct == pytest.approx(-0.870, abs=0.001)
+
+
+def test_store_persists_and_returns_the_evidence_blob(config, tmp_path):
+    from cat.store import Store
+
+    result = run_backtest(config, config.symbols[0], bars=_bars(STOP_ROWS), higher_bars=[],
+                          filters=SYMBOL_FILTER, timeframe="1h", warmup=2,
+                          propose_fn=_stub(buy_at=2))
+    store = Store(tmp_path / "platform.sqlite3")
+    run_id = store.record_run(kind="backtest", symbol=config.symbols[0], timeframe="1h",
+                              params_label="test", params={}, dataset_id=None,
+                              window=("a", "b"), metrics=result.metrics, trades=result.trades)
+
+    row = store.get_run(run_id)["trades"][0]
+    evidence = row["evidence"]
+    assert evidence["entry_reason"] == "entry_signal"
+    assert evidence["side"] == "long"
+    assert evidence["mfe_pct"] == pytest.approx(2.913, abs=0.001)
+    assert evidence["mae_pct"] == pytest.approx(-3.398, abs=0.001)
+    assert evidence["risk_pct"] == pytest.approx(2.913, abs=0.001)
+    assert evidence["rr_ratio"] == pytest.approx(3.0, abs=0.001)
+    assert evidence["holding_hours"] == pytest.approx(1.0)
+    assert evidence["regime"] in {"UNKNOWN", "TRENDING_UP", "TRENDING_DOWN", "RANGING", "HIGH_VOLATILITY"}
+
+
+def test_existing_database_gains_the_evidence_column_in_place(tmp_path):
+    from cat.store import Store
+
+    path = tmp_path / "platform.sqlite3"
+    raw = sqlite3.connect(str(path))
+    raw.execute(
+        "CREATE TABLE run_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL,"
+        " symbol TEXT NOT NULL, entry_time INTEGER, exit_time INTEGER, entry REAL, exit REAL,"
+        " qty REAL, pnl REAL, fees REAL, reason TEXT)"
+    )
+    raw.commit()
+    raw.close()
+
+    store = Store(path)
+    columns = {row[1] for row in store._conn.execute("PRAGMA table_info(run_trades)")}
+    assert "evidence_json" in columns

@@ -12,6 +12,7 @@ import {
   History,
   LayoutDashboard,
   Landmark,
+  Microscope,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -45,6 +46,7 @@ import Risk from "./pages/Risk";
 import SettingsPage from "./pages/Settings";
 import StrategyLab from "./pages/StrategyLab";
 import Trades from "./pages/Trades";
+import TradeAnalysis from "./pages/TradeAnalysis";
 import TseMarket from "./pages/tse/TseMarket";
 import Versions from "./pages/Versions";
 
@@ -59,6 +61,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   trades: ReceiptText,
   data: Database,
   analysis: ChartLine,
+  "trade-analysis": Microscope,
   strategies: FlaskConical,
   profiles: BarChart3,
   backtests: History,
@@ -252,6 +255,7 @@ function Shell() {
             <Route index element={<Dashboard />} />
             <Route path="/data" element={<Data />} />
             <Route path="/analysis" element={<Analysis />} />
+            <Route path="/trade-analysis" element={<TradeAnalysis />} />
             <Route path="/tse" element={<TseMarket />} />
             <Route path="/strategies" element={<StrategyLab />} />
             <Route path="/profiles" element={<Profiles />} />

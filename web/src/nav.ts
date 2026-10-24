@@ -26,6 +26,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: "/data", label: "داده‌های تاریخی", id: "data" },
       { to: "/analysis", label: "تحلیل بازار", id: "analysis" },
+      { to: "/trade-analysis", label: "تحلیل معاملات", id: "trade-analysis" },
     ],
   },
   {

@@ -76,7 +76,8 @@ CREATE TABLE IF NOT EXISTS run_trades (
     qty REAL,
     pnl REAL,
     fees REAL,
-    reason TEXT
+    reason TEXT,
+    evidence_json TEXT
 );
 CREATE TABLE IF NOT EXISTS run_rejections (
     run_id TEXT NOT NULL,
@@ -226,6 +227,11 @@ class Store:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(_SCHEMA)
+        # Existing databases keep their old run_trades shape; add the evidence
+        # column in place instead of forcing a rebuild.
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(run_trades)")}
+        if "evidence_json" not in columns:
+            self._conn.execute("ALTER TABLE run_trades ADD COLUMN evidence_json TEXT")
         self._conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)", (SCHEMA_VERSION,))
         self._conn.commit()
 
@@ -300,13 +306,14 @@ class Store:
                  _json(metrics), error, now_iso(), duration_ms),
             )
             for trade in trades or []:
+                evidence = trade.evidence() if hasattr(trade, "evidence") else {}
                 self._conn.execute(
-                    "INSERT INTO run_trades(run_id, symbol, entry_time, exit_time, entry, exit, qty, pnl, fees, reason)"
-                    " VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO run_trades(run_id, symbol, entry_time, exit_time, entry, exit, qty, pnl, fees, reason, evidence_json)"
+                    " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     (run_id, getattr(trade, "symbol", symbol), getattr(trade, "entry_time", None),
                      getattr(trade, "exit_time", None), getattr(trade, "entry", None), getattr(trade, "exit", None),
                      getattr(trade, "qty", None), getattr(trade, "pnl", None), getattr(trade, "fees", None),
-                     getattr(trade, "reason", "")),
+                     getattr(trade, "reason", ""), _json(evidence) if evidence else None),
                 )
             for reason, count in (rejections or {}).items():
                 self._conn.execute("INSERT OR REPLACE INTO run_rejections(run_id, reason, count) VALUES(?,?,?)",
@@ -345,6 +352,8 @@ class Store:
         run["metrics"] = json.loads(run.pop("metrics_json") or "{}")
         run["split"] = json.loads(run.pop("split_json") or "{}")
         run["trades"] = self._rows("SELECT * FROM run_trades WHERE run_id=? ORDER BY exit_time", (run_id,))
+        for row in run["trades"]:
+            row["evidence"] = json.loads(row.pop("evidence_json")) if row.get("evidence_json") else None
         run["rejections"] = self._rows("SELECT reason, count FROM run_rejections WHERE run_id=? ORDER BY count DESC", (run_id,))
         run["equity_curve"] = [[row["ts"], row["equity"]] for row in
                                self._rows("SELECT ts, equity FROM equity_points WHERE run_id=? ORDER BY ts", (run_id,))]

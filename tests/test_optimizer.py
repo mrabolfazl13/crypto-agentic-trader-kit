@@ -128,7 +128,7 @@ def test_start_at_selects_a_later_round_of_the_pre_registered_plan():
                                 start_at="holding-minimum")
     assert state["queue"] == ["holding-minimum", "rsi-ceiling", "entry-volume-quality"]
     assert state["current"] == "holding-minimum"
-    with pytest.raises(ValueError, match="در فهرست پیش‌ثبت‌شده نیست"):
+    with pytest.raises(ValueError, match="در فهرست این اجرا نیست"):
         optimizer.new_state(symbol="BTC_USDT", timeframe="4h", dataset_id="ds-1",
                             max_experiments=1, folds=3, warmup=80, spread_pct=0.05,
                             start_at="made-up-hypothesis")
@@ -300,3 +300,133 @@ def test_the_loop_passes_a_family_hypothesis_through_to_research(monkeypatch):
     assert seen["strategy"] == hypothesis["strategy"] and seen["grid"] == {}
     record = optimizer._record(body, hypothesis)
     assert record["strategy"] == hypothesis["strategy"] and record["champion_strategy"] == ""
+
+
+GEN_HYP = {"id": "h-test-stop", "question": "آیا استاپ بازتر روی این داده بهتر است؟",
+           "grid": {"atr_stop_mult": [2.4]}}
+
+
+def _import_dataset(client: TestClient, workspace: Path) -> str:
+    csv_path = workspace / "opt-pool.csv"
+    _write_csv(csv_path)
+    imported = client.post(f"{BASE}/datasets/import",
+                           json={"path": str(csv_path), "symbol": "BTC/USDT", "timeframe": "4h"}).json()
+    return imported["dataset_id"]
+
+
+def _wait_for_status(client: TestClient, run_id: str, statuses: set[str], tries: int = 120) -> dict:
+    detail = {}
+    for _ in range(tries):
+        detail = client.get(f"{BASE}/optimizer/{run_id}").json()
+        if detail["status"] in statuses:
+            break
+        time.sleep(0.05)
+    return detail
+
+
+def test_generated_hypotheses_run_in_the_loop(client: TestClient, workspace: Path, monkeypatch):
+    dataset_id = _import_dataset(client, workspace)
+    calls: list[str] = []
+
+    def fake_experiment(config, store, **kwargs):
+        calls.append(kwargs["hypothesis"]["id"])
+        return _body("trend-pullback:v2", verdict="rejected", net=-0.5,
+                     reasons=["no out-of-sample net-return improvement"])
+
+    monkeypatch.setattr(optimizer, "run_experiment", fake_experiment)
+    started = client.post(f"{BASE}/optimizer/start", json={
+        "symbol": "BTC/USDT", "dataset_id": dataset_id, "max_experiments": 1,
+        "folds": 2, "warmup": 80, "hypotheses": [GEN_HYP]})
+    assert started.status_code == 200, started.text
+    run_id = started.json()["run_id"]
+    detail = _wait_for_status(client, run_id, {"done", "failed"})
+    assert detail["status"] == "done", detail
+    assert calls == ["h-test-stop"]
+    assert detail["experiments"][0]["hypothesis_id"] == "h-test-stop"
+
+
+def test_start_at_selects_inside_a_custom_pool():
+    pool = [GEN_HYP, {"id": "h-test-target", "question": "q2", "grid": {"atr_target_mult": [2.5]}}]
+    state = optimizer.new_state(symbol="BTC_USDT", timeframe="4h", dataset_id="ds-1",
+                                max_experiments=2, folds=2, warmup=80, spread_pct=0.05,
+                                start_at="h-test-target", hypotheses=pool)
+    # start_at keeps the tail of the pool from that hypothesis onward
+    assert state["queue"] == ["h-test-target"]
+    assert [h["id"] for h in state["hypotheses"]] == ["h-test-stop", "h-test-target"]
+
+
+def test_generated_pool_rejections(client: TestClient, workspace: Path):
+    dataset_id = _import_dataset(client, workspace)
+    cases = [
+        ({"hypotheses": [dict(GEN_HYP, id="entry-speed")]}, "تداخل", "ds-anything"),
+        ({"hypotheses": [GEN_HYP, dict(GEN_HYP)]}, "تکراری", "ds-anything"),
+        ({"hypotheses": [dict(GEN_HYP, grid={"moon_phase": [1]})]}, "moon_phase", "ds-anything"),
+        ({"hypotheses": []}, "غیرخالی", "ds-anything"),
+        ({"hypotheses": [dict(GEN_HYP, strategy="nope")]}, "خانواده‌ی ناشناخته", "ds-anything"),
+        # the count bound is checked inside start(), i.e. after the dataset resolves
+        ({"hypotheses": [GEN_HYP], "max_experiments": 2}, "max_experiments باید بین", dataset_id),
+    ]
+    for payload, expected, ds in cases:
+        body = {"symbol": "BTC/USDT", "dataset_id": ds, "max_experiments": 1,
+                "folds": 2, "warmup": 80, **payload}
+        resp = client.post(f"{BASE}/optimizer/start", json=body)
+        assert resp.status_code == 422, (payload, resp.status_code, resp.text)
+        assert expected in resp.json()["detail"], payload
+
+
+def test_pre_upgrade_state_without_hypotheses_falls_back_to_plan(
+        client: TestClient, workspace: Path, monkeypatch):
+    dataset_id = _import_dataset(client, workspace)
+    gate = threading.Event()
+    finished: list[str] = []
+
+    def slow_experiment(config, store, **kwargs):
+        gate.wait(timeout=2.0)
+        finished.append(kwargs["hypothesis"]["id"])
+        return _body(f"trend-pullback:{kwargs['hypothesis']['id']}", verdict="rejected", net=-0.5,
+                     reasons=["no out-of-sample net-return improvement"])
+
+    monkeypatch.setattr(optimizer, "run_experiment", slow_experiment)
+    started = client.post(f"{BASE}/optimizer/start", json={
+        "symbol": "BTC/USDT", "dataset_id": dataset_id, "max_experiments": 2,
+        "folds": 2, "warmup": 80})
+    assert started.status_code == 200, started.text
+    run_id = started.json()["run_id"]
+    assert client.post(f"{BASE}/optimizer/{run_id}/stop").status_code == 200
+    gate.set()
+    _wait_for_status(client, run_id, {"stopped"})
+
+    # Simulate a state written by the pre-pool build: no "hypotheses" key at all.
+    state = optimizer.load_state(workspace, run_id)
+    state.pop("hypotheses", None)
+    optimizer._write(state, workspace)
+
+    resumed = client.post(f"{BASE}/optimizer/{run_id}/resume")
+    assert resumed.status_code == 200, resumed.text
+    detail = _wait_for_status(client, run_id, {"done", "failed"})
+    assert detail["status"] == "done", detail
+    ids = [item["hypothesis_id"] for item in detail["experiments"]]
+    assert len(ids) == 2 and len(set(ids)) == 2
+
+
+def test_a_state_whose_queue_id_is_missing_from_its_pool_fails_closed(
+        client: TestClient, workspace: Path, monkeypatch):
+    dataset_id = _import_dataset(client, workspace)
+
+    def broken_experiment(config, store, **kwargs):
+        raise AssertionError("the loop must refuse an unknown hypothesis before measuring")
+
+    monkeypatch.setattr(optimizer, "run_experiment", broken_experiment)
+    started = client.post(f"{BASE}/optimizer/start", json={
+        "symbol": "BTC/USDT", "dataset_id": dataset_id, "max_experiments": 1,
+        "folds": 2, "warmup": 80, "hypotheses": [GEN_HYP]})
+    run_id = started.json()["run_id"]
+
+    state = optimizer.load_state(workspace, run_id)
+    state["hypotheses"] = [dict(GEN_HYP, id="h-other")]
+    optimizer._write(state, workspace)
+    client.post(f"{BASE}/optimizer/{run_id}/resume")
+
+    detail = _wait_for_status(client, run_id, {"done", "failed"})
+    assert detail["status"] == "failed", detail
+    assert "ثبت نشده" in (detail["error"] or "")
