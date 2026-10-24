@@ -49,6 +49,18 @@ _IDENTITY_FIELDS = ("name", "version", "note")
 _RISK_FORBIDDEN = set(RiskLimits.__dataclass_fields__) | {"allocated_capital", "capital", "equity"}
 
 
+def _family(strategy: str | None) -> tuple[Any, str]:
+    """Resolve a lab entry-trigger family by name and the label prefix that keeps it visible in every run."""
+    if strategy is None or str(strategy).strip() == "":
+        return None, ""
+    from .strategy_lab import LAB_STRATEGIES
+
+    name = str(strategy).strip()
+    if name not in LAB_STRATEGIES:
+        raise ValueError(f"unknown strategy family {name!r}: choose from {', '.join(sorted(LAB_STRATEGIES))}")
+    return LAB_STRATEGIES[name], f"{name}|"
+
+
 def _iso(ts: int | float) -> str:
     return datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat(timespec="minutes")
 
@@ -132,16 +144,21 @@ def split_bars(bars: list[Kline], *, train: float = 0.6, validation: float = 0.2
 
 def evaluate(config: Config, symbol: str, *, bars: list[Kline], higher_bars: list[Kline],
              filters: SymbolFilter, params: StrategyParams, warmup: int = 80,
-             assumed_spread_pct: float = 0.05, timeframe: str | None = None) -> dict[str, Any]:
+             assumed_spread_pct: float = 0.05, timeframe: str | None = None,
+             strategy: str | None = None) -> dict[str, Any]:
+    """One engine run. `strategy` swaps only the entry-trigger family from `strategy_lab`;
+    sizing, risk gate and exits stay the audited ones, and the family is kept in the label."""
     if len(bars) <= warmup:
         raise ValueError(f"evaluation window has {len(bars)} bars but warmup={warmup}: no bar could be decided")
+    propose_fn, prefix = _family(strategy)
     result = run_backtest(config, symbol, bars=bars, higher_bars=higher_bars, filters=filters, timeframe=timeframe,
-                          warmup=warmup, assumed_spread_pct=assumed_spread_pct, params=params)
+                          warmup=warmup, assumed_spread_pct=assumed_spread_pct, params=params,
+                          propose_fn=propose_fn)
     metrics = dict(result.metrics or {})
     metrics.setdefault("trades", len(result.trades))
     return {"metrics": metrics, "buy_hold_pct": result.buy_hold_pct, "trades": len(result.trades),
-            "rejected": dict(result.rejected or {}), "params_label": result.params_label or params.label(),
-            "start": result.start, "end": result.end, "bars": result.bars}
+            "rejected": dict(result.rejected or {}), "params_label": prefix + (result.params_label or params.label()),
+            "strategy": prefix.rstrip("|"), "start": result.start, "end": result.end, "bars": result.bars}
 
 
 def aggregate_folds(folds: list[dict[str, Any]]) -> dict[str, Any]:
@@ -169,7 +186,7 @@ def aggregate_folds(folds: list[dict[str, Any]]) -> dict[str, Any]:
 def walk_forward(config: Config, symbol: str, *, bars: list[Kline], higher_bars: list[Kline],
                  filters: SymbolFilter, params: StrategyParams, folds: int = 4, warmup: int = 80,
                  assumed_spread_pct: float = 0.05, timeframe: str | None = None,
-                 min_test_bars: int = MIN_FOLD_TEST_BARS) -> dict[str, Any]:
+                 min_test_bars: int = MIN_FOLD_TEST_BARS, strategy: str | None = None) -> dict[str, Any]:
     """Rolling walk-forward: each fold is scored only on the unseen slice that follows its training window.
 
     The `warmup` seed bars taken from the tail of the training window only feed the indicators:
@@ -186,12 +203,14 @@ def walk_forward(config: Config, symbol: str, *, bars: list[Kline], higher_bars:
         raise ValueError(f"insufficient data for {folds} walk-forward folds: need at least "
                          f"{first_cut + folds * min_test_bars} bars, got {total}")
     size, records, train_start = region // folds, [], _iso(bars[0].open_time)
+    _, prefix = _family(strategy)
     for index in range(folds):
         cut = first_cut + index * size
         end = total if index == folds - 1 else first_cut + (index + 1) * size
         seed, test = bars[max(0, cut - warmup):cut], bars[cut:end]
         run = evaluate(config, symbol, bars=seed + test, higher_bars=higher_bars, filters=filters, params=params,
-                       warmup=len(seed), assumed_spread_pct=assumed_spread_pct, timeframe=timeframe)
+                       warmup=len(seed), assumed_spread_pct=assumed_spread_pct, timeframe=timeframe,
+                       strategy=strategy)
         records.append({"fold": index + 1, "train_start": train_start, "train_bars": cut, "seed_bars": len(seed),
                         "train_end": _iso(bars[cut - 1].open_time), "test_start": _iso(test[0].open_time),
                         "test_end": _iso(test[-1].open_time), "test_bars": len(test), "test_metrics": run["metrics"],
@@ -199,13 +218,15 @@ def walk_forward(config: Config, symbol: str, *, bars: list[Kline], higher_bars:
                         "params_label": run["params_label"]})
     return {"folds": records, "aggregate": aggregate_folds(records),
             "consistency": {"positive_folds": sum(1 for r in records if r["test_metrics"]["net_return_pct"] > 0),
-                            "total_folds": len(records)}, "params_label": params.label(),
+                            "total_folds": len(records)}, "params_label": prefix + params.label(),
             "timeframe": timeframe or config.timeframe, "note": OOS_NOTE}
 
 
 def validate_grid(grid: dict[str, Any], base: StrategyParams) -> list[str]:
-    if not isinstance(grid, dict) or not grid:
-        raise ValueError("grid must be a non-empty mapping of strategy field to candidate values")
+    if not isinstance(grid, dict):
+        raise ValueError("grid must be a mapping of strategy field to candidate values")
+    if not grid:
+        return []  # no parameter search: measure the current build (used when only the family changes)
     tunable = _tunable(base)
     keys = sorted(str(key) for key in grid)
     for key in keys:
@@ -260,28 +281,32 @@ def _rank_key(entry: dict[str, Any]) -> tuple[int, float, float, str]:
 def grid_search(config: Config, symbol: str, *, bars: list[Kline], higher_bars: list[Kline],
                 filters: SymbolFilter, grid: dict[str, list], top: int = 5, params: StrategyParams | None = None,
                 warmup: int = 80, assumed_spread_pct: float = 0.05, timeframe: str | None = None,
-                max_evals: int = MAX_GRID_EVALS, split: Split | None = None) -> list[dict[str, Any]]:
+                max_evals: int = MAX_GRID_EVALS, split: Split | None = None,
+                strategy: str | None = None) -> list[dict[str, Any]]:
     """Bounded search over StrategyParams fields: fit on the train slice, re-score each one on validation.
 
     Risk caps and position sizing are never searched or mutated: only tuning fields vary while the
     engine keeps sizing exactly as config already enforces it. `max_evals` counts variants; each
     variant costs two engine runs, one per window, and the hold-out is never read here.
+    An empty grid measures the current build once — the way to audit a different entry-trigger family.
     """
     base = params or config.strategy_params or default_params()
     keys = validate_grid(grid, base)
+    _fn, prefix = _family(strategy)
     parts = split or split_bars(bars)
-    combos = [dict(zip(keys, values)) for values in product(*(list(grid[key]) for key in keys))]
+    combos = [{}] if not keys else [dict(zip(keys, values)) for values in product(*(list(grid[key]) for key in keys))]
     if len(combos) > max_evals:
         raise ValueError(f"grid too large: {len(combos)} evaluations exceeds max_evals={max_evals}; narrow the grid")
     results: list[dict[str, Any]] = []
     for spec in combos:
         variant = _variant(base, spec)
         train = evaluate(config, symbol, bars=parts.train, higher_bars=higher_bars, filters=filters, params=variant,
-                         warmup=warmup, assumed_spread_pct=assumed_spread_pct, timeframe=timeframe)
+                         warmup=warmup, assumed_spread_pct=assumed_spread_pct, timeframe=timeframe, strategy=strategy)
         validation = evaluate(config, symbol, bars=parts.validation, higher_bars=higher_bars, filters=filters,
                               params=variant, warmup=min(warmup, len(parts.validation) - 1),
-                              assumed_spread_pct=assumed_spread_pct, timeframe=timeframe)
-        results.append({"params_label": variant.label(), "params": variant.as_dict(), "metrics": train["metrics"],
+                              assumed_spread_pct=assumed_spread_pct, timeframe=timeframe, strategy=strategy)
+        results.append({"params_label": prefix + variant.label(), "params": variant.as_dict(),
+                        "strategy": prefix.rstrip("|"), "metrics": train["metrics"],
                         "train": train, "validation": validation})
     results.sort(key=_rank_key, reverse=True)
     return results[:max(1, int(top))]
@@ -364,9 +389,10 @@ def acceptance(candidate: dict[str, Any], champion: dict[str, Any], *, min_trade
 
 
 def _version_record(params: StrategyParams, *, report: dict[str, Any], source: str, parent: str | None,
-                    accepted: bool, decision: str) -> dict[str, Any]:
+                    accepted: bool, decision: str, strategy: str | None = None) -> dict[str, Any]:
     return {"digest": params.digest(), "name": params.name, "version": params.version, "params": params.as_dict(),
-            "source": source, "parent": parent, "accepted": accepted, "decision": decision,
+            "strategy": strategy or "", "source": source, "parent": parent, "accepted": accepted,
+            "decision": decision,
             "train": report.get("train", {}), "validation": report.get("validation", {}),
             "test": report.get("test", {}), "walk_forward": report.get("walk_forward", {})}
 
@@ -375,10 +401,15 @@ def run_research(store: Any, config: Config, *, symbol: str, timeframe: str | No
                  higher_bars: list[Kline], filters: SymbolFilter, grid: dict[str, list], folds: int = 4,
                  champion: dict[str, Any] | None = None, top: int = 3, warmup: int = 80,
                  assumed_spread_pct: float = 0.05, min_trades: int = 8,
-                 dataset_id: str | None = None) -> dict[str, Any]:
-    """Full honest loop: split -> grid on train -> re-score -> walk-forward both -> gate -> persist."""
+                 dataset_id: str | None = None, strategy: str | None = None) -> dict[str, Any]:
+    """Full honest loop: split -> grid on train -> re-score -> walk-forward both -> gate -> persist.
+
+    `strategy` selects an entry-trigger family from `strategy_lab`; only the trigger changes,
+    so a family comparison never mixes in a different exit, sizing or risk policy.
+    """
     started = datetime.now(timezone.utc)
     base = config.strategy_params or default_params()
+    _fn, prefix = _family(strategy)
     tf = timeframe or config.timeframe
     try:
         step = seconds_per_bar(tf)
@@ -392,17 +423,18 @@ def run_research(store: Any, config: Config, *, symbol: str, timeframe: str | No
         parts = split_bars(bars, min_bars=max(MIN_SEGMENT_BARS, warmup + 1))
     except ValueError as exc:
         store.log("error", "research", f"research refused: {exc}", {"symbol": symbol, "timeframe": tf})
-        store.record_run(kind="grid", symbol=symbol, timeframe=tf, params_label=base.label(), params=base.tuning(),
+        store.record_run(kind="grid", symbol=symbol, timeframe=tf, params_label=prefix + base.label(),
+                         params=base.tuning(),
                          dataset_id=dataset_id, window=None, metrics={}, status="failed", error=str(exc))
         raise
 
     grid_results = grid_search(config, symbol, bars=bars, higher_bars=higher_bars, filters=filters, grid=grid, top=top,
                                params=base, warmup=warmup, assumed_spread_pct=assumed_spread_pct, timeframe=tf,
-                               split=parts)
+                               split=parts, strategy=strategy)
     measure = partial(evaluate, config, symbol, higher_bars=higher_bars, filters=filters, timeframe=tf,
-                      assumed_spread_pct=assumed_spread_pct)
+                      assumed_spread_pct=assumed_spread_pct, strategy=strategy)
     fold_run = partial(walk_forward, config, symbol, bars=bars, higher_bars=higher_bars, filters=filters, folds=folds,
-                       warmup=warmup, assumed_spread_pct=assumed_spread_pct, timeframe=tf)
+                       warmup=warmup, assumed_spread_pct=assumed_spread_pct, timeframe=tf, strategy=strategy)
     best = grid_results[0]
     candidate_params = params_from_report(best["params"], base)
     candidate: dict[str, Any] = {"params_label": best["params_label"], "params": best["params"],
@@ -411,14 +443,24 @@ def run_research(store: Any, config: Config, *, symbol: str, timeframe: str | No
     candidate["test"] = measure(bars=parts.test, params=candidate_params, warmup=hold_out_warmup)
     candidate["walk_forward"] = fold_run(params=candidate_params)
 
+    # The baseline is the build the system actually runs today: when the candidate switches entry-trigger
+    # family, the incumbent must be measured with the config's own family, not the challenger's.
     champion_report: dict[str, Any] = dict(champion or {})
     champion_params = params_from_report(champion_report.get("params"), base)
-    champion_report.setdefault("params_label", champion_params.label())
+    champion_family = str(champion_report.get("strategy") or "").strip() or None
+    _ch_fn, ch_prefix = _family(champion_family)
+    champion_report.setdefault("params_label", ch_prefix + champion_params.label())
     champion_report.setdefault("params", champion_params.as_dict())
+    champion_measure = partial(evaluate, config, symbol, higher_bars=higher_bars, filters=filters, timeframe=tf,
+                               assumed_spread_pct=assumed_spread_pct, strategy=champion_family)
+    champion_fold = partial(walk_forward, config, symbol, bars=bars, higher_bars=higher_bars, filters=filters,
+                            folds=folds, warmup=warmup, assumed_spread_pct=assumed_spread_pct, timeframe=tf,
+                            strategy=champion_family)
     if not isinstance(champion_report.get("validation"), dict):
-        champion_report["validation"] = measure(bars=parts.validation, params=champion_params, warmup=hold_out_warmup)
+        champion_report["validation"] = champion_measure(bars=parts.validation, params=champion_params,
+                                                         warmup=hold_out_warmup)
     if not isinstance(champion_report.get("walk_forward"), dict):
-        champion_report["walk_forward"] = fold_run(params=champion_params)
+        champion_report["walk_forward"] = champion_fold(params=champion_params)
 
     aggregate = candidate["walk_forward"]["aggregate"]
     checks = {"sized_positions_recorded": int(aggregate.get("trades") or 0) > 0,
@@ -445,20 +487,28 @@ def run_research(store: Any, config: Config, *, symbol: str, timeframe: str | No
     store.record_run(kind="walk_forward", symbol=symbol, timeframe=tf,
                      params_label=champion_report["params_label"], params=champion_report["params"],
                      dataset_id=dataset_id, window=window, metrics=champion_wf["aggregate"], split=split_dict)
-    store.save_strategy_version(_version_record(candidate_params, report=candidate, source="grid_search",
-                                                parent=champion_params.digest(), accepted=accepted, decision=decision))
-    store.save_strategy_version(_version_record(champion_params, report=champion_report, source="champion_baseline",
+    store.save_strategy_version(_version_record(candidate_params, report=candidate,
+                                                source=f"grid_search:{strategy}" if strategy else "grid_search",
+                                                parent=champion_params.digest(), accepted=accepted, decision=decision,
+                                                strategy=strategy))
+    store.save_strategy_version(_version_record(champion_params, report=champion_report,
+                                                source=f"champion_baseline:{champion_family}" if champion_family
+                                                else "champion_baseline",
                                                 parent=champion_report.get("parent"),
                                                 accepted=bool(champion_report.get("accepted")),
-                                                decision=str(champion_report.get("decision") or "incumbent champion")))
+                                                decision=str(champion_report.get("decision") or "incumbent champion"),
+                                                strategy=champion_family))
     store.log("info" if accepted else "warning", "research",
               f"research {verdict} {candidate['params_label']} against {champion_report['params_label']}",
               {"symbol": symbol, "timeframe": tf, "verdict": verdict, "reasons": reasons,
+               "strategy": strategy or "", "champion_strategy": champion_family or "",
                "grid_candidates": len(grid_results), "candidate_out_of_sample": aggregate,
                "champion_out_of_sample": champion_wf["aggregate"]})
 
     return {"verdict": verdict, "reasons": reasons, "decision": decision,
             "candidate_label": candidate["params_label"], "champion_label": champion_report["params_label"],
+            "candidate_params": candidate_params.as_dict(),
+            "strategy": strategy or "", "champion_strategy": champion_family or "",
             "symbol": symbol, "timeframe": tf, "mode": config.mode, "dataset_id": dataset_id,
             "generated_at": started.isoformat(timespec="seconds"), "split": split_dict, "grid": [
                 {"params_label": entry["params_label"], "train_net_return_pct": entry["metrics"].get("net_return_pct"),

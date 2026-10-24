@@ -54,9 +54,10 @@ function statusBadge(status: string | null | undefined): ReactNode {
   );
 }
 
-function gridLabel(grid: Record<string, unknown[]>): string {
+function gridLabel(grid: Record<string, unknown[]>, strategy?: string): string {
   const parts = Object.entries(grid).map(([key, values]) => `${key}=${values.map(String).join(" / ")}`);
-  return parts.length ? parts.join(" · ") : NO_DATA;
+  if (parts.length) return parts.join(" · ");
+  return strategy ? `خانواده‌ی ورود: ${strategy}` : NO_DATA;
 }
 
 function datasetLabel(row: DatasetInfo): string {
@@ -187,7 +188,7 @@ export default function Optimizer() {
         <div>
           <code>{row.hypothesis_id}</code>
           <div className="mute">{row.question}</div>
-          <div className="mute" dir="ltr">{gridLabel(row.grid)}</div>
+          <div className="mute" dir="ltr">{gridLabel(row.grid, row.strategy)}</div>
         </div>
       ),
     },
@@ -640,7 +641,7 @@ export default function Optimizer() {
               <option value="">اولین فرضیه</option>
               {(runs.data?.hypotheses ?? []).map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.id}
+                  {item.strategy ? `${item.id} · خانواده: ${item.strategy}` : item.id}
                 </option>
               ))}
             </select>

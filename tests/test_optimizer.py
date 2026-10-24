@@ -235,14 +235,42 @@ def test_every_registered_hypothesis_grid_is_validatable():
     """A pre-registered hypothesis must be legally measurable: keys tunable, values in bounds."""
     from cat import research
     from cat.strategies import default_params
+    from cat.strategy_lab import LAB_STRATEGIES
 
     base = default_params()
     ids = [item["id"] for item in optimizer.PLAN]
     assert len(ids) == len(set(ids))
     for item in optimizer.PLAN:
         keys = research.validate_grid(item["grid"], base)
-        assert keys, item["id"]
+        family = item.get("strategy")
+        if family is not None:
+            assert family in LAB_STRATEGIES, item["id"]
+        assert keys or family, item["id"]  # an empty grid is only legal when the entry family itself changes
         combos = 1
         for values in item["grid"].values():
             combos *= len(values)
         assert combos <= research.MAX_GRID_EVALS, item["id"]
+
+
+def test_the_loop_passes_a_family_hypothesis_through_to_research(monkeypatch):
+    """`strategy` on a hypothesis reaches run_research, and the stored record keeps the family visible."""
+    seen: dict[str, object] = {}
+
+    def fake_run_research(store, config, **kwargs):
+        seen.update(kwargs)
+        return {"verdict": "rejected", "reasons": [], "candidate_label": f"{kwargs['strategy']}|trend-pullback:v1@x",
+                "champion_label": "trend-pullback:v1@x", "candidate_params": {},
+                "strategy": kwargs.get("strategy") or "", "champion_strategy": "", "dataset_id": kwargs["dataset_id"],
+                "split": {"train": {"bars": 400}},
+                "walk_forward": {"aggregate": {"net_return_pct_median": 0.1, "max_drawdown_pct": 0.2,
+                                               "profit_factor_mean": 1.1, "trades": 9}},
+                "train": {"metrics": {}}, "validation": {}, "decision": "rejected"}
+
+    monkeypatch.setattr("cat.research.run_research", fake_run_research)
+    hypothesis = next(item for item in optimizer.PLAN if item.get("strategy"))
+    body = optimizer.run_experiment(object(), object(), symbol="BTC_USDT", timeframe="4h", bars=[], higher=[],
+                                   filters=object(), dataset_id="ds-1", hypothesis=hypothesis, champion=None,
+                                   folds=3, warmup=80, spread_pct=0.05)
+    assert seen["strategy"] == hypothesis["strategy"] and seen["grid"] == {}
+    record = optimizer._record(body, hypothesis)
+    assert record["strategy"] == hypothesis["strategy"] and record["champion_strategy"] == ""

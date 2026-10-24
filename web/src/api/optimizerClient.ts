@@ -33,6 +33,8 @@ export interface OptimizerExperiment {
   hypothesis_id: string;
   question: string;
   grid: Record<string, unknown[]>;
+  /** Entry-trigger family when the hypothesis changes it instead of a parameter. */
+  strategy?: string;
   verdict: "accepted" | "rejected" | string | null;
   reasons: string[];
   candidate_label: string | null;
@@ -91,6 +93,8 @@ export interface RegisteredHypothesis {
   id: string;
   question: string;
   grid: Record<string, unknown[]>;
+  /** Entry-trigger family from `strategy_lab`; empty when only parameters are searched. */
+  strategy?: string;
 }
 
 /** `GET /optimizer` — newest runs first plus the standing disclaimer. */

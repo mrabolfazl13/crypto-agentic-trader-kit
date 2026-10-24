@@ -66,7 +66,7 @@ class FakeEngine:
         self.exposure = exposure
 
     def __call__(self, config, symbol, *, bars, higher_bars, filters, timeframe=None, warmup=80,
-                 assumed_spread_pct=0.05, params=None) -> BacktestResult:
+                 assumed_spread_pct=0.05, params=None, propose_fn=None) -> BacktestResult:
         params = params or default_params()
         active = [bar.close for bar in bars[warmup:]]
         drift = (active[-1] - active[0]) / active[0] * 100.0 if len(active) > 1 else 0.0
@@ -94,6 +94,7 @@ class FakeEngine:
         self.calls.append({"symbol": symbol, "timeframe": timeframe or config.timeframe, "warmup": warmup,
                            "bars": len(bars), "first_ts": bars[0].open_time, "last_ts": bars[-1].open_time,
                            "decided_first_ts": first_trade, "params_label": params.label(),
+                           "propose_fn": getattr(propose_fn, "__name__", None),
                            "filters": filters.symbol})
         return result
 
@@ -157,7 +158,9 @@ def test_evaluate_returns_the_backtest_result_as_a_plain_dict(config, engine):
     bars = _bars(_prices_rising(400))
     report = evaluate(config, "BTC_USDT", bars=bars, higher_bars=[], filters=FILTERS, params=default_params(),
                       warmup=80)
-    assert set(report) == {"metrics", "buy_hold_pct", "trades", "rejected", "params_label", "start", "end", "bars"}
+    assert set(report) == {"metrics", "buy_hold_pct", "trades", "rejected", "params_label", "strategy",
+                           "start", "end", "bars"}
+    assert report["strategy"] == ""  # no family switch: the config build itself was measured
     assert report["bars"] == 400 and report["trades"] == report["metrics"]["trades"]
     assert report["params_label"] == default_params().label()
     assert report["start"] == research._iso(bars[0].open_time)
@@ -187,7 +190,7 @@ def test_grid_search_rejects_unknown_keys_identity_fields_and_out_of_bounds_valu
                           ({"ema_fast": [True]}, "must be numbers"),
                           ({"ema_fast": []}, "must be a non-empty list"),
                           ({"ema_fast": 14}, "must be a non-empty list"),
-                          ({}, "non-empty mapping")):
+                          ("ema_fast", "must be a mapping")):
         with pytest.raises(ValueError, match=message):
             grid_search(config, "BTC_USDT", bars=bars, higher_bars=[], filters=FILTERS, grid=grid)
     assert engine.calls == []
@@ -262,7 +265,7 @@ def test_grid_search_only_ever_sees_train_and_validation(config, engine):
     best = results[0]
     assert best["train"]["metrics"]["net_return_pct"] > 0 > best["validation"]["metrics"]["net_return_pct"]
     assert best["params"]["atr_target_mult"] == 4.0  # the aggressive variant wins on train only
-    assert {key for key in best} == {"params_label", "params", "metrics", "train", "validation"}
+    assert {key for key in best} == {"params_label", "params", "metrics", "strategy", "train", "validation"}
 
 
 def test_grid_search_never_mutates_risk_or_sizing_config(config, engine):
@@ -273,6 +276,48 @@ def test_grid_search_never_mutates_risk_or_sizing_config(config, engine):
     assert config.strategy_params == default_params()
 
 
+def test_evaluate_threads_the_entry_family_and_keeps_it_visible_in_the_label(config, engine):
+    bars = _bars(_prices_rising(900))
+    report = evaluate(config, "BTC_USDT", bars=bars, higher_bars=[], filters=FILTERS,
+                      params=default_params(), strategy="breakout_30")
+    assert report["params_label"].startswith("breakout_30|")
+    assert engine.calls[-1]["propose_fn"] == "propose_breakout"
+    with pytest.raises(ValueError, match="unknown strategy family"):
+        evaluate(config, "BTC_USDT", bars=bars, higher_bars=[], filters=FILTERS,
+                 params=default_params(), strategy="moon_shot")
+
+
+def test_an_empty_grid_measures_one_build_so_a_family_switch_is_the_only_difference(config, engine):
+    bars = _bars(_prices_rising(900))
+    results = grid_search(config, "BTC_USDT", bars=bars, higher_bars=[], filters=FILTERS, grid={}, top=3)
+    assert [item["params_label"] for item in results] == [default_params().label()]
+    assert len(engine.calls) == 2  # train + validation, no parameter search
+    engine.calls.clear()
+    family = grid_search(config, "BTC_USDT", bars=bars, higher_bars=[], filters=FILTERS, grid={},
+                         strategy="momentum_20")
+    assert family[0]["params_label"].startswith("momentum_20|")
+    assert {call["propose_fn"] for call in engine.calls} == {"propose_momentum"}
+
+
+def test_run_research_judges_a_family_switch_against_the_build_actually_in_config(config, engine, workspace):
+    store = open_store(workspace)
+    report = run_research(store, config, symbol="BTC_USDT", timeframe="4h", bars=_bars(_prices_rising(900)),
+                          higher_bars=[], filters=FILTERS, grid={}, folds=4, strategy="breakout_30")
+    assert report["strategy"] == "breakout_30" and report["champion_strategy"] == ""
+    assert report["candidate_label"].startswith("breakout_30|")
+    assert report["champion_label"] == default_params().label()
+    # the incumbent must be measured with the entry rules the system runs today, not the challenger's
+    assert {call["propose_fn"] for call in engine.calls} == {"propose_breakout", None}
+    assert report["verdict"] == "rejected"  # identical fake metrics can never beat their own baseline
+    versions = store.list_strategy_versions()
+    # only the entry trigger differs, so both sides share one params digest and one version row
+    assert [row["source"] for row in versions] == ["champion_baseline"]
+    labels = {row["params_label"] for row in store.list_runs()}
+    assert any(str(label).startswith("breakout_30|") for label in labels)
+    assert default_params().label() in labels
+    store.close()
+
+
 def test_silent_variant_never_outranks_a_measured_loss(config, monkeypatch):
     """Regression: a 0.0%-with-zero-trades variant wasted three optimizer experiments.
 
@@ -280,7 +325,7 @@ def test_silent_variant_never_outranks_a_measured_loss(config, monkeypatch):
     the grid must still select one that actually trades so the gate measures a hypothesis.
     """
     def fake(_config, symbol, *, bars, higher_bars, filters, timeframe=None, warmup=80,
-             assumed_spread_pct=0.05, params=None):
+             assumed_spread_pct=0.05, params=None, propose_fn=None):
         params = params or default_params()
         silent = params.ema_fast == 8
         trades = 0 if silent else 20

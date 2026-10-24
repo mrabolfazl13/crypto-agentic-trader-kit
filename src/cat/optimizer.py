@@ -177,6 +177,40 @@ PLAN: tuple[dict[str, Any], ...] = (
         "grid": {"regime_gate": ["RANGING"], "rsi_bullish_low": [30, 40, 50]},
         "answers": "more_trades",
     },
+    # Round 7 — pre-registered from the 19-run/47-experiment sweep: 21 parameter knobs
+    # on one entry-trigger family produced zero acceptances on nine symbols, and the
+    # only positive OOS numbers (+0.095% BTC/RANGING) failed portability on all eight
+    # other symbols. The searched space, not a threshold, is the constraint, so these
+    # hypotheses change the entry trigger itself (grid stays empty: the family is the
+    # only difference from the config build, which remains the baseline).
+    {
+        "id": "family-breakout-30",
+        "question": "آیا ورود از شکست ۳۰ کندلی (به‌جای پولبک روند) بیرون از نمونه انتظار ریاضی می‌سازد؟",
+        "grid": {},
+        "strategy": "breakout_30",
+        "answers": "edge",
+    },
+    {
+        "id": "family-momentum-20",
+        "question": "آیا مومنتوم ۲۰ کندلی، آستانه‌های فعلی را در خارج از نمونه بهتر می‌کند؟",
+        "grid": {},
+        "strategy": "momentum_20",
+        "answers": "edge",
+    },
+    {
+        "id": "family-pullback-rsi",
+        "question": "آیا پولبک با ریست RSI ورودهای کم‌کیفیت روند را بیرون از نمونه کم می‌کند؟",
+        "grid": {},
+        "strategy": "pullback_rsi",
+        "answers": "edge",
+    },
+    {
+        "id": "family-trend-v1",
+        "question": "آیا همان خانواده‌ی فعال با پارامترهای پیش‌فرض، روی این داده بیرون از نمونه قابل‌اندازه‌گیری است؟",
+        "grid": {},
+        "strategy": "trend_v1",
+        "answers": "edge",
+    },
 )
 
 _ACTIVE: dict[str, threading.Event] = {}
@@ -333,6 +367,7 @@ def run_experiment(config: Config, store: Any, *, symbol: str, timeframe: str, b
         store, config, symbol=symbol, timeframe=timeframe, bars=bars, higher_bars=higher,
         filters=filters, grid=hypothesis["grid"], folds=folds, champion=champion,
         warmup=warmup, assumed_spread_pct=spread_pct, dataset_id=dataset_id,
+        strategy=hypothesis.get("strategy"),
     )
 
 
@@ -415,6 +450,8 @@ def _record(body: dict[str, Any], hypothesis: dict[str, Any]) -> dict[str, Any]:
         "hypothesis_id": hypothesis["id"],
         "question": hypothesis["question"],
         "grid": hypothesis["grid"],
+        "strategy": body.get("strategy") or hypothesis.get("strategy") or "",
+        "champion_strategy": body.get("champion_strategy") or "",
         "verdict": body.get("verdict"),
         "reasons": list(body.get("reasons") or []),
         "candidate_label": body.get("candidate_label"),
@@ -433,6 +470,8 @@ def _record(body: dict[str, Any], hypothesis: dict[str, Any]) -> dict[str, Any]:
 def _champion_from(body: dict[str, Any]) -> dict[str, Any]:
     return {
         "params_label": body.get("candidate_label"),
+        "params": body.get("candidate_params"),
+        "strategy": body.get("strategy") or None,
         "validation": body.get("validation"),
         "walk_forward": body.get("walk_forward"),
         "accepted": True,

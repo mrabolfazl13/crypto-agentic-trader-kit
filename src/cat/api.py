@@ -1113,7 +1113,8 @@ def create_app(root: Path | None = None) -> FastAPI:
 
         return {"runs": optimizer.list_states(app_root, limit=limit),
                 "hypotheses": [{"id": item["id"], "question": item["question"],
-                                "grid": item["grid"]} for item in optimizer.PLAN],
+                                "grid": item["grid"], "strategy": item.get("strategy") or ""}
+                               for item in optimizer.PLAN],
                 "disclaimer": optimizer.DISCLAIMER_FA}
 
     @router.get("/optimizer/{run_id}")
