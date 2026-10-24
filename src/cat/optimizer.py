@@ -147,8 +147,11 @@ def summary(state: dict[str, Any]) -> dict[str, Any]:
         "rejected": len(experiments) - len(accepted),
         "current": state.get("current"),
         "error": state.get("error"),
+        # An experiment with no trades returns 0.0; calling that the "best" would read
+        # like break-even, so only measured trades count.
         "best_net_return_pct": max(
-            (float(item["net_return_pct"]) for item in experiments if isinstance(item.get("net_return_pct"), (int, float))),
+            (float(item["net_return_pct"]) for item in experiments
+             if isinstance(item.get("net_return_pct"), (int, float)) and int(item.get("trades") or 0) > 0),
             default=None,
         ),
         "champion_label": (state.get("champion") or {}).get("params_label"),
@@ -256,11 +259,17 @@ def choose_next(queue: list[str], completed: list[dict[str, Any]]) -> tuple[list
     return queue, "دسته‌ی رد با هیچ فرضیه‌ی باقی‌مانده هم‌راستا نبود؛ ترتیب پیش‌ثبت‌شده حفظ شد."
 
 
+def _aggregate_metrics(aggregate: dict[str, Any]) -> tuple[Any, Any, Any]:
+    """Fold aggregates report medians/means; read both spellings so a real run is never blank."""
+    net = aggregate.get("net_return_pct", aggregate.get("net_return_pct_median"))
+    factor = aggregate.get("profit_factor", aggregate.get("profit_factor_mean"))
+    return net, factor, aggregate.get("max_drawdown_pct")
+
+
 def learning_text(body: dict[str, Any]) -> str:
     verdict = body.get("verdict")
     aggregate = ((body.get("walk_forward") or {}).get("aggregate") or {})
-    net = aggregate.get("net_return_pct")
-    drawdown = aggregate.get("max_drawdown_pct")
+    net, _factor, drawdown = _aggregate_metrics(aggregate)
     trades = aggregate.get("trades")
     measured = f"خارج از نمونه: {trades} معامله، خالص {net}%، افت {drawdown}%"
     if verdict == "accepted":
@@ -279,6 +288,7 @@ def learning_text(body: dict[str, Any]) -> str:
 
 def _record(body: dict[str, Any], hypothesis: dict[str, Any]) -> dict[str, Any]:
     aggregate = ((body.get("walk_forward") or {}).get("aggregate") or {})
+    net, factor, drawdown = _aggregate_metrics(aggregate)
     return {
         "index": None,
         "hypothesis_id": hypothesis["id"],
@@ -288,9 +298,9 @@ def _record(body: dict[str, Any], hypothesis: dict[str, Any]) -> dict[str, Any]:
         "reasons": list(body.get("reasons") or []),
         "candidate_label": body.get("candidate_label"),
         "champion_label": body.get("champion_label"),
-        "net_return_pct": aggregate.get("net_return_pct"),
-        "max_drawdown_pct": aggregate.get("max_drawdown_pct"),
-        "profit_factor": aggregate.get("profit_factor"),
+        "net_return_pct": net,
+        "max_drawdown_pct": drawdown,
+        "profit_factor": factor,
         "trades": aggregate.get("trades"),
         "dataset_id": body.get("dataset_id"),
         "split": body.get("split"),
@@ -377,8 +387,17 @@ def start(config: Config, store: Any, *, symbol: str, timeframe: str, dataset_id
         raise ValueError(f"max_experiments باید بین ۱ و {len(PLAN)} باشد")
     bars, higher, filters = load_context(store, config, symbol=symbol, timeframe=timeframe,
                                          dataset_id=dataset_id)
-    if len(bars) < 240:
-        raise ValueError(f"داده کافی نیست: {len(bars)} کندل؛ برای تقسیم train/validation حداقل ۲۴۰ لازم است.")
+    from . import research
+
+    # run_research splits 60/20/20 and refuses a segment under max(120, warmup+1);
+    # validating the same floor here fails at the request instead of 0.5s later.
+    segment = max(research.MIN_SEGMENT_BARS, warmup + 1)
+    floor = segment * 5
+    if len(bars) < floor:
+        raise ValueError(
+            f"داده کافی نیست: {len(bars)} کندل؛ برای تقسیم ۶۰/۲۰/۲۰ با warmup={warmup} "
+            f"حداقل {floor} کندل لازم است (هر بخش ≥ {segment})."
+        )
     state = new_state(symbol=symbol, timeframe=timeframe, dataset_id=dataset_id,
                       max_experiments=max_experiments, folds=folds, warmup=warmup,
                       spread_pct=spread_pct)

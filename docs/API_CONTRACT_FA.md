@@ -51,7 +51,7 @@
 | POST | `/datasets/fetch` | `{symbol, timeframe, days}` → دریافت تاریخ از Gate و ساخت dataset |
 | POST | `/runs/backtest` | `{symbol, timeframe, days|dataset_id, params, strategy, rsi_reset, warmup, assumed_spread_pct}` → اجرای بک‌تست، ذخیره‌ی run، برگرداندن metrics؛ `strategy` یکی از `trend_v1`/`momentum_20`/`breakout_30`/`pullback_rsi` است و نام ناشناخته پیش از دریافت داده ۴۲۲ می‌گیرد |
 | POST | `/runs/walk-forward` | `{symbol, timeframe, days, grid: {param: [values]}, splits}` → ارزیابی walk-forward + تصمیم پذیرش |
-| POST | `/optimizer/start` | `{symbol, timeframe, days ≥ ۱۲۰ | dataset_id, max_experiments ۱..۶, folds ۲..۶, warmup, assumed_spread_pct}` → ساخت وضعیت پایدار و شروع حلقه در نخ پس‌زمینه. فقط در PAPER و فقط نماد allowlist؛ داده‌ی ناموجود `503` (fail-closed)، ورودی نامعتبر `422`، حلقه‌ی فعال دیگر `409`. |
+| POST | `/optimizer/start` | `{symbol, timeframe, days ≥ ۱۲۰ | dataset_id, max_experiments ۱..۶, folds ۲..۶, warmup, assumed_spread_pct}` → ساخت وضعیت پایدار و شروع حلقه در نخ پس‌زمینه. فقط در PAPER و فقط نماد allowlist؛ داده‌ی ناموجود `503` (fail-closed)، ورودی نامعتبر `422`، حلقه‌ی فعال دیگر `409`. کف داده = `۵ × max(۱۲۰، warmup+۱)` کندل (کف تقسیم ۶۰/۲۰/۲۰) و درخواست کوچک‌تر پیش از شروع `422` می‌گیرد. |
 | POST | `/optimizer/{run_id}/stop` | درخواست توقف؛ بین دو آزمایش اعمال می‌شود و وضعیت `stopping` سپس `stopped` می‌گردد. حلقه‌ی غیرفعال → `409`. |
 | POST | `/optimizer/{run_id}/resume` | ادامه‌ی همان صف و همان `dataset_id` پس از توقف/خطا. اجرای `done` یا حلقه‌ی در حال اجرا → `409`. |
 | POST | `/cycles/paper` | اجرای یک چرخه‌ی paper (همان `trader.py cycle`)؛ نتیجه‌ی audit و outcomes |

@@ -46,8 +46,9 @@ def _body(label: str, *, verdict: str, net: float, reasons: list[str]) -> dict:
         "dataset_id": "ds-test",
         "split": {"train": {"bars": 400}},
         "validation": {"metrics": {"net_return_pct": net, "max_drawdown_pct": 2.0, "trades": 12}},
-        "walk_forward": {"aggregate": {"net_return_pct": net, "max_drawdown_pct": 2.0,
-                                       "profit_factor": 1.1, "trades": 12}},
+        # real aggregates use median/mean names; the recorder must read those too
+        "walk_forward": {"aggregate": {"net_return_pct_median": net, "max_drawdown_pct": 2.0,
+                                       "profit_factor_mean": 1.1, "trades": 12}},
     }
 
 
@@ -117,6 +118,8 @@ def test_optimizer_runs_experiments_and_exports_them(client: TestClient, workspa
     assert len(detail["experiments"]) == 2
     assert detail["experiments"][0]["verdict"] == "rejected"
     assert detail["experiments"][1]["verdict"] == "accepted"
+    assert detail["experiments"][1]["net_return_pct"] == 2.4
+    assert detail["experiments"][1]["profit_factor"] == 1.1
     assert detail["champion"]["params_label"] == "trend-pullback:v3"
     assert calls[0] == "entry-speed"  # pre-registered first question
     assert detail["experiments"][0]["learning"]
@@ -132,6 +135,30 @@ def test_optimizer_runs_experiments_and_exports_them(client: TestClient, workspa
     assert exported["run_id"] == run_id
     assert client.get(f"{BASE}/optimizer/{run_id}/export", params={"format": "xml"}).status_code == 422
     assert client.get(f"{BASE}/optimizer/opt-nope").status_code == 404
+
+
+def test_summary_does_not_call_a_no_trade_experiment_the_best():
+    state = {
+        "run_id": "opt-x", "status": "done", "symbol": "BTC_USDT", "timeframe": "4h",
+        "dataset_id": "ds", "created_at": None, "updated_at": None, "queue": [], "current": None,
+        "experiments": [
+            {"verdict": "rejected", "net_return_pct": 0.0, "trades": 0},
+            {"verdict": "rejected", "net_return_pct": -1.2, "trades": 9},
+        ],
+    }
+    assert optimizer.summary(state)["best_net_return_pct"] == -1.2
+
+
+def test_optimizer_refuses_a_dataset_too_small_for_honest_segments(client: TestClient, workspace: Path):
+    csv_path = workspace / "opt-small.csv"
+    _write_csv(csv_path, 360)
+    imported = client.post(f"{BASE}/datasets/import",
+                           json={"path": str(csv_path), "symbol": "BTC/USDT", "timeframe": "4h"}).json()
+    resp = client.post(f"{BASE}/optimizer/start", json={
+        "symbol": "BTC/USDT", "dataset_id": imported["dataset_id"],
+        "max_experiments": 1, "folds": 2, "warmup": 80})
+    assert resp.status_code == 422
+    assert "600" in resp.json()["detail"]
 
 
 def test_optimizer_stop_and_resume_continue_without_repeating_a_hypothesis(

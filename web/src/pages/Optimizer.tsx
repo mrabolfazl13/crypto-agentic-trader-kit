@@ -365,7 +365,7 @@ export default function Optimizer() {
         <Stat
           compact
           label="آزمایش‌های انجام‌شده"
-          value={selectedSummary ? `${num(selectedSummary.completed, { max: 0 })} از ${num(selectedSummary.completed + selectedSummary.planned, { max: 0 })}` : null}
+          value={selectedSummary ? `${num(selectedSummary.completed, { max: 0 })} / ${num(selectedSummary.completed + selectedSummary.planned, { max: 0 })}` : null}
           endpoint="/optimizer"
           note="تعداد آزمایش‌های ثبت‌شده در برابر کل صف پیش‌ثبت‌شده."
         />
