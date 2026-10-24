@@ -285,7 +285,7 @@ class OptimizeRequest(BaseModel):
     timeframe: str | None = None
     days: int | None = Field(default=None, ge=120, le=1500)
     dataset_id: str | None = None
-    max_experiments: int = Field(default=3, ge=1, le=12)
+    max_experiments: int = Field(default=3, ge=1, le=20)
     start_at: str | None = None
     folds: int = Field(default=3, ge=2, le=6)
     warmup: int = Field(default=80, ge=1, le=500)

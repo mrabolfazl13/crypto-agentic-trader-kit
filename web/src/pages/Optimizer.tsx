@@ -623,7 +623,7 @@ export default function Optimizer() {
               value={form.maxExperiments}
               onChange={(event) => setForm({ ...form, maxExperiments: event.target.value })}
             >
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((count) => (
+              {[...Array.from({ length: 20 }, (_unused, index) => index + 1)].map((count) => (
                 <option key={count} value={count}>
                   {count}
                 </option>

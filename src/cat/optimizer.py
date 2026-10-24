@@ -108,6 +108,75 @@ PLAN: tuple[dict[str, Any], ...] = (
         "grid": {"atr_stop_mult": [1.8, 2.4], "atr_target_mult": [4.0, 5.5]},
         "answers": "edge",
     },
+    # Round 3 — pre-registered from round 2 on the same dataset: every hypothesis
+    # was rejected, but exit-asymmetry (stop 2.4 / target 5.5) cut the OOS loss to
+    # −0.038% with PF 0.657, while entry-side knobs left the metrics at the base
+    # variant's values. So the evidence points at the exit bracket, not the entry.
+    {
+        "id": "exit-bracket-wider",
+        "question": "آیا ادامه‌ی بازتر کردن همان براکت خروج، زیان خارج از نمونه را به صفر می‌رساند؟",
+        "grid": {"atr_stop_mult": [2.4, 3.0, 3.6], "atr_target_mult": [5.5, 6.5, 7.5]},
+        "answers": "edge",
+    },
+    {
+        "id": "stop-only-wider",
+        "question": "آیا بهبود دور ۲ فقط از حد ضرر بازتر آمد یا از هدف دورتر؟",
+        "grid": {"atr_stop_mult": [3.0, 3.6]},
+        "answers": "edge",
+    },
+    {
+        "id": "target-only-far",
+        "question": "آیا تنها جابه‌جایی هدف (بدون تغییر حد ضرر) سود خارج از نمونه می‌سازد؟",
+        "grid": {"atr_target_mult": [6.0, 7.5]},
+        "answers": "edge",
+    },
+    # Round 4 — pre-registered from rounds 1-3 on ds-ex-e44bf6ffb4 + ETH replication:
+    # 15 single-knob hypotheses on two symbols all ended 0-of-3 profitable folds;
+    # exit-asymmetry's BTC near-zero (−0.038%) did NOT repeat on ETH (−0.269%), so
+    # it was window noise. The untested knobs are the text/bool switches.
+    {
+        "id": "regime-gate-highvol",
+        "question": "آیا گشودن دروازه به رژیم پرنوسان، نمونه‌ی خارج از نمونه را بدون ضرر بزرگ‌تر می‌کند؟",
+        "grid": {"regime_gate": ["TRENDING_UP", "HIGH_VOLATILITY"]},
+        "answers": "more_trades",
+    },
+    {
+        "id": "regime-gate-ranging",
+        "question": "آیا ورود در regime خنثی (به‌جای روند صعودی) بازده خارج از نمونه را تغییر می‌دهد؟",
+        "grid": {"regime_gate": ["TRENDING_UP", "RANGING"]},
+        "answers": "more_trades",
+    },
+    {
+        "id": "conflict-guard-off",
+        "question": "آیا غیرفعال‌کردن نگهبان تضاد سیگنال، ورودهای معتبرِ جا‌مانده را برمی‌گرداند؟",
+        "grid": {"no_trade_if_signals_conflict": [True, False]},
+        "answers": "more_trades",
+    },
+    # Round 5 — the classifier itself: round-3 exit gains coincided with almost
+    # every daily bar classifying as HIGH_VOLATILITY; a higher volatility ceiling
+    # lets the directional labels be reached at all. One knob: vol_threshold.
+    {
+        "id": "volatility-ceiling",
+        "question": "آیا بالا بردن سقف نوسانِ طبقه‌بندی رژیم، دروازه‌ی روند را اندازه‌گیری‌پذیر می‌کند؟",
+        "grid": {"vol_threshold": [1.0, 2.0, 3.0]},
+        "answers": "more_trades",
+    },
+    {
+        "id": "multi-signal-requirement",
+        "question": "آیا برداشتن شرط چند‌سیگناله بودن، بسامد آزمون را بدون نابودی ریسک بالا می‌برد؟",
+        "grid": {"require_multiple_signals": [True, False]},
+        "answers": "more_trades",
+    },
+    # Round 6 — pre-registered from round 4: gating on RANGING gave the first
+    # positive OOS numbers in the whole study (BTC/4h 400d: +0.095%, PF 2.236,
+    # DD 0.177%) but with only 4 trades, below the pre-set minimum of 8. This is
+    # a sample-size experiment, NOT a re-judged one: acceptance rules are unchanged.
+    {
+        "id": "ranging-entry-band",
+        "question": "آیا باز کردن باند RSI در گیت RANGING، نمونه‌ی خارج از نمونه را به کف ۸ معامله می‌رساند؟",
+        "grid": {"regime_gate": ["RANGING"], "rsi_bullish_low": [30, 40, 50]},
+        "answers": "more_trades",
+    },
 )
 
 _ACTIVE: dict[str, threading.Event] = {}
