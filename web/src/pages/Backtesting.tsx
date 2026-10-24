@@ -158,6 +158,8 @@ export default function Backtesting() {
     timeframe: "",
     source: "days",
     datasetId: "",
+    strategy: "",
+    rsiReset: "45",
     days: "365",
     warmup: "80",
     spread: "0.05",
@@ -297,9 +299,23 @@ export default function Backtesting() {
       days?: number;
       dataset_id?: string;
       params?: Record<string, number>;
+      strategy?: string;
+      rsi_reset?: number;
       warmup: number;
       assumed_spread_pct: number;
     } = { symbol, timeframe: form.timeframe || config.data?.timeframe || "", warmup, assumed_spread_pct: spread };
+
+    if (form.strategy !== "") {
+      body.strategy = form.strategy;
+      if (form.strategy === "pullback_rsi" && form.rsiReset.trim() !== "") {
+        const reset = Number(form.rsiReset);
+        if (!Number.isFinite(reset) || reset < 1 || reset > 99) {
+          setFormError("آستانه‌ی بازگشت RSI باید عددی بین ۱ تا ۹۹ باشد.");
+          return;
+        }
+        body.rsi_reset = reset;
+      }
+    }
 
     if (form.source === "dataset") {
       if (form.datasetId === "") {
@@ -732,6 +748,19 @@ export default function Backtesting() {
               ))}
             </select>
           </FormRow>
+          <FormRow id="bt-strategy" label="خانواده‌ی استراتژی" hint="همان موتور آزمایشگاه مراحل؛ «پیکربندی فعال» یعنی نسخه‌ی پایه‌ی روند.">
+            <select id="bt-strategy" value={form.strategy} onChange={(event) => setForm({ ...form, strategy: event.target.value })}>
+              <option value="">پیکربندی فعال (روند)</option>
+              <option value="momentum_20">مومنتوم ۲۰ کندلی</option>
+              <option value="breakout_30">شکست سقف ۳۰ کندل</option>
+              <option value="pullback_rsi">پولبک RSI در روند صعودی</option>
+            </select>
+          </FormRow>
+          {form.strategy === "pullback_rsi" ? (
+            <FormRow id="bt-rsi-reset" label="آستانه‌ی بازگشت RSI" hint="۴۵ در اندازه‌گیری‌های ثبت‌شده بهترین نیمه‌ها را داشت؛ ۴۰ عمیق‌تر و کم‌نمونه‌تر است.">
+              <input id="bt-rsi-reset" type="number" min={1} max={99} value={form.rsiReset} onChange={(event) => setForm({ ...form, rsiReset: event.target.value })} />
+            </FormRow>
+          ) : null}
           <FormRow id="bt-source" label="منبع داده">
             <select id="bt-source" value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })}>
               <option value="dataset">مجموعه‌داده‌ی ذخیره‌شده</option>

@@ -383,6 +383,34 @@ def test_backtest_accepts_a_window_whose_confirm_series_has_60_to_79_bars(
     assert resp.status_code == 200, resp.text
 
 
+def test_backtest_can_run_a_named_research_family(client: TestClient, store, workspace: Path):
+    csv_path = workspace / "hist.csv"
+    _write_csv(csv_path, _trending_prices(900))
+    imported = client.post(f"{BASE}/datasets/import",
+                           json={"path": str(csv_path), "symbol": "BTC/USDT", "timeframe": "4h"}).json()
+    resp = client.post(f"{BASE}/runs/backtest",
+                       json={"symbol": "BTC/USDT", "dataset_id": imported["dataset_id"], "warmup": 200,
+                             "strategy": "pullback_rsi", "rsi_reset": 45})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["strategy"] == "pullback_rsi"
+    run = store.get_run(resp.json()["run_id"])
+    assert run["params_label"].startswith("pullback_rsi|")
+
+
+def test_backtest_rejects_an_unknown_strategy_before_fetching_data(client: TestClient):
+    resp = client.post(f"{BASE}/runs/backtest",
+                       json={"symbol": "BTC/USDT", "days": 10, "strategy": "martingale"})
+    assert resp.status_code == 422
+    assert "استراتژی ناشناخته" in resp.json()["detail"]
+
+
+def test_backtest_rejects_rsi_reset_for_a_family_that_does_not_use_it(client: TestClient):
+    resp = client.post(f"{BASE}/runs/backtest",
+                       json={"symbol": "BTC/USDT", "days": 10, "strategy": "momentum_20", "rsi_reset": 45})
+    assert resp.status_code == 422
+    assert "pullback_rsi" in resp.json()["detail"]
+
+
 def test_dataset_bars_returns_real_candles_and_overlays(client: TestClient, workspace: Path):
     csv_path = workspace / "hist.csv"
     _write_csv(csv_path, _trending_prices(300))

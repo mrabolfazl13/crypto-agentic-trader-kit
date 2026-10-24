@@ -141,6 +141,7 @@ def propose_breakout(snapshot: MarketSnapshot, position: Position | None, **kw: 
     min_atr_pct = float(kw.get("min_atr_pct", 0.4))
     max_atr_pct = float(kw.get("max_atr_pct", 6.0))
     require_higher = bool(kw.get("require_higher", True))
+    require_regime = bool(kw.get("require_regime", False))
     fresh_only = bool(kw.get("fresh_only", False))
     guard = _guard(snapshot, kw, lookback + 2)
     if guard:
@@ -177,6 +178,12 @@ def propose_breakout(snapshot: MarketSnapshot, position: Position | None, **kw: 
         return Proposal("NO_TRADE", 0.0, ["EMA fast is not above EMA slow"], None, None, None, analysis, "ema_stack")
     if require_higher and not higher:
         return Proposal("NO_TRADE", 0.0, ["higher timeframe trend does not agree"], None, None, None, analysis, "higher_timeframe")
+    if require_regime and analysis.regime != (p.regime_gate or "TRENDING_UP"):
+        return Proposal(
+            "NO_TRADE", 0.0,
+            [f"regime is {analysis.regime}; this stage only enters {p.regime_gate or 'TRENDING_UP'}"],
+            None, None, None, analysis, "regime_filter",
+        )
     if not volatility_ok:
         return Proposal("NO_TRADE", 0.0, [f"ATR% {atr_pct} outside {min_atr_pct}..{max_atr_pct}"], None, None, None, analysis, "volatility_band")
     if not rsi_ok:
@@ -204,6 +211,7 @@ def propose_momentum(snapshot: MarketSnapshot, position: Position | None, **kw: 
     min_atr_pct = float(kw.get("min_atr_pct", 0.4))
     max_atr_pct = float(kw.get("max_atr_pct", 6.0))
     require_higher = bool(kw.get("require_higher", True))
+    require_regime = bool(kw.get("require_regime", False))
     fresh_only = bool(kw.get("fresh_only", False))
     guard = _guard(snapshot, kw, lookback + 2)
     if guard:
@@ -235,6 +243,12 @@ def propose_momentum(snapshot: MarketSnapshot, position: Position | None, **kw: 
         return Proposal("NO_TRADE", 0.0, ["EMA fast is not above EMA slow"], None, None, None, analysis, "ema_stack")
     if require_higher and not higher:
         return Proposal("NO_TRADE", 0.0, ["higher timeframe trend does not agree"], None, None, None, analysis, "higher_timeframe")
+    if require_regime and analysis.regime != (p.regime_gate or "TRENDING_UP"):
+        return Proposal(
+            "NO_TRADE", 0.0,
+            [f"regime is {analysis.regime}; this stage only enters {p.regime_gate or 'TRENDING_UP'}"],
+            None, None, None, analysis, "regime_filter",
+        )
     if not volatility_ok:
         return Proposal("NO_TRADE", 0.0, [f"ATR% {atr_pct} outside {min_atr_pct}..{max_atr_pct}"], None, None, None, analysis, "volatility_band")
     if not rsi_ok:
@@ -255,6 +269,7 @@ def propose_pullback(snapshot: MarketSnapshot, position: Position | None, **kw: 
     min_atr_pct = float(kw.get("min_atr_pct", 0.4))
     max_atr_pct = float(kw.get("max_atr_pct", 6.0))
     require_higher = bool(kw.get("require_higher", True))
+    require_regime = bool(kw.get("require_regime", False))
     rsi_reset = float(kw.get("rsi_reset", 40.0))
     guard = _guard(snapshot, kw, 60)
     if guard:
@@ -281,6 +296,12 @@ def propose_pullback(snapshot: MarketSnapshot, position: Position | None, **kw: 
         return Proposal("NO_TRADE", 0.0, ["price is below the slow EMA"], None, None, None, analysis, "below_slow")
     if require_higher and not higher:
         return Proposal("NO_TRADE", 0.0, ["higher timeframe trend does not agree"], None, None, None, analysis, "higher_timeframe")
+    if require_regime and analysis.regime != (p.regime_gate or "TRENDING_UP"):
+        return Proposal(
+            "NO_TRADE", 0.0,
+            [f"regime is {analysis.regime}; this stage only enters {p.regime_gate or 'TRENDING_UP'}"],
+            None, None, None, analysis, "regime_filter",
+        )
     if not volatility_ok:
         return Proposal("NO_TRADE", 0.0, [f"ATR% {atr_pct} outside {min_atr_pct}..{max_atr_pct}"], None, None, None, analysis, "volatility_band")
 

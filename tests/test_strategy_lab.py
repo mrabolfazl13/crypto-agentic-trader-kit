@@ -107,6 +107,27 @@ def test_every_family_refuses_a_downtrend(config):
         assert proposal.action == "NO_TRADE", name
 
 
+def test_regime_gate_is_the_only_difference_between_a_control_and_its_gated_stage(config):
+    """Round 5 pairs a control with the same family plus require_regime, so the
+    switch itself must be what turns a BUY into a regime_filter rejection."""
+    snapshot = make_snapshot(prices=breakout_prices())
+    control = propose_breakout(snapshot, None, **signal_kwargs(config))
+    assert control.action == "BUY"
+
+    params = default_params().replace(regime_gate="TRENDING_DOWN")
+    gated = propose_breakout(snapshot, None, **signal_kwargs(config, require_regime=True, params=params))
+    assert gated.action == "NO_TRADE"
+    assert gated.reason == "regime_filter"
+    assert "TRENDING_DOWN" in " ".join(gated.rationale)
+
+
+def test_regime_gate_lets_the_matching_regime_through(config):
+    snapshot = make_snapshot(prices=breakout_prices())
+    params = default_params().replace(regime_gate="HIGH_VOLATILITY")
+    gated = propose_breakout(snapshot, None, **signal_kwargs(config, require_regime=True, params=params))
+    assert gated.action == "BUY"
+
+
 def test_confidence_ceiling_blocks_entries(config):
     kwargs = signal_kwargs(config, confidence_threshold=0.99)
     proposal = propose_breakout(make_snapshot(prices=breakout_prices()), None, **kwargs)

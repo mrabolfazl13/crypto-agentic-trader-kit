@@ -50,7 +50,7 @@ def test_entry_only_stage_overrides_do_not_break_an_open_position(config):
         symbol="BTC_USDT", qty=1.0, avg_entry=last, stop=last * 0.9, target=last * 1.2,
         decision_id="test-open", opened_at=opened,
     )
-    with_extra = [stage for round_no in (1, 2, 3) for stage in stage_plan("4h", "day", round_no) if stage.extra]
+    with_extra = [stage for round_no in (1, 2, 3, 4, 5) for stage in stage_plan("4h", "day", round_no) if stage.extra]
     assert with_extra  # the plan does exercise partial-bound switches
     for stage in with_extra:
         signal = partial(LAB_STRATEGIES[stage.strategy], **stage.extra)
@@ -66,6 +66,55 @@ def test_horizon_bars_never_pretends_a_bar_can_be_shorter_than_the_timeframe():
     assert horizon_bars("4h", "day") == 5
     assert horizon_bars("15m", "day") == 95
     assert horizon_bars("1h", "none") == 0
+
+
+def test_round_four_rechecks_the_pullback_family_on_daily_bars_without_a_horizon():
+    stages = stage_plan("1d", "day", 4)
+    ids = [stage.id for stage in stages]
+    assert ids[:3] == ["pullback-rsi45", "pullback-rsi40", "pullback-rsi45-wide"]
+    assert len(set(ids)) == len(ids)
+    # A "24h horizon" cannot exist below one daily bar; every stage must be untimed.
+    assert all(stage.params.max_hold_bars == 0 for stage in stages)
+    assert stages[0].extra == {"rsi_reset": 45.0}
+    assert stages[2].params.atr_stop_mult == 2.0 and stages[2].params.atr_target_mult == 4.0
+
+
+def test_confirm_series_covers_the_whole_window_plus_warmup(config):
+    """A fixed 300-day confirm fetch starved the first ~65 days of a 365-day run."""
+    from cat.data import SymbolFilter
+    from cat.month_scan import ScanOptions, _fetch_symbol
+
+    calls = []
+
+    class Provider:
+        name = "fake"
+
+        def klines_range(self, symbol, timeframe, start, end):
+            calls.append((timeframe, start, end))
+            return []
+
+        def filters(self, symbol):
+            return SymbolFilter(symbol=symbol, price_precision=2, qty_precision=6, min_qty=0.0,
+                                min_quote=0.0, max_quote=0.0, tradable=True, fee_pct=0.1)
+
+    assert config.confirm_timeframe == "1d"
+    end = 2_000_000_000
+    _fetch_symbol(config, Provider(), "BTC_USDT", ScanOptions(days=365, warmup_bars=180, timeframe="1d"), end)
+    confirm_start = calls[-1][1]
+    assert end - confirm_start >= (365 + 180 + 60) * 86400
+
+
+def test_round_five_pairs_differ_only_by_the_hard_regime_gate():
+    by_id = {stage.id: stage for stage in stage_plan("1d", "day", 5)}
+    for control, gated in (
+        ("pullback-rsi45-control", "pullback-rsi45-regime"),
+        ("momentum-fresh-control", "momentum-fresh-regime"),
+        ("breakout-fresh-control", "breakout-fresh-regime"),
+    ):
+        plain, gated_stage = by_id[control], by_id[gated]
+        assert gated_stage.extra["require_regime"] is True
+        assert {k: v for k, v in gated_stage.extra.items() if k != "require_regime"} == plain.extra
+        assert gated_stage.params == plain.params
 
 
 def test_stage_plan_changes_one_thing_at_a_time_and_shares_the_horizon():

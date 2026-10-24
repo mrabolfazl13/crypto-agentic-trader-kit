@@ -163,6 +163,80 @@ def stage_plan(timeframe: str, horizon: str = "day", round_no: int = 1) -> list[
                 "pullback_rsi", wide5_timed, horizon=horizon,
             ),
         ]
+    if round_no == 4:
+        # Pre-registered before measurement: round 3's finalist was chosen on a
+        # 60-day 4h window and did not repeat on 120 days. Before inventing more
+        # variants, test whether the same entry family has any edge at all where
+        # turnover is low and the sample is a full year — daily bars. The two
+        # entry families that lost on 4h are kept as references.
+        wide = base.replace(atr_stop_mult=2.0, atr_target_mult=4.0)
+        return [
+            Stage(
+                "pullback-rsi45", "پولبک کم‌عمق (روزانه)",
+                "همان مرحله‌ی برنده‌ی دور سوم روی کندل روزانه و یک سال کامل؛ ورود در بازگشت RSI از ۴۵ داخل روند صعودی",
+                "pullback_rsi", base, horizon="none", extra={"rsi_reset": 45.0},
+            ),
+            Stage(
+                "pullback-rsi40", "پولبک عمیق‌تر (روزانه)",
+                "تنها تغییر: آستانه‌ی بازگشت RSI از ۴۵ به ۴۰؛ آزمون شیب نتیجه، نه جست‌وجوی بهترین نقطه",
+                "pullback_rsi", base, horizon="none", extra={"rsi_reset": 40.0},
+            ),
+            Stage(
+                "pullback-rsi45-wide", "پولبک کم‌عمق، براکت بازتر (روزانه)",
+                "تنها تغییر: حد ضرر ۲ ATR و هدف ۴ ATR به‌جای ۱٫۵/۳٫۵ با همان ورود RSI-45",
+                "pullback_rsi", wide, horizon="none", extra={"rsi_reset": 45.0},
+            ),
+            Stage(
+                "momentum-fresh", "مومنتوم تازه (روزانه)",
+                "مرجع: مومنتوم ۲۰ کندلی فقط در کندل اولِ عبور از آستانه، بدون افق",
+                "momentum_20", base, horizon="none", extra={"fresh_only": True},
+            ),
+            Stage(
+                "breakout-fresh", "شکست تازه (روزانه)",
+                "مرجع: شکست سقف ۳۰ کندل فقط در کندل اولِ عبور، بدون افق",
+                "breakout_30", base, horizon="none", extra={"fresh_only": True},
+            ),
+        ]
+    if round_no == 5:
+        # Round 4's evidence: every family lost on the train half (median symbol
+        # -44.9%) and only made money in the recovery half. Each pair below differs
+        # by exactly one switch: the hard TRENDING_UP gate the production strategy
+        # already enforces. A stage with <20 train trades is unmeasurable, not a pass.
+        def regime(extra: dict[str, Any]) -> dict[str, Any]:
+            return {**extra, "require_regime": True}
+
+        return [
+            Stage(
+                "pullback-rsi45-control", "پولبک RSI-45 بدون گیت رژیم",
+                "مرجع: همان نامزد دور سوم؛ بدون فیلتر سخت رژیم",
+                "pullback_rsi", timed, horizon=horizon, extra={"rsi_reset": 45.0},
+            ),
+            Stage(
+                "pullback-rsi45-regime", "پولبک RSI-45 با گیت رژیم",
+                "تنها تغییر: ورود فقط در رژیم TRENDING_UP؛ در نزول/رِنج معامله نمی‌شود",
+                "pullback_rsi", timed, horizon=horizon, extra=regime({"rsi_reset": 45.0}),
+            ),
+            Stage(
+                "momentum-fresh-control", "مومنتوم تازه بدون گیت رژیم",
+                "مرجع: مومنتوم فقط در کندل اول عبور از آستانه",
+                "momentum_20", timed, horizon=horizon, extra={"fresh_only": True},
+            ),
+            Stage(
+                "momentum-fresh-regime", "مومنتوم تازه با گیت رژیم",
+                "تنها تغییر: ورود فقط در رژیم TRENDING_UP",
+                "momentum_20", timed, horizon=horizon, extra=regime({"fresh_only": True}),
+            ),
+            Stage(
+                "breakout-fresh-control", "شکست تازه بدون گیت رژیم",
+                "مرجع: شکست سقف ۳۰ کندل فقط در کندل اول عبور",
+                "breakout_30", timed, horizon=horizon, extra={"fresh_only": True},
+            ),
+            Stage(
+                "breakout-fresh-regime", "شکست تازه با گیت رژیم",
+                "تنها تغییر: ورود فقط در رژیم TRENDING_UP",
+                "breakout_30", timed, horizon=horizon, extra=regime({"fresh_only": True}),
+            ),
+        ]
     return [
         Stage(
             "baseline-trend", "پایه‌ی تولیدی", "نسخه‌ی فعلی موتور: ورود فقط در روند صعودی تأییدشده با براکت ۱٫۵/۳٫۵ ATR",

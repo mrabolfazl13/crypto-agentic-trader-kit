@@ -46,7 +46,7 @@
 |---|---|---|
 | POST | `/datasets/import` | `{path|upload_name, symbol, timeframe, origin}` → اعتبارسنجی + ذخیره؛ پاسخ `dataset_id` و quality |
 | POST | `/datasets/fetch` | `{symbol, timeframe, days}` → دریافت تاریخ از Gate و ساخت dataset |
-| POST | `/runs/backtest` | `{symbol, timeframe, days|dataset_id, params, warmup, assumed_spread_pct}` → اجرای بک‌تست، ذخیره‌ی run، برگرداندن metrics |
+| POST | `/runs/backtest` | `{symbol, timeframe, days|dataset_id, params, strategy, rsi_reset, warmup, assumed_spread_pct}` → اجرای بک‌تست، ذخیره‌ی run، برگرداندن metrics؛ `strategy` یکی از `trend_v1`/`momentum_20`/`breakout_30`/`pullback_rsi` است و نام ناشناخته پیش از دریافت داده ۴۲۲ می‌گیرد |
 | POST | `/runs/walk-forward` | `{symbol, timeframe, days, grid: {param: [values]}, splits}` → ارزیابی walk-forward + تصمیم پذیرش |
 | POST | `/cycles/paper` | اجرای یک چرخه‌ی paper (همان `trader.py cycle`)؛ نتیجه‌ی audit و outcomes |
 | POST | `/kill-switch` | `{active: true|false}` — فعال/غیرفعال کردن فایل stop (تنها راه «توقف»؛ راه «شروع زنده» وجود ندارد) |

@@ -265,6 +265,8 @@ class BacktestRequest(BaseModel):
     days: int | None = Field(default=None, ge=1, le=1500)
     dataset_id: str | None = None
     params: dict[str, Any] | None = None
+    strategy: str | None = None
+    rsi_reset: float | None = Field(default=None, ge=1.0, le=99.0)
     warmup: int = Field(default=80, ge=1, le=2000)
     assumed_spread_pct: float = Field(default=0.05, ge=0.0, le=5.0)
 
@@ -1002,6 +1004,29 @@ def create_app(root: Path | None = None) -> FastAPI:
             datasets_mod = importlib.import_module("cat.datasets")
         except ModuleNotFoundError:
             raise HTTPException(status_code=503, detail="ماژول داده در دسترس نیست — سیستم fail-closed است")
+
+        # A named family comes from the same lab the staged profiles measure, so the
+        # number a user sees here is produced by the audited entry rules, not a copy.
+        # Validated before any data is fetched so an unknown name never reaches the engine.
+        strategy = (body.strategy or "").strip()
+        propose_fn = None
+        label_prefix = ""
+        if strategy:
+            from .strategy_lab import LAB_STRATEGIES
+
+            if strategy not in LAB_STRATEGIES:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"استراتژی ناشناخته: {strategy}. مجاز: {', '.join(sorted(LAB_STRATEGIES))}",
+                )
+            if body.rsi_reset is not None and strategy != "pullback_rsi":
+                raise HTTPException(status_code=422, detail="rsi_reset فقط برای استراتژی pullback_rsi معنا دارد.")
+            propose_fn = LAB_STRATEGIES[strategy]
+            if body.rsi_reset is not None:
+                from functools import partial
+
+                propose_fn = partial(propose_fn, rsi_reset=body.rsi_reset)
+            label_prefix = f"{strategy}|"
         try:
             bars, higher, filters, dataset_id = _series_for(
                 store, config, datasets_mod, symbol, tf, body.days, body.dataset_id)
@@ -1013,9 +1038,10 @@ def create_app(root: Path | None = None) -> FastAPI:
                                     detail=f"داده کافی نیست: {len(bars)} کندل سیگنال، {len(higher)} کندل تأیید.")
             params = params_from_dict(body.params, base=config.strategy_params)
             result = run_backtest(config, symbol, bars=bars, higher_bars=higher, filters=filters,
-                                  timeframe=tf, warmup=body.warmup, assumed_spread_pct=body.assumed_spread_pct, params=params)
+                                  timeframe=tf, warmup=body.warmup, assumed_spread_pct=body.assumed_spread_pct,
+                                  params=params, propose_fn=propose_fn)
             run_id = store.record_run(
-                kind="backtest", symbol=symbol, timeframe=tf, params_label=params.label(),
+                kind="backtest", symbol=symbol, timeframe=tf, params_label=label_prefix + params.label(),
                 params=params.tuning(), dataset_id=dataset_id,
                 window=(result.start, result.end), metrics=result.metrics,
                 trades=result.trades, rejections=result.rejected, equity_curve=result.equity_curve,
@@ -1027,7 +1053,8 @@ def create_app(root: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail="داده در دسترس نیست — سیستم fail-closed است")
         except (ValueError, getattr(datasets_mod, "DatasetError", ValueError)) as exc:
             raise HTTPException(status_code=422, detail=f"بک‌تست ناموفق: {exc}")
-        return {"run_id": run_id, "symbol": symbol, "timeframe": tf, "metrics": result.metrics,
+        return {"run_id": run_id, "symbol": symbol, "timeframe": tf, "strategy": strategy or "trend_v1",
+                "metrics": result.metrics,
                 "params": result.params, "provenance": _provenance("simulated", "engine", f"{result.start} → {result.end}")}
 
     @router.post("/runs/walk-forward")

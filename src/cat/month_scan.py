@@ -73,8 +73,13 @@ def _fetch_symbol(config: Config, provider: Any, symbol: str, options: ScanOptio
     start = end - (options.days * 86400) - options.warmup_bars * step - 5 * step
     higher_end = end
     # A weekly confirmation series needs ~60 closed weeks; a 300-day window only
-    # yields ~43 of them, which silently skipped every TSE symbol.
-    higher_days = 700 if config.confirm_timeframe == "1w" else 300
+    # yields ~43 of them, which silently skipped every TSE symbol. For every other
+    # confirm timeframe the daily overlap must still cover the whole signal window
+    # plus its warmup: a fixed 300 days starved the first ~65 days of a 365-day run.
+    if config.confirm_timeframe == "1w":
+        higher_days = 700
+    else:
+        higher_days = max(300, int((options.days * 86400 + options.warmup_bars * step) / 86400) + 90)
     higher_start = end - higher_days * 86400
     bars = [bar for bar in provider.klines_range(symbol, options.timeframe, start, end) if bar.closed]
     higher = [bar for bar in provider.klines_range(symbol, config.confirm_timeframe, higher_start, higher_end) if bar.closed]
