@@ -392,7 +392,7 @@ def _parse_grid(spec: str | None) -> dict[str, list] | None:
 
 
 def cmd_profiles(engine: Engine, days: int, warmup: int, timeframe: str | None, horizon: str,
-                 top: int | None, refresh: bool, out_dir: Path | None) -> int:
+                 top: int | None, refresh: bool, round_no: int, out_dir: Path | None) -> int:
     """Run the staged experiment ladder and store profit/loss per stage. Never trades."""
     from .data import DataUnavailable
     from .profiles import ProfileOptions, run_profiles, save_profiles
@@ -403,7 +403,7 @@ def cmd_profiles(engine: Engine, days: int, warmup: int, timeframe: str | None, 
     config = engine.config
     options = ProfileOptions(
         days=days, warmup_bars=warmup, timeframe=timeframe, horizon=horizon,
-        top=top, refresh=refresh,
+        top=top, refresh=refresh, round_no=round_no,
     )
     try:
         payload = run_profiles(config, options)
@@ -547,6 +547,8 @@ def main(argv: list[str] | None = None) -> int:
     prof.add_argument("--horizon", choices=["day", "short"], default="day",
                       help="day = close before ~24h; short = as close to 3h as the timeframe allows")
     prof.add_argument("--top", type=int, default=None, help="only the N most liquid symbols of the universe")
+    prof.add_argument("--round", type=int, choices=[1, 2, 3], default=1,
+                      help="1 = entry-family ladder; 2 = fresh-cross fee-churn test; 3 = pullback sensitivity")
     prof.add_argument("--refresh", action="store_true", help="ignore the cached candles and fetch again")
     prof.add_argument("--out-dir", default=None)
     args = parser.parse_args(argv)
@@ -592,7 +594,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_month_scan(engine, args.days, args.warmup, args.timeframe, args.strategies, args.refresh, not args.no_improve, Path(args.out) if args.out else None, args.max_hold)
     if args.command == "profiles":
         return cmd_profiles(engine, args.days, args.warmup, args.timeframe, args.horizon, args.top, args.refresh,
-                            Path(args.out_dir) if args.out_dir else None)
+                            args.round, Path(args.out_dir) if args.out_dir else None)
     if args.command == "stop":
         return cmd_stop(engine)
     if args.command == "resume":

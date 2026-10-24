@@ -70,6 +70,30 @@ def test_momentum_enters_on_sustained_roc(config):
     assert proposal.stop < proposal.entry < proposal.target
 
 
+def test_fresh_only_refuses_to_rebuy_momentum_that_was_already_strong(config):
+    """A sustained trend must not be re-bought on every bar: that pays the fee repeatedly."""
+    snapshot = make_snapshot(prices=momentum_prices())
+    kwargs = signal_kwargs(config, fresh_only=True)
+    proposal = propose_momentum(snapshot, None, **kwargs)
+    assert proposal.action == "NO_TRADE"
+    assert proposal.reason == "not_fresh"
+
+
+def test_fresh_only_keeps_a_breakout_that_crosses_on_the_last_bar(config):
+    proposal = propose_breakout(make_snapshot(prices=breakout_prices()), None, **signal_kwargs(config, fresh_only=True))
+    assert proposal.action == "BUY"
+
+
+def test_fresh_only_refuses_a_breakout_that_is_already_above_the_prior_high(config):
+    prices = [100.0 + index * 0.3 + 6.0 * math.sin(index / 4.0) for index in range(140)]
+    prior = max(price * 1.004 for price in prices[-31:-1])
+    prices[-2] = prior * 1.002  # the previous bar already crossed
+    prices[-1] = prior * 1.02
+    proposal = propose_breakout(make_snapshot(prices=prices), None, **signal_kwargs(config, fresh_only=True))
+    assert proposal.action == "NO_TRADE"
+    assert proposal.reason == "not_fresh"
+
+
 def test_pullback_enters_after_an_rsi_reset(config):
     proposal = propose_pullback(make_snapshot(prices=pullback_prices()), None, **signal_kwargs(config))
     assert proposal.action == "BUY"

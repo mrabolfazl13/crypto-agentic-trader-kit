@@ -63,6 +63,7 @@ class ProfileOptions:
     refresh: bool = False
     assumed_spread_pct: float | None = None
     out_dir: Path | None = None
+    round_no: int = 1
 
 
 def horizon_bars(timeframe: str, horizon: str) -> int:
@@ -80,8 +81,14 @@ def horizon_bars(timeframe: str, horizon: str) -> int:
     return 0
 
 
-def stage_plan(timeframe: str, horizon: str = "day") -> list[Stage]:
+def stage_plan(timeframe: str, horizon: str = "day", round_no: int = 1) -> list[Stage]:
     """The development ladder. Every stage changes one thing from the one before.
+
+    Round 1 varies the entry family, the time horizon and a volatility floor.
+    Round 2 tests the hypothesis that the losses were mostly fee churn: it adds
+    the untested pullback family and switches momentum/breakout to a fresh-cross
+    trigger, so a position is opened once per signal instead of every bar the
+    condition stays true.
 
     The bracket stays at 1.5/3.5 ATR on purpose: tightening it to 1.2/1.8 makes
     the net reward/risk gate reject every entry once the 0.6% round-trip cost is
@@ -93,6 +100,69 @@ def stage_plan(timeframe: str, horizon: str = "day") -> list[Stage]:
     hours = round(cap * bar_hours, 1)
     base = default_params()
     timed = base.replace(max_hold_bars=cap)
+    if round_no == 2:
+        # 1.8% ATR is three times the 0.6% round-trip assumption, so one ATR is
+        # still a real move after costs; 1.2% only barely cleared the RR gate.
+        return [
+            Stage(
+                "pullback", "پولبک RSI", "خانواده‌ی ورود عوض شد: بازگشت RSI از زیر ۴۰ داخل روند صعودی، بدون افق",
+                "pullback_rsi", base, horizon="none",
+            ),
+            Stage(
+                "pullback-horizon", "پولبک + افق", f"تنها تغییر: بستن اجباری معامله پس از {hours} ساعت",
+                "pullback_rsi", timed, horizon=horizon,
+            ),
+            Stage(
+                "pullback-vol-horizon", "پولبک + نوسان کافی + افق",
+                f"فقط نمادهایی که ATR آن‌ها ≥ ۱٫۸٪ است تا یک ATR سه برابر هزینه‌ی رفت‌وبرگشت باشد، با افق {hours} ساعت",
+                "pullback_rsi", timed, horizon=horizon, extra={"min_atr_pct": 1.8},
+            ),
+            Stage(
+                "momentum-fresh-horizon", "مومنتوم تازه + افق",
+                f"مومنتوم فقط در کندل اولِ عبور از آستانه وارد می‌شود، نه هر کندلی که بالای آستانه مانده، با افق {hours} ساعت",
+                "momentum_20", timed, horizon=horizon, extra={"fresh_only": True},
+            ),
+            Stage(
+                "breakout-fresh-horizon", "شکست تازه + افق",
+                f"شکست سقف فقط در کندل اولِ عبور از سقف ۳۰ کندل، با افق {hours} ساعت",
+                "breakout_30", timed, horizon=horizon, extra={"fresh_only": True},
+            ),
+        ]
+    if round_no == 3:
+        # The only non-negative family in round 2 was pullback without a horizon.
+        # This round perturbs its two untested levers (dip depth and bracket
+        # width) instead of adding another family, so a positive result can be
+        # checked for a plateau rather than a single lucky point.
+        wide = base.replace(atr_stop_mult=2.0, atr_target_mult=4.0)
+        wide_timed = timed.replace(atr_stop_mult=2.0, atr_target_mult=4.0)
+        wide5_timed = timed.replace(atr_stop_mult=2.0, atr_target_mult=5.0)
+        return [
+            Stage(
+                "pullback-rsi45", "پولبک کم‌عمق",
+                "تنها تغییر: آستانه‌ی بازگشت RSI از ۴۰ به ۴۵ (افت کم‌عمق‌تر، نمونه‌ی بزرگ‌تر)، بدون افق",
+                "pullback_rsi", base, horizon="none", extra={"rsi_reset": 45.0},
+            ),
+            Stage(
+                "pullback-rsi45-horizon", "پولبک کم‌عمق + افق",
+                f"تنها تغییر نسبت به مرحله‌ی قبل: بستن اجباری پس از {hours} ساعت",
+                "pullback_rsi", timed, horizon=horizon, extra={"rsi_reset": 45.0},
+            ),
+            Stage(
+                "pullback-wide", "پولبک با براکت بازتر",
+                "تنها تغییر: حد ضرر ۲ ATR و هدف ۴ ATR به‌جای ۱٫۵/۳٫۵، بدون افق",
+                "pullback_rsi", wide, horizon="none",
+            ),
+            Stage(
+                "pullback-wide-horizon", "پولبک بازتر + افق",
+                f"تنها تغییر نسبت به مرحله‌ی قبل: بستن اجباری پس از {hours} ساعت",
+                "pullback_rsi", wide_timed, horizon=horizon,
+            ),
+            Stage(
+                "pullback-wide5-horizon", "پولبک بازتر، هدف ۵ ATR + افق",
+                f"تنها تغییر: هدف از ۴ به ۵ ATR (ریسک/پاداش ناخالص ۲٫۵) با همان افق {hours} ساعت",
+                "pullback_rsi", wide5_timed, horizon=horizon,
+            ),
+        ]
     return [
         Stage(
             "baseline-trend", "پایه‌ی تولیدی", "نسخه‌ی فعلی موتور: ورود فقط در روند صعودی تأییدشده با براکت ۱٫۵/۳٫۵ ATR",
@@ -351,10 +421,16 @@ def _verdict(stages: list[dict[str, Any]]) -> dict[str, Any]:
         key=lambda stage: (stage["train"]["profit_factor"] or 0.0, stage["train"]["mean_net_return_pct"] or -99.0),
     ) if eligible else None
     promoted = False
+    train_ok = False
     if finalist is not None:
         validation = finalist["validation"]
+        train = finalist["train"]
+        # A finalist that lost on the half it was chosen from is not evidence of
+        # anything; a positive validation half alone must never promote it.
+        train_ok = (train["net_pnl"] or 0.0) > 0 and (train["profit_factor"] or 0.0) >= 1.0
         promoted = (
-            validation["trades"] >= 15
+            train_ok
+            and validation["trades"] >= 15
             and (validation["profit_factor"] or 0.0) >= 1.0
             and (validation["net_pnl"] or 0.0) > 0
         )
@@ -376,6 +452,12 @@ def _verdict(stages: list[dict[str, Any]]) -> dict[str, Any]:
 
     if finalist is None:
         text = "هیچ مرحله‌ای حداقل ۲۰ معامله در نیمه‌ی train نداشت؛ داوری ممکن نیست و هیچ نسخه‌ای ترفیع نمی‌گیرد."
+    elif not train_ok:
+        text = (
+            f"مرحله‌ی «{finalist['id']}» با بهترین PF روی train انتخاب شد، اما خودِ train مثبت نبود "
+            f"(PF {finalist['train']['profit_factor']:.2f}، سود خالص {finalist['train']['net_pnl']:,.0f}). "
+            f"سود احتمالی نیمه‌ی دوم ({_judged(finalist)}) به‌تنهایی معیار ترفیع نیست؛ هیچ نسخه‌ای ترفیع نمی‌گیرد."
+        )
     elif promoted:
         text = (
             f"مرحله‌ی «{finalist['id']}» روی train انتخاب شد و روی validation هم مثبت ماند "
@@ -391,7 +473,7 @@ def _verdict(stages: list[dict[str, Any]]) -> dict[str, Any]:
         "promoted": promoted,
         "stable_stages": stable,
         "text_fa": text,
-        "selection_rule": "بیشترین profit factor روی نیمه‌ی اول با حداقل ۲۰ معامله؛ داوری یک‌باره روی نیمه‌ی دوم",
+        "selection_rule": "بیشترین profit factor روی نیمه‌ی اول با حداقل ۲۰ معامله؛ ترفیع فقط اگر نیمه‌ی اول خودش PF ≥ ۱٫۰ و سود مثبت داشته باشد و نیمه‌ی دوم هم مثبت بماند",
         "stable_rule": "PF کل ≥ ۱٫۲، حداقل ۲۰ معامله، سود خالص مثبت در کل و در هر دو نیمه",
     }
 
@@ -432,9 +514,9 @@ def run_profiles(
     available = [symbol for symbol in symbols if symbol in data.get("symbols", {})]
     if not available:
         raise ValueError("no symbol returned usable candles")
-    stages = stage_plan(timeframe, options.horizon)
+    stages = stage_plan(timeframe, options.horizon, options.round_no)
 
-    progress(f"profiles: {len(stages)} stages × {len(available)} symbols on {timeframe}, capital {capital:,.0f} {_currency(config)}")
+    progress(f"profiles: round {options.round_no}, {len(stages)} stages × {len(available)} symbols on {timeframe}, capital {capital:,.0f} {_currency(config)}")
     measured: list[dict[str, Any]] = []
     for stage in stages:
         payload = _run_stage(
@@ -452,6 +534,7 @@ def run_profiles(
     generated = datetime.now(timezone.utc)
     run_id = (
         f"{config.market}-{timeframe}-{options.days}d{'-short' if options.horizon == 'short' else ''}"
+        f"{f'-r{options.round_no}' if options.round_no != 1 else ''}"
         f"-{generated:%Y%m%dT%H%M%S}"
     ).lower()
     meta = {
@@ -463,6 +546,7 @@ def run_profiles(
         "days": options.days,
         "warmup_bars": options.warmup_bars,
         "horizon": options.horizon,
+        "round": options.round_no,
         "horizon_note": (
             "افق «کوتاه» روی هر تایم‌فریم به نزدیک‌ترین تعداد کندل گرد می‌شود؛ روی ۴ ساعته کوتاه‌ترین نگه‌داشت ممکن ۴ ساعت است."
             if options.horizon == "short" else
@@ -531,6 +615,7 @@ def list_runs(config: Config, out_dir: Path | None = None) -> list[dict[str, Any
             "timeframe": meta.get("timeframe"),
             "days": meta.get("days"),
             "horizon": meta.get("horizon"),
+            "round": meta.get("round", 1),
             "generated_at": meta.get("generated_at"),
             "coverage_end": meta.get("coverage_end"),
             "coverage_end_iso": meta.get("coverage_end_iso"),

@@ -402,6 +402,7 @@ export default function ProfileBoard({
                   entry.timeframe ?? NO_DATA,
                   entry.days !== null ? `${num(entry.days, { max: 0 })} روز` : null,
                   entry.horizon === "short" ? "افق کوتاه" : "افق یک روز",
+                  entry.round && entry.round !== 1 ? `دور ${num(entry.round, { max: 0 })}` : null,
                   dateTime(entry.generated_at),
                 ]
                   .filter(Boolean)
@@ -426,7 +427,7 @@ export default function ProfileBoard({
         <>
           <p className="stat-meta">
             <Badge kind="simulated" source={run.meta.source} />
-            <span>بازار: {text(run.meta.market)} · تایم‌فریم: {text(run.meta.timeframe)} · {num(run.meta.days, { max: 0 })} روز</span>
+            <span>بازار: {text(run.meta.market)} · تایم‌فریم: {text(run.meta.timeframe)} · {num(run.meta.days, { max: 0 })} روز{run.meta.round && run.meta.round !== 1 ? ` · دور ${num(run.meta.round, { max: 0 })}` : ""}</span>
             <span>نماد اندازه‌گیری‌شده: {num(run.meta.symbols_with_data, { max: 0 })} از {num(run.meta.symbols_requested, { max: 0 })}</span>
             <span>سرمایه‌ی هر نماد: {money(run.meta.capital_per_symbol, currency, { max: 0 })}</span>
             <span>اسپرد فرضی: {num(run.meta.assumed_spread_pct, { max: 2 })}%</span>

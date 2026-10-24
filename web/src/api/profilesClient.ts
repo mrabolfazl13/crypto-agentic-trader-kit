@@ -96,6 +96,7 @@ export interface ProfileMeta {
   days: number;
   warmup_bars: number;
   horizon: "day" | "short";
+  round?: number;
   horizon_note: string;
   symbols_requested: number;
   symbols_with_data: number;
@@ -117,6 +118,7 @@ export interface ProfileRunSummary {
   timeframe: string | null;
   days: number | null;
   horizon: string | null;
+  round?: number | null;
   generated_at: string | null;
   coverage_end: number | null;
   coverage_end_iso: string | null;

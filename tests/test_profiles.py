@@ -50,7 +50,7 @@ def test_entry_only_stage_overrides_do_not_break_an_open_position(config):
         symbol="BTC_USDT", qty=1.0, avg_entry=last, stop=last * 0.9, target=last * 1.2,
         decision_id="test-open", opened_at=opened,
     )
-    with_extra = [stage for stage in stage_plan("4h", "day") if stage.extra]
+    with_extra = [stage for round_no in (1, 2, 3) for stage in stage_plan("4h", "day", round_no) if stage.extra]
     assert with_extra  # the plan does exercise partial-bound switches
     for stage in with_extra:
         signal = partial(LAB_STRATEGIES[stage.strategy], **stage.extra)
@@ -76,6 +76,36 @@ def test_stage_plan_changes_one_thing_at_a_time_and_shares_the_horizon():
     assert timed and all(stage.params.max_hold_bars == 3 for stage in timed)
     assert stages[0].params.max_hold_bars == 0
     assert any(stage.extra for stage in stages)  # volatility stages are explicitly different
+
+
+def test_round_two_tests_the_fee_churn_hypothesis_with_fresh_crosses():
+    stages = stage_plan("4h", "day", 2)
+    ids = [stage.id for stage in stages]
+    assert len(set(ids)) == len(ids) == 5
+    assert {stage.strategy for stage in stages} == {"pullback_rsi", "momentum_20", "breakout_30"}
+    timed = [stage for stage in stages if stage.params.max_hold_bars]
+    assert all(stage.params.max_hold_bars == 5 for stage in timed)  # 5 × 4h = 20h
+    assert stages[0].id == "pullback" and stages[0].params.max_hold_bars == 0
+    fresh = {stage.strategy for stage in stages if (stage.extra or {}).get("fresh_only")}
+    assert fresh == {"momentum_20", "breakout_30"}
+    volatility = [stage for stage in stages if (stage.extra or {}).get("min_atr_pct")]
+    assert volatility and volatility[0].extra["min_atr_pct"] == 1.8
+
+
+def test_round_one_plan_is_unchanged_by_the_second_round():
+    assert [stage.id for stage in stage_plan("4h", "day", 1)][0] == "baseline-trend"
+    assert len(stage_plan("4h", "day", 1)) == 6
+
+
+def test_round_three_perturbs_only_the_pullback_family():
+    stages = stage_plan("4h", "day", 3)
+    assert len(stages) == 5 and len({stage.id for stage in stages}) == 5
+    assert {stage.strategy for stage in stages} == {"pullback_rsi"}
+    untimed = {stage.id for stage in stages if stage.params.max_hold_bars == 0}
+    assert untimed == {"pullback-rsi45", "pullback-wide"}
+    assert any((stage.extra or {}).get("rsi_reset") == 45.0 for stage in stages)
+    targets = {stage.params.atr_target_mult for stage in stages}
+    assert {4.0, 5.0}.issubset(targets)
 
 
 def _row(symbol: str, split: int, trades: list[dict]) -> dict:
@@ -119,6 +149,15 @@ def test_verdict_promotes_only_a_stage_that_survives_validation():
     assert verdict["promoted"] is False
     assert verdict["stable_stages"] == ["survived"]
     assert "collapsed" in verdict["text_fa"]
+
+
+def test_verdict_does_not_promote_a_finalist_whose_train_half_lost():
+    losing_train = _stage("late-bloomer", 0.979, 1.5, -1.1, 32.2)
+    verdict = _verdict([losing_train])
+    assert verdict["finalist"] == "late-bloomer"
+    assert verdict["promoted"] is False
+    assert verdict["stable_stages"] == []
+    assert "train" in verdict["text_fa"] and "0.98" in verdict["text_fa"]
 
 
 def test_verdict_refuses_to_judge_with_too_few_train_trades():

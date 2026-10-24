@@ -141,6 +141,7 @@ def propose_breakout(snapshot: MarketSnapshot, position: Position | None, **kw: 
     min_atr_pct = float(kw.get("min_atr_pct", 0.4))
     max_atr_pct = float(kw.get("max_atr_pct", 6.0))
     require_higher = bool(kw.get("require_higher", True))
+    fresh_only = bool(kw.get("fresh_only", False))
     guard = _guard(snapshot, kw, lookback + 2)
     if guard:
         return guard
@@ -151,6 +152,19 @@ def propose_breakout(snapshot: MarketSnapshot, position: Position | None, **kw: 
     bars = snapshot.klines
     prior_high = max(bar.high for bar in bars[-lookback - 1 : -1])
     breakout = nums["close"] > prior_high
+    if not breakout:
+        return Proposal("NO_TRADE", 0.0, [f"close {nums['close']:.2f} below prior {lookback}-bar high {prior_high:.2f}"], None, None, None, analysis, "no_breakout")
+    if fresh_only:
+        # Only the bar that crosses the level is a signal. Without this, every
+        # later bar that stays above the old high re-enters and pays the spread
+        # again, which is what turned a trend into a fee stream in the scans.
+        previous_high = max(bar.high for bar in bars[-lookback - 2 : -2])
+        if bars[-2].close > previous_high:
+            return Proposal(
+                "NO_TRADE", 0.0,
+                [f"not the first bar above the prior {lookback}-bar high"],
+                None, None, None, analysis, "not_fresh",
+            )
     stack = _stack_ok(nums)
     higher = _higher_ok(analysis)
     atr_pct = nums["atr_pct"]
@@ -190,6 +204,7 @@ def propose_momentum(snapshot: MarketSnapshot, position: Position | None, **kw: 
     min_atr_pct = float(kw.get("min_atr_pct", 0.4))
     max_atr_pct = float(kw.get("max_atr_pct", 6.0))
     require_higher = bool(kw.get("require_higher", True))
+    fresh_only = bool(kw.get("fresh_only", False))
     guard = _guard(snapshot, kw, lookback + 2)
     if guard:
         return guard
@@ -199,6 +214,7 @@ def propose_momentum(snapshot: MarketSnapshot, position: Position | None, **kw: 
     analysis = nums["analysis"]
     prices = closes(snapshot.klines)
     roc = (prices[-1] - prices[-1 - lookback]) / prices[-1 - lookback] * 100.0 if prices[-1 - lookback] else 0.0
+    previous_roc = (prices[-2] - prices[-2 - lookback]) / prices[-2 - lookback] * 100.0 if prices[-2 - lookback] else 0.0
     stack = _stack_ok(nums)
     higher = _higher_ok(analysis)
     atr_pct = nums["atr_pct"]
@@ -207,6 +223,14 @@ def propose_momentum(snapshot: MarketSnapshot, position: Position | None, **kw: 
 
     if roc < min_roc:
         return Proposal("NO_TRADE", 0.0, [f"{lookback}-bar momentum {roc:.2f}% below {min_roc}%"], None, None, None, analysis, "weak_momentum")
+    if fresh_only and previous_roc >= min_roc:
+        # Momentum that was already above the threshold last bar is not a new
+        # signal; re-buying it on every bar is where the fee bleed came from.
+        return Proposal(
+            "NO_TRADE", 0.0,
+            [f"momentum was already {previous_roc:.2f}% on the previous bar (not a fresh cross)"],
+            None, None, None, analysis, "not_fresh",
+        )
     if not stack:
         return Proposal("NO_TRADE", 0.0, ["EMA fast is not above EMA slow"], None, None, None, analysis, "ema_stack")
     if require_higher and not higher:
@@ -231,6 +255,7 @@ def propose_pullback(snapshot: MarketSnapshot, position: Position | None, **kw: 
     min_atr_pct = float(kw.get("min_atr_pct", 0.4))
     max_atr_pct = float(kw.get("max_atr_pct", 6.0))
     require_higher = bool(kw.get("require_higher", True))
+    rsi_reset = float(kw.get("rsi_reset", 40.0))
     guard = _guard(snapshot, kw, 60)
     if guard:
         return guard
@@ -241,7 +266,7 @@ def propose_pullback(snapshot: MarketSnapshot, position: Position | None, **kw: 
     series = rsi(closes(snapshot.klines), p.rsi_period)
     if len(series) < 2:
         return Proposal("NO_TRADE", 0.0, ["RSI history too short"], None, None, None, analysis, "rsi_band")
-    crossed = series[-2] < 40.0 <= series[-1] and series[-1] < 55.0
+    crossed = series[-2] < rsi_reset <= series[-1] and series[-1] < rsi_reset + 15.0
     stack = _stack_ok(nums)
     higher = _higher_ok(analysis)
     atr_pct = nums["atr_pct"]
@@ -249,7 +274,7 @@ def propose_pullback(snapshot: MarketSnapshot, position: Position | None, **kw: 
     above_slow = nums["slow"] is not None and nums["close"] > nums["slow"]
 
     if not crossed:
-        return Proposal("NO_TRADE", 0.0, [f"RSI did not reset and turn up from below 40 (prev {series[-2]:.1f}, now {series[-1]:.1f})"], None, None, None, analysis, "no_pullback")
+        return Proposal("NO_TRADE", 0.0, [f"RSI did not reset and turn up from below {rsi_reset:g} (prev {series[-2]:.1f}, now {series[-1]:.1f})"], None, None, None, analysis, "no_pullback")
     if not stack:
         return Proposal("NO_TRADE", 0.0, ["EMA fast is not above EMA slow"], None, None, None, analysis, "ema_stack")
     if not above_slow:
