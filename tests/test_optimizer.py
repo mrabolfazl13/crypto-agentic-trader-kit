@@ -86,6 +86,18 @@ def test_new_state_only_queues_the_requested_number_of_experiments():
     assert state["experiments"] == []
 
 
+def test_start_at_selects_a_later_round_of_the_pre_registered_plan():
+    state = optimizer.new_state(symbol="BTC_USDT", timeframe="4h", dataset_id="ds-1",
+                                max_experiments=3, folds=3, warmup=80, spread_pct=0.05,
+                                start_at="holding-minimum")
+    assert state["queue"] == ["holding-minimum", "rsi-ceiling", "entry-volume-quality"]
+    assert state["current"] == "holding-minimum"
+    with pytest.raises(ValueError, match="در فهرست پیش‌ثبت‌شده نیست"):
+        optimizer.new_state(symbol="BTC_USDT", timeframe="4h", dataset_id="ds-1",
+                            max_experiments=1, folds=3, warmup=80, spread_pct=0.05,
+                            start_at="made-up-hypothesis")
+
+
 def test_optimizer_runs_experiments_and_exports_them(client: TestClient, workspace: Path, monkeypatch):
     csv_path = workspace / "opt.csv"
     _write_csv(csv_path)
@@ -207,3 +219,20 @@ def test_optimizer_stop_and_resume_continue_without_repeating_a_hypothesis(
     assert len(ids) == 3
     assert len(set(ids)) == 3  # resume never re-measures a recorded hypothesis
     assert client.post(f"{BASE}/optimizer/{run_id}/resume").status_code == 409
+
+
+def test_every_registered_hypothesis_grid_is_validatable():
+    """A pre-registered hypothesis must be legally measurable: keys tunable, values in bounds."""
+    from cat import research
+    from cat.strategies import default_params
+
+    base = default_params()
+    ids = [item["id"] for item in optimizer.PLAN]
+    assert len(ids) == len(set(ids))
+    for item in optimizer.PLAN:
+        keys = research.validate_grid(item["grid"], base)
+        assert keys, item["id"]
+        combos = 1
+        for values in item["grid"].values():
+            combos *= len(values)
+        assert combos <= research.MAX_GRID_EVALS, item["id"]

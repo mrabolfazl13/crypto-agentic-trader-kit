@@ -81,13 +81,23 @@ export interface OptimizerStartBody {
   days?: number;
   dataset_id?: string;
   max_experiments: number;
+  start_at?: string;
   folds: number;
   warmup: number;
   assumed_spread_pct: number;
 }
 
+export interface RegisteredHypothesis {
+  id: string;
+  question: string;
+  grid: Record<string, unknown[]>;
+}
+
 /** `GET /optimizer` — newest runs first plus the standing disclaimer. */
-export async function listOptimizerRuns(limit = 20, signal?: AbortSignal): Promise<{ runs: OptimizerRunSummary[]; disclaimer: string }> {
+export async function listOptimizerRuns(
+  limit = 20,
+  signal?: AbortSignal,
+): Promise<{ runs: OptimizerRunSummary[]; hypotheses?: RegisteredHypothesis[]; disclaimer: string }> {
   const response = await fetch(url("/optimizer", { limit }), { headers: { Accept: "application/json" }, signal });
   return unwrap(response);
 }

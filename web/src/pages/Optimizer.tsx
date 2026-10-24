@@ -88,6 +88,7 @@ export default function Optimizer() {
     days: "180",
     datasetId: "",
     maxExperiments: "3",
+    startAt: "",
     folds: "3",
     warmup: "80",
     spread: "0.05",
@@ -159,6 +160,7 @@ export default function Optimizer() {
         days: form.source === "days" ? days : undefined,
         dataset_id: form.source === "dataset" ? form.datasetId : undefined,
         max_experiments: Number.parseInt(form.maxExperiments, 10),
+        start_at: form.startAt || undefined,
         folds: Number.parseInt(form.folds, 10),
         warmup: Number.parseInt(form.warmup, 10),
         assumed_spread_pct: Number.parseFloat(form.spread),
@@ -621,9 +623,24 @@ export default function Optimizer() {
               value={form.maxExperiments}
               onChange={(event) => setForm({ ...form, maxExperiments: event.target.value })}
             >
-              {[1, 2, 3, 4, 5, 6].map((count) => (
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((count) => (
                 <option key={count} value={count}>
                   {count}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="opt-start-at">شروع از فرضیه</label>
+            <select
+              id="opt-start-at"
+              value={form.startAt}
+              onChange={(event) => setForm({ ...form, startAt: event.target.value })}
+            >
+              <option value="">اولین فرضیه</option>
+              {(runs.data?.hypotheses ?? []).map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.id}
                 </option>
               ))}
             </select>

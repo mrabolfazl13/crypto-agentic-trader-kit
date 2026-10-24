@@ -68,6 +68,46 @@ PLAN: tuple[dict[str, Any], ...] = (
         "grid": {"slope_threshold": [0.03, 0.09]},
         "answers": "risk",
     },
+    # Round 2 — pre-registered from the round-1 evidence on ds-ex-e44bf6ffb4
+    # (BTC/4h, 400 days): all six single-knob variants finished with 0 of 3 folds
+    # profitable and net −0.12%…−0.44%; exit-distance knobs were the least bad.
+    # Each hypothesis still changes exactly one family of strategy fields.
+    {
+        "id": "holding-minimum",
+        "question": "آیا حداقل دور‌ه‌ی نگه‌داشت بلندتر، ضرر ناشی از گردش و کارمزد را کم می‌کند؟",
+        "grid": {"min_bars": [60, 120, 180]},
+        "answers": "edge",
+    },
+    {
+        "id": "rsi-ceiling",
+        "question": "آیا سقف RSI پایین‌تر، از خریدن پولبک‌های بیش‌ازحد گرم جلوگیری می‌کند؟",
+        "grid": {"rsi_bullish_high": [58, 62, 68]},
+        "answers": "edge",
+    },
+    {
+        "id": "entry-volume-quality",
+        "question": "آیا رد کردن ورودها در حجم ضعیف، کیفیت سیگنال را بالا می‌برد؟",
+        "grid": {"volume_weak_ratio": [0.7, 1.0]},
+        "answers": "edge",
+    },
+    {
+        "id": "trend-separation",
+        "question": "آیا فاصله‌ی بیشتر بین EMAها، ورود در روند واقعی را قطعی‌تر می‌کند؟",
+        "grid": {"ema_slow": [80, 120, 200]},
+        "answers": "edge",
+    },
+    {
+        "id": "pullback-depth",
+        "question": "آیا صبر برای افت عمیق‌تر قبل از ورود، میانگین معامله را مثبت می‌کند؟",
+        "grid": {"rsi_weak": [30, 35, 40]},
+        "answers": "edge",
+    },
+    {
+        "id": "exit-asymmetry",
+        "question": "آیا ترکیب حد ضرر بازتر با هدف دورتر، انتظار ریاضی را مثبت می‌کند؟",
+        "grid": {"atr_stop_mult": [1.8, 2.4], "atr_target_mult": [4.0, 5.5]},
+        "answers": "edge",
+    },
 )
 
 _ACTIVE: dict[str, threading.Event] = {}
@@ -160,8 +200,15 @@ def summary(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def new_state(*, symbol: str, timeframe: str, dataset_id: str, max_experiments: int,
-              folds: int, warmup: int, spread_pct: float) -> dict[str, Any]:
-    plan = [item["id"] for item in PLAN[: max_experiments]]
+              folds: int, warmup: int, spread_pct: float,
+              start_at: str | None = None) -> dict[str, Any]:
+    begin = 0
+    if start_at:
+        ids = [item["id"] for item in PLAN]
+        if start_at not in ids:
+            raise ValueError(f"فرضیه‌ی «{start_at}» در فهرست پیش‌ثبت‌شده نیست: {', '.join(ids)}")
+        begin = ids.index(start_at)
+    plan = [item["id"] for item in PLAN[begin: begin + max_experiments]]
     return {
         "run_id": f"opt-{uuid.uuid4().hex[:12]}",
         "status": "running",
@@ -175,6 +222,7 @@ def new_state(*, symbol: str, timeframe: str, dataset_id: str, max_experiments: 
         "spread_pct": spread_pct,
         "queue": plan,
         "current": plan[0] if plan else None,
+        "start_at": start_at,
         "experiments": [],
         "champion": None,
         "learnings": [],
@@ -382,7 +430,8 @@ def _start_thread(config: Config, store: Any, state: dict[str, Any], bars: list,
 
 
 def start(config: Config, store: Any, *, symbol: str, timeframe: str, dataset_id: str,
-          max_experiments: int, folds: int, warmup: int, spread_pct: float) -> dict[str, Any]:
+          max_experiments: int, folds: int, warmup: int, spread_pct: float,
+          start_at: str | None = None) -> dict[str, Any]:
     if not (1 <= max_experiments <= len(PLAN)):
         raise ValueError(f"max_experiments باید بین ۱ و {len(PLAN)} باشد")
     bars, higher, filters = load_context(store, config, symbol=symbol, timeframe=timeframe,
@@ -400,7 +449,7 @@ def start(config: Config, store: Any, *, symbol: str, timeframe: str, dataset_id
         )
     state = new_state(symbol=symbol, timeframe=timeframe, dataset_id=dataset_id,
                       max_experiments=max_experiments, folds=folds, warmup=warmup,
-                      spread_pct=spread_pct)
+                      spread_pct=spread_pct, start_at=start_at)
     _write(state, config.root)
     _start_thread(config, store, state, bars, higher, filters, config.root)
     return state

@@ -285,7 +285,8 @@ class OptimizeRequest(BaseModel):
     timeframe: str | None = None
     days: int | None = Field(default=None, ge=120, le=1500)
     dataset_id: str | None = None
-    max_experiments: int = Field(default=3, ge=1, le=6)
+    max_experiments: int = Field(default=3, ge=1, le=12)
+    start_at: str | None = None
     folds: int = Field(default=3, ge=2, le=6)
     warmup: int = Field(default=80, ge=1, le=500)
     assumed_spread_pct: float = Field(default=0.05, ge=0.0, le=5.0)
@@ -1111,6 +1112,8 @@ def create_app(root: Path | None = None) -> FastAPI:
         from . import optimizer
 
         return {"runs": optimizer.list_states(app_root, limit=limit),
+                "hypotheses": [{"id": item["id"], "question": item["question"],
+                                "grid": item["grid"]} for item in optimizer.PLAN],
                 "disclaimer": optimizer.DISCLAIMER_FA}
 
     @router.get("/optimizer/{run_id}")
@@ -1144,6 +1147,7 @@ def create_app(root: Path | None = None) -> FastAPI:
                 config, store, symbol=symbol, timeframe=tf, dataset_id=dataset_id,
                 max_experiments=body.max_experiments, folds=body.folds,
                 warmup=body.warmup, spread_pct=body.assumed_spread_pct,
+                start_at=body.start_at,
             )
         except HTTPException:
             raise
