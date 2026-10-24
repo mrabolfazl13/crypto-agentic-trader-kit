@@ -444,11 +444,13 @@ def build_report(store: Any, *, run_ids: list[str] | None = None, limit_runs: in
     rows: list[dict[str, Any]] = []
     run_labels = []
     for run in resolved:
+        run_trades = run.get("trades") or []
         run_labels.append({"run_id": run["id"], "symbol": run.get("symbol"),
                            "timeframe": run.get("timeframe"), "params_label": run.get("params_label"),
                            "dataset_id": run.get("dataset_id"),
-                           "created_at": run.get("created_at")})
-        for row in run.get("trades") or []:
+                           "created_at": run.get("created_at"),
+                           "trades": len(run_trades)})
+        for row in run_trades:
             row.setdefault("timeframe", run.get("timeframe"))
             rows.append(row)
 

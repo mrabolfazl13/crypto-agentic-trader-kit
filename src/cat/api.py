@@ -16,6 +16,7 @@ import copy
 import json
 import threading
 import time
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,7 @@ from .markets import calendar as tse_calendar
 from .mirror import mirror_cycle
 from .portfolio import load_state
 from .report import DISCLAIMER, audit_day
+from .scheduler import PAPER_CYCLE_LOCK, Automation
 from .strategies import params_from_dict
 from .store import SCHEMA_VERSION, now_iso, open_store
 
@@ -319,13 +321,23 @@ def _grid_evaluations(grid: dict[str, list[Any]]) -> int:
 # App factory
 # ---------------------------------------------------------------------------
 
-_CYCLE_LOCK = threading.Lock()
-
-
 def create_app(root: Path | None = None) -> FastAPI:
     app_root = Path(root) if root else Path(__file__).resolve().parents[2]
     store = open_store(app_root)
-    app = FastAPI(title="Agentic Crypto Trader — PAPER API", version="1", docs_url="/docs")
+    automation = Automation(app_root, store)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        # The scheduler only lives while the ASGI server runs; a bare TestClient
+        # never starts somebody else's thread.
+        automation.start()
+        try:
+            yield
+        finally:
+            automation.stop()
+
+    app = FastAPI(title="Agentic Crypto Trader — PAPER API", version="1", docs_url="/docs",
+                  lifespan=lifespan)
 
     def get_config() -> Config:
         try:
@@ -358,6 +370,10 @@ def create_app(root: Path | None = None) -> FastAPI:
             "market": config.spec.describe(),
             "server_time": now_iso(),
         }
+
+    @router.get("/automation")
+    def automation_status() -> dict[str, Any]:
+        return automation.status()
 
     @router.get("/config")
     def config_view() -> dict[str, Any]:
@@ -1264,7 +1280,7 @@ def create_app(root: Path | None = None) -> FastAPI:
     def cycles_paper(body: CycleRequest) -> dict[str, Any]:
         config = get_config()
         _guard_paper(config)
-        with _CYCLE_LOCK:
+        with PAPER_CYCLE_LOCK:
             try:
                 engine = Engine(config)
             except (DataUnavailable, DataError, ConnectionError, OSError) as exc:
@@ -1381,6 +1397,7 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     app.state.root = app_root
     app.state.store = store
+    app.state.automation = automation
     return app
 
 

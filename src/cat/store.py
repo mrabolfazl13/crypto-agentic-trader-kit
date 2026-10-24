@@ -249,6 +249,15 @@ class Store:
             cursor = self._conn.execute(sql, params)
             return [dict(row) for row in cursor.fetchall()]
 
+    # ---- meta (automation bookkeeping) ------------------------------------
+    def get_meta(self, key: str, default: Any = None) -> Any:
+        rows = self._rows("SELECT value FROM meta WHERE key=?", (key,))
+        return rows[0]["value"] if rows else default
+
+    def set_meta(self, key: str, value: Any) -> None:
+        self._write("INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)",
+                    (key, "" if value is None else str(value)))
+
     # ---- datasets ---------------------------------------------------------
     def save_dataset(self, *, dataset_id: str, symbol: str, timeframe: str, origin: str, source: str,
                      bars: list[Any], quality: dict[str, Any], path: str | None = None, note: str = "") -> str:

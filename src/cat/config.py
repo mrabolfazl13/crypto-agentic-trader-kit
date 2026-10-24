@@ -90,6 +90,8 @@ class Config:
     filters_cache_seconds: int = 3600
     market: str = DEFAULT_MARKET
     market_options: dict[str, Any] = field(default_factory=dict)
+    auto_cycle_hours: float = 0.0
+    auto_review_days: float = 0.0
 
     @property
     def spec(self) -> MarketSpec:
@@ -234,6 +236,7 @@ def load_config(path: str | os.PathLike[str] | None = None, root: Path | None = 
 
     fees = raw.get("fees") if isinstance(raw.get("fees"), dict) else {}
     data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+    automation = raw.get("automation") if isinstance(raw.get("automation"), dict) else {}
 
     timeframe = str(trading.get("timeframe", "1h"))
     if spec.name != DEFAULT_MARKET and timeframe not in spec.timeframes:
@@ -286,6 +289,8 @@ def load_config(path: str | os.PathLike[str] | None = None, root: Path | None = 
         filters_cache_seconds=max(0, int(data.get("filters_cache_seconds", 3600) or 0)),
         market=market,
         market_options=market_options,
+        auto_cycle_hours=_interval(automation, "paper_cycle_hours"),
+        auto_review_days=_interval(automation, "research_review_days"),
         strategy_params=params_from_dict(
             strategy.get("params") if isinstance(strategy.get("params"), dict) else None,
             base=StrategyParams(
@@ -295,6 +300,17 @@ def load_config(path: str | os.PathLike[str] | None = None, root: Path | None = 
         ),
         warnings=tuple(warnings),
     )
+
+
+def _interval(section: dict[str, Any], key: str) -> float:
+    value = section.get(key, 0)
+    try:
+        hours = float(value or 0)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"automation.{key} must be a number, got {value!r}") from exc
+    if hours < 0:
+        raise ConfigError(f"automation.{key} must be >= 0 (0 disables the job)")
+    return hours
 
 
 NEXT_TF = {"15m": "1h", "1h": "4h", "4h": "1d", "1d": "1d"}

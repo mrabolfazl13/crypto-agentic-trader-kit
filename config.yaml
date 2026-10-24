@@ -169,6 +169,12 @@ fees:
   maker_pct: 0.10
   taker_pct: 0.10
 
+automation:
+  # چرخه‌ی خودکار PAPER: هر N ساعت یک چرخه‌ی کامل (0 = خاموش). فقط در mode=PAPER و با احترام کامل به kill switch.
+  paper_cycle_hours: 24
+  # مرور پژوهشی: هر N روز یک گزارش تحلیل معاملات + حداکثر ۳ فرضیه‌ی آزمون‌نشده در یک حلقه (0 = خاموش)
+  research_review_days: 7
+
 data:
   primary_exchange: gate
   confirm_timeframe: 1d

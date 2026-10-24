@@ -33,6 +33,11 @@ risk:
   stop_on_data_staleness_seconds: 120
   stop_on_consecutive_errors: 3
 
+automation:
+  # هر دو کار پیش‌فرض خاموش‌اند (0). فقط در mode=PAPER و با احترام کامل به kill switch اجرا می‌شوند.
+  paper_cycle_hours: 0        # چرخه‌ی خودکار PAPER هر N ساعت
+  research_review_days: 0     # گزارش تحلیل + حلقه با حداکثر ۳ فرضیه، هر N روز
+
 data:
   confirm_timeframe: 1d
   fallback_exchange: mexc
