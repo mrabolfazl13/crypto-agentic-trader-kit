@@ -44,6 +44,7 @@ class ScanOptions:
     cache_dir: Path | None = None
     refresh: bool = False
     improve: bool = True
+    max_hold_bars: int = 0
 
 
 def _now_bar_end(timeframe: str) -> int:
@@ -71,7 +72,10 @@ def _fetch_symbol(config: Config, provider: Any, symbol: str, options: ScanOptio
     step = seconds_per_bar(options.timeframe)
     start = end - (options.days * 86400) - options.warmup_bars * step - 5 * step
     higher_end = end
-    higher_start = end - 300 * 86400
+    # A weekly confirmation series needs ~60 closed weeks; a 300-day window only
+    # yields ~43 of them, which silently skipped every TSE symbol.
+    higher_days = 700 if config.confirm_timeframe == "1w" else 300
+    higher_start = end - higher_days * 86400
     bars = [bar for bar in provider.klines_range(symbol, options.timeframe, start, end) if bar.closed]
     higher = [bar for bar in provider.klines_range(symbol, config.confirm_timeframe, higher_start, higher_end) if bar.closed]
     filters = provider.filters(symbol)
@@ -246,7 +250,10 @@ def _run_one(
         "buy_hold_pct": round(result.buy_hold_pct, 3),
         "trades": [
             {"symbol": trade.symbol, "pnl": round(trade.pnl, 6), "fees": round(trade.fees, 6), "reason": trade.reason,
-             "entry_time": trade.entry_time, "exit_time": trade.exit_time}
+             "entry_time": trade.entry_time, "exit_time": trade.exit_time,
+             "entry": round(trade.entry, 8), "exit": round(trade.exit, 8), "qty": round(trade.qty, 8),
+             "holding_hours": round(max(0.0, (trade.exit_time - trade.entry_time) / 3600.0), 2),
+             "return_pct": round((trade.exit / trade.entry - 1) * 100.0, 3) if trade.entry else None}
             for trade in result.trades
         ],
         "rejected": result.rejected,
@@ -267,6 +274,23 @@ def _pooled(rows: list[dict[str, Any]]) -> dict[str, Any]:
         for key, value in row["rejected"].items():
             rejected[key] = rejected.get(key, 0) + value
     traded = [row for row in rows if row["trades"]]
+    holds = sorted(
+        (trade["exit_time"] - trade["entry_time"]) / 3600.0
+        for trade in trades
+        if trade.get("entry_time") and trade.get("exit_time") and trade["exit_time"] >= trade["entry_time"]
+    )
+    buckets = {"lt_1h": 0, "1_3h": 0, "3_8h": 0, "8_24h": 0, "gte_24h": 0}
+    for hours in holds:
+        if hours < 1:
+            buckets["lt_1h"] += 1
+        elif hours <= 3:
+            buckets["1_3h"] += 1
+        elif hours <= 8:
+            buckets["3_8h"] += 1
+        elif hours < 24:
+            buckets["8_24h"] += 1
+        else:
+            buckets["gte_24h"] += 1
     return {
         "symbols": len(rows),
         "symbols_with_trades": len(traded),
@@ -281,6 +305,10 @@ def _pooled(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "beat_buy_hold_pct": round(sum(1 for row in traded if float(row["metrics"]["net_return_pct"]) > float(row["buy_hold_pct"])) / len(traded) * 100.0, 1) if traded else None,
         "median_drawdown_pct": round(median(dds), 3) if dds else None,
         "fees_sum": round(sum(float(row["metrics"]["fees_paid"]) for row in rows), 2),
+        "median_hold_hours": round(median(holds), 2) if holds else None,
+        "mean_hold_hours": round(sum(holds) / len(holds), 2) if holds else None,
+        "hold_under_3h_pct": round(sum(1 for hours in holds if hours <= 3) / len(holds) * 100.0, 1) if holds else None,
+        "hold_buckets": buckets,
         "rejected": dict(sorted(rejected.items(), key=lambda item: item[1], reverse=True)[:8]),
     }
 
@@ -315,6 +343,10 @@ def _window_rows(
     progress: Callable[[str], None] = print,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     params = params or default_params()
+    # One implementation of the horizon rule: it lives in StrategyParams and is
+    # applied by strategy.propose, so the scan cannot drift from the paper engine.
+    if options.max_hold_bars > 0 and not params.max_hold_bars:
+        params = params.replace(max_hold_bars=options.max_hold_bars)
     signal = signal or _strategy_callable(name, extra or {})
     step = seconds_per_bar(options.timeframe)
     test_bars = options.days * 86400 // step
@@ -407,6 +439,7 @@ def run_scan(config: Config, options: ScanOptions, *, progress: Callable[[str], 
             "timeframe": options.timeframe,
             "days": options.days,
             "warmup_bars": options.warmup_bars,
+            "max_hold_bars": options.max_hold_bars,
             "symbols_requested": len(symbols),
             "symbols_with_data": len(available),
             "data_errors": data.get("errors", {}),
@@ -419,8 +452,9 @@ def run_scan(config: Config, options: ScanOptions, *, progress: Callable[[str], 
     }
     for name in options.strategies:
         progress(f"scan: {name}")
-        train, skipped_train = _window_rows(config, data["symbols"], available, options, name=name, segment="train", progress=progress)
-        validation, skipped_val = _window_rows(config, data["symbols"], available, options, name=name, segment="validation", progress=progress)
+        signal = _strategy_callable(name, {})
+        train, skipped_train = _window_rows(config, data["symbols"], available, options, name=name, signal=signal, segment="train", progress=progress)
+        validation, skipped_val = _window_rows(config, data["symbols"], available, options, name=name, signal=signal, segment="validation", progress=progress)
         best, worst = _best_symbols(validation)
         scan["strategies"][name] = {
             "train": _pooled(train),
@@ -550,12 +584,18 @@ def render_report(scan: dict[str, Any]) -> str:
         "",
         f"- داده: `{meta['source']}` · آخرین کندل بسته: `{datetime.fromtimestamp(int(meta['coverage_end']), tz=timezone.utc):%Y-%m-%d %H:%M}Z`",
         f"- نمادها: {meta['symbols_with_data']} از {meta['symbols_requested']} · تولید: {meta['generated_at']}",
+    ]
+    max_hold = int(meta.get("max_hold_bars") or 0)
+    if max_hold:
+        hours = max_hold * seconds_per_bar(meta["timeframe"]) / 3600
+        lines.append(f"- سقف نگه‌داری: {max_hold} کندل ({hours:.0f} ساعت) — خروج زمانی اجباری")
+    lines += [
         f"- ⚠️ {DISCLAIMER}",
         "",
         "## مقایسه‌ی استراتژی‌ها (نمادهای جداگانه، سرمایه‌ی مجزای ۱۰۰۰ USDT)",
         "",
-        "| استراتژی | بخش | معامله | نماد معامله‌شده | برد% | PF | میانگین بازده% | میانه بازده% | نماد سودده% | میانه B&H% | جلوتر از B&H% | حداکثر DD میانه% |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| استراتژی | بخش | معامله | نماد معامله‌شده | برد% | PF | میانگین بازده% | میانه بازده% | نماد سودده% | میانه B&H% | جلوتر از B&H% | حداکثر DD میانه% | میانه نگه‌داری (ساعت) | ≤۳ ساعت% |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     labels = {"trend_v1": "trend v1 (EMA)", "breakout_30": "breakout 30", "momentum_20": "momentum 20", "pullback_rsi": "pullback RSI"}
     halves = {True: "train (نیمه‌ی اول بازه)", False: "validation (نیمه‌ی دوم بازه)"}
@@ -568,8 +608,15 @@ def render_report(scan: dict[str, Any]) -> str:
                 f"| {_fmt(row['profit_factor'])} | {_fmt(row['mean_net_return_pct'], signed=True)} "
                 f"| {_fmt(row['median_net_return_pct'], signed=True)} "
                 f"| {_fmt(row['positive_symbols_pct'])} | {_fmt(row['median_buy_hold_pct'], signed=True)} "
-                f"| {_fmt(row['beat_buy_hold_pct'])} | {_fmt(row['median_drawdown_pct'])} |"
+                f"| {_fmt(row['beat_buy_hold_pct'])} | {_fmt(row['median_drawdown_pct'])} "
+                f"| {_fmt(row.get('median_hold_hours'))} | {_fmt(row.get('hold_under_3h_pct'))} |"
             )
+    lines += ["", "### مدت نگه‌داری معامله‌ها (validation)", ""]
+    bucket_labels = [("lt_1h", "<۱ ساعت"), ("1_3h", "۱–۳ ساعت"), ("3_8h", "۳–۸ ساعت"), ("8_24h", "۸–۲۴ ساعت"), ("gte_24h", "≥۲۴ ساعت")]
+    lines += ["| استراتژی | " + " | ".join(label for _, label in bucket_labels) + " |", "|---|" + "---|" * len(bucket_labels)]
+    for name, block in scan["strategies"].items():
+        buckets = block["validation"].get("hold_buckets") or {}
+        lines.append(f"| {labels.get(name, name)} | " + " | ".join(str(buckets.get(key, 0)) for key, _ in bucket_labels) + " |")
     lines += ["", "### دلایل رد شدن (پنج مورد اول)", ""]
     for name, block in scan["strategies"].items():
         rejected = block["validation"]["rejected"]
@@ -598,6 +645,9 @@ def render_report(scan: dict[str, Any]) -> str:
                 f"- validation: معامله {chosen['validation']['trades']} · PF {_fmt(chosen['validation']['profit_factor'])} · "
                 f"میانگین بازده {_fmt(chosen['validation']['mean_net_return_pct'], signed=True)}% · "
                 f"نماد سودده {_fmt(chosen['validation']['positive_symbols_pct'])}%",
+                f"- مدت نگه‌داری در validation: میانه {_fmt(chosen['validation'].get('median_hold_hours'))} ساعت · "
+                f"≤۳ ساعت {_fmt(chosen['validation'].get('hold_under_3h_pct'))}% · "
+                f"≥۲۴ ساعت {_fmt((chosen['validation'].get('hold_buckets') or {}).get('gte_24h'))} معامله",
                 "",
                 "| کاندید | معامله train | PF train | بازده train% |",
                 "|---|---|---|---|",

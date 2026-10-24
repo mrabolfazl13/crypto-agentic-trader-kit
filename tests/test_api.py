@@ -625,3 +625,82 @@ def test_market_candles_reports_unreachable_feed(client: TestClient, monkeypatch
     resp = client.get(f"{BASE}/market/candles", params={"symbol": "ETH/USDT", "timeframe": "4h", "limit": 40})
     assert resp.status_code == 503
     assert "دریافت کندل" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Staged experiment profiles
+# ---------------------------------------------------------------------------
+
+PROFILE_RUN_ID = "crypto-1h-30d-20261024t000000"
+
+
+def _profile_payload(run_id: str = PROFILE_RUN_ID) -> dict:
+    return {
+        "meta": {
+            "run_id": run_id,
+            "generated_at": "2026-10-24T00:00:00+00:00",
+            "market": "crypto",
+            "timeframe": "1h",
+            "days": 30,
+            "horizon": "short",
+            "symbols_requested": 3,
+            "symbols_with_data": 3,
+            "source": "gate:crypto",
+            "coverage_end": 1_700_000_000,
+            "coverage_end_iso": "2023-11-14T22:13:20+00:00",
+            "currency": "USDT",
+            "capital_per_symbol": 1000.0,
+            "assumed_spread_pct": 0.05,
+        },
+        "stages": [{"id": "momentum", "all": {"trades": 0, "net_pnl": 0.0}}],
+        "verdict": {"finalist": None, "promoted": False, "stable_stages": [], "text_fa": "بدون داوری"},
+    }
+
+
+def test_profiles_index_is_honest_when_nothing_was_run(client: TestClient):
+    body = client.get(f"{BASE}/profiles").json()
+    assert body["market"] == "crypto"
+    assert body["count"] == 0 and body["runs"] == []
+    assert body["note"], "an empty index must explain how to create the first run"
+    assert body["provenance"]["kind"] == "simulated"
+
+
+def test_profiles_index_and_detail_serve_only_stored_runs(client: TestClient, workspace: Path):
+    base = workspace / "state" / "research" / "profiles"
+    base.mkdir(parents=True)
+    (base / f"{PROFILE_RUN_ID}.json").write_text(json.dumps(_profile_payload()), encoding="utf-8")
+
+    index = client.get(f"{BASE}/profiles").json()
+    assert index["count"] == 1
+    assert index["runs"][0]["run_id"] == PROFILE_RUN_ID
+    assert index["runs"][0]["stages"] == 1
+    assert index["runs"][0]["horizon"] == "short"
+
+    detail = client.get(f"{BASE}/profiles/{PROFILE_RUN_ID}").json()
+    assert detail["meta"]["run_id"] == PROFILE_RUN_ID
+    assert detail["verdict"]["promoted"] is False
+    assert detail["provenance"]["kind"] == "simulated"
+    assert detail["provenance"]["window"] == "2023-11-14T22:13:20+00:00"
+
+
+def test_profile_detail_refuses_unknown_ids_and_path_traversal(client: TestClient):
+    assert client.get(f"{BASE}/profiles/does-not-exist").status_code == 404
+    # Uppercase and path separators never match the run-id grammar.
+    assert client.get(f"{BASE}/profiles/CRYPTO-1H-30D").status_code == 404
+    assert client.get(f"{BASE}/profiles/..%2Fescape").status_code == 404
+
+
+def test_profiles_do_not_leak_runs_from_another_market(client: TestClient, workspace: Path):
+    base = workspace / "state" / "research" / "profiles"
+    base.mkdir(parents=True)
+    tse_id = "tse-1d-180d-20261024t000000"
+    payload = _profile_payload(tse_id)
+    payload["meta"]["market"] = "tse"
+    (base / f"{tse_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    assert client.get(f"{BASE}/profiles").json()["count"] == 0
+    assert client.get(f"{BASE}/profiles/{tse_id}").status_code == 404
+
+
+def test_profiles_rejects_unknown_market(client: TestClient):
+    assert client.get(f"{BASE}/profiles", params={"market": "nasdaq"}).status_code == 400

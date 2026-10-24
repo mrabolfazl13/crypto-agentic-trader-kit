@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
-from .data import MarketSnapshot
+from .data import MarketSnapshot, seconds_per_bar
 from .indicators import atr, closes, ema, pct_changes, realized_vol_pct, rsi, slope, sma
 from .strategies import StrategyParams, default_params
 
@@ -187,6 +188,21 @@ def analyze(snapshot: MarketSnapshot, params: StrategyParams | None = None) -> A
     )
 
 
+def _bars_held(snapshot: MarketSnapshot, position: Position) -> int | None:
+    """Whole bars elapsed at the decision moment, or None when the open time is unreadable.
+
+    An unreadable timestamp must not trigger a sell: the horizon rule only acts on
+    evidence, never on a guess.
+    """
+    try:
+        opened = datetime.fromisoformat(position.opened_at).timestamp()
+    except (TypeError, ValueError):
+        return None
+    decision_time = snapshot.klines[-1].open_time + seconds_per_bar(snapshot.timeframe)
+    elapsed = (decision_time - opened) / seconds_per_bar(snapshot.timeframe)
+    return max(0, int(elapsed))
+
+
 def propose(
     snapshot: MarketSnapshot,
     position: Position | None,
@@ -232,6 +248,14 @@ def propose(
                 "SELL", 1.0,
                 [f"target level {position.target:.2f} reached (ask {ask:.2f})", "take planned profit"],
                 bid, position.stop, position.target, analysis, "exit_target",
+            )
+        horizon = _bars_held(snapshot, position)
+        if p.max_hold_bars > 0 and horizon is not None and horizon >= p.max_hold_bars:
+            return Proposal(
+                "SELL", 0.7,
+                [f"position has been open for {horizon} bars, at the {p.max_hold_bars}-bar horizon limit",
+                 "time exit closes the trade; it does not guarantee a profit"],
+                bid, position.stop, position.target, analysis, "exit_horizon",
             )
         if trend_broken:
             return Proposal(

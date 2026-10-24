@@ -302,7 +302,7 @@ def cmd_research(engine: Engine, symbol: str, timeframe: str | None, days: int, 
 
 
 def cmd_month_scan(engine: Engine, days: int, warmup: int, timeframe: str | None, strategies: str | None,
-                   refresh: bool, improve: bool, out: Path | None) -> int:
+                   refresh: bool, improve: bool, out: Path | None, max_hold: int = 0) -> int:
     """Multi-strategy scan over the approved universe; writes a report, never an order."""
     from .data import DataUnavailable
     from .month_scan import ScanOptions, run_scan, write_report
@@ -316,7 +316,7 @@ def cmd_month_scan(engine: Engine, days: int, warmup: int, timeframe: str | None
         return 2
     options = ScanOptions(
         days=days, warmup_bars=warmup, timeframe=timeframe or config.timeframe,
-        strategies=names, refresh=refresh, improve=improve,
+        strategies=names, refresh=refresh, improve=improve, max_hold_bars=max_hold,
     )
     try:
         scan = run_scan(config, options)
@@ -389,6 +389,40 @@ def _parse_grid(spec: str | None) -> dict[str, list] | None:
               "wide searches overfit, narrow it", file=sys.stderr)
         return None
     return grid
+
+
+def cmd_profiles(engine: Engine, days: int, warmup: int, timeframe: str | None, horizon: str,
+                 top: int | None, refresh: bool, out_dir: Path | None) -> int:
+    """Run the staged experiment ladder and store profit/loss per stage. Never trades."""
+    from .data import DataUnavailable
+    from .profiles import ProfileOptions, run_profiles, save_profiles
+
+    if horizon not in ("day", "short"):
+        print("horizon must be 'day' or 'short'", file=sys.stderr)
+        return 2
+    config = engine.config
+    options = ProfileOptions(
+        days=days, warmup_bars=warmup, timeframe=timeframe, horizon=horizon,
+        top=top, refresh=refresh,
+    )
+    try:
+        payload = run_profiles(config, options)
+    except (DataUnavailable, ValueError) as exc:
+        print(f"profiles failed: {exc}", file=sys.stderr)
+        return 1
+    path, report = save_profiles(config, payload, out_dir)
+    meta = payload["meta"]
+    print(f"run:    {meta['run_id']} ({meta['market']} {meta['timeframe']} {meta['days']}d, horizon={meta['horizon']})")
+    print(f"json:   {path}")
+    print(f"report: {report}")
+    for stage in payload["stages"]:
+        stats = stage["all"]
+        print(f"  {stage['id']:<22} trades={stats['trades']:>4} net={stats['net_pnl']:>10} {meta['currency']} "
+              f"pf={stats['profit_factor']} hold_med={stats['median_hold_hours']}h")
+    verdict = payload["verdict"]
+    print(f"  finalist={verdict['finalist']} promoted={verdict['promoted']} stable={verdict['stable_stages']}")
+    print(f"  {meta['disclaimer']}")
+    return 0
 
 
 def cmd_stop(engine: Engine) -> int:
@@ -504,7 +538,17 @@ def main(argv: list[str] | None = None) -> int:
     scan.add_argument("--strategies", default=None, help="comma separated: trend_v1,breakout_30,momentum_20,pullback_rsi")
     scan.add_argument("--refresh", action="store_true", help="ignore the cached candles and fetch again")
     scan.add_argument("--no-improve", action="store_true", help="skip the train-selected improvement phase")
+    scan.add_argument("--max-hold", type=int, default=0, help="force-close a position after N bars (0 = off; e.g. 3 on 1h = 3 hours)")
     scan.add_argument("--out", default=None)
+    prof = sub.add_parser("profiles", help="staged experiment profiles with per-stage profit/loss (read-only)")
+    prof.add_argument("--days", type=int, default=30)
+    prof.add_argument("--warmup", type=int, default=180)
+    prof.add_argument("--timeframe", default=None)
+    prof.add_argument("--horizon", choices=["day", "short"], default="day",
+                      help="day = close before ~24h; short = as close to 3h as the timeframe allows")
+    prof.add_argument("--top", type=int, default=None, help="only the N most liquid symbols of the universe")
+    prof.add_argument("--refresh", action="store_true", help="ignore the cached candles and fetch again")
+    prof.add_argument("--out-dir", default=None)
     args = parser.parse_args(argv)
 
     try:
@@ -545,7 +589,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "research":
         return cmd_research(engine, args.symbol, args.timeframe, args.days, args.dataset, args.grid, args.folds)
     if args.command == "month-scan":
-        return cmd_month_scan(engine, args.days, args.warmup, args.timeframe, args.strategies, args.refresh, not args.no_improve, Path(args.out) if args.out else None)
+        return cmd_month_scan(engine, args.days, args.warmup, args.timeframe, args.strategies, args.refresh, not args.no_improve, Path(args.out) if args.out else None, args.max_hold)
+    if args.command == "profiles":
+        return cmd_profiles(engine, args.days, args.warmup, args.timeframe, args.horizon, args.top, args.refresh,
+                            Path(args.out_dir) if args.out_dir else None)
     if args.command == "stop":
         return cmd_stop(engine)
     if args.command == "resume":

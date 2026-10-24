@@ -207,6 +207,15 @@ def _resolve_symbol_config(primary: Config, symbol: str) -> tuple[Config, str]:
         raise primary_error
 
 
+def _profiles_config(primary: Config, market: str) -> Config:
+    """Profile runs are stored per market; the primary owns its own, a venue view owns the rest."""
+    if market == primary.market:
+        return primary
+    if market not in SECONDARY_VIEWS:
+        raise HTTPException(status_code=400, detail="بازار پشتیبانی‌نشده است؛ فقط بازار اصلی و دیدگاه‌های ثبت‌شده.")
+    return _venue_view_config(primary, market)
+
+
 def _venue_symbol(config: Config, symbol: str) -> str:
     """Identity the venue understands, or a 404. Unknown TSE tickers are refused,
     never guessed — inventing an instrument code is worse than a missing chart."""
@@ -609,6 +618,48 @@ def create_app(root: Path | None = None) -> FastAPI:
             "count": len(levels),
             "note": note,
             "provenance": {**_provenance("history", f"tsetmc:{code}:bestlimits", f"levels:{len(levels)}"), "single_source": True},
+        }
+
+    @router.get("/profiles")
+    def profiles(market: str = Query(default="crypto")) -> dict[str, Any]:
+        """Stored staged experiments: one record per development round and market.
+
+        Read-only. An empty list is the honest answer before the first run; it is
+        never replaced with a sample result.
+        """
+        import importlib
+
+        config = _profiles_config(get_config(), market)
+        try:
+            profiles_mod = importlib.import_module("cat.profiles")
+        except ModuleNotFoundError:
+            raise HTTPException(status_code=503, detail="ماژول پروفایل‌ها در دسترس نیست")
+        runs = profiles_mod.list_runs(config)
+        return {
+            "market": market,
+            "runs": runs,
+            "count": len(runs),
+            "note": None if runs else "هنوز هیچ اجرای پروفایلی ذخیره نشده است؛ اجرای python trader.py profiles آن را می‌سازد.",
+            "provenance": _provenance("simulated", "profiles:backtest", "recent"),
+        }
+
+    @router.get("/profiles/{run_id}")
+    def profile_run(run_id: str, market: str = Query(default="crypto")) -> dict[str, Any]:
+        import importlib
+
+        config = _profiles_config(get_config(), market)
+        try:
+            profiles_mod = importlib.import_module("cat.profiles")
+        except ModuleNotFoundError:
+            raise HTTPException(status_code=503, detail="ماژول پروفایل‌ها در دسترس نیست")
+        payload = profiles_mod.load_run(config, run_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="این اجرای پروفایل پیدا نشد.")
+        meta = payload.get("meta") or {}
+        return {
+            **payload,
+            "provenance": _provenance("simulated", str(meta.get("source") or "profiles:backtest"),
+                                      str(meta.get("coverage_end_iso") or "no_data")),
         }
 
     @router.get("/portfolio")

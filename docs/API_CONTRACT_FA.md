@@ -32,6 +32,8 @@
 | GET | `/datasets/{id}/quality` | گزارش کیفیت: شکاف، تکرار، OHLC نامعتبر، کندل باز، stale، تعداد رد شدها |
 | GET | `/datasets/{id}/bars` | کندل‌های همان dataset (`limit≤5000`، `overlays=true` برای EMA). مجموعه‌داده نامعلوم `404` است، نه لیست خالی. EMA روی کل سری محاسبه و سپس بریده می‌شود تا مقدار seedشده از پنجره‌ی visible نباشد. |
 | GET | `/analysis?symbol=&timeframe=&dataset_id=` | آخرین `analyze()`: regime، سیگنال‌ها، اندیکاتورها، حجم، سناریوها |
+| GET | `/profiles?market=crypto` یا `?market=tse` | فهرست اجراهای «نردبان مراحل» (هر اجرا یک پروفایل کامل با ۶ مرحله). فقط خواندن. اگر اجرایی ذخیره نشده باشد `runs=[]`، `count=0` و `note` دستور ساخت را می‌گوید؛ هرگز نتیجه‌ی نمونه جایش نمی‌گذارد. `provenance.kind=simulated`. بازار ناشناخته → `400`. |
+| GET | `/profiles/{run_id}?market=` | جزئیات یک اجرا: `meta` (تایم‌فریم، روز، افق، نمادهای اندازه‌گیری‌شده/درخواستی، سرمایه‌ی هر نماد، اسپرد فرضی، آخرین کندل)، `stages[]` (سود/زیان ناخالص، خالص، کارمزد، PF، نرخ برد، میانه‌ی نگه‌داشت، سهم زیر ۳ ساعت و زیر ۲۴ ساعت، تفکیک train/validation، معامله‌های آخر، منحنی سبد هم‌وزن) و `verdict`. `run_id` نامعتبر یا خارج از الگوی `^[a-z0-9][a-z0-9-]{2,80}$` → `404` (محافظ path traversal). |
 | GET | `/runs?kind=backtest|walk_forward|grid&symbol=` | فهرست اجراها + metrics |
 | GET | `/runs/{id}` | جزئیات اجرا: metrics، split، trades، rejections، equity curve، params |
 | GET | `/strategies` | نسخه‌های استراتژی + نتایج train/validation/test + وضعیت پذیرش |

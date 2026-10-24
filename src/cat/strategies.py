@@ -45,8 +45,18 @@ class StrategyParams:
     vol_threshold: float = 1.0
     atr_pct_threshold: float = 1.5
 
+    # 0 keeps the historical behaviour (no time exit). A positive value closes the
+    # position once that many bars have elapsed, which is what makes a "under one
+    # day" horizon measurable instead of hoped for.
+    max_hold_bars: int = 0
+
     def tuning(self) -> dict[str, Any]:
-        return {k: v for k, v in asdict(self).items() if k not in {"name", "version", "note"}}
+        out = {k: v for k, v in asdict(self).items() if k not in {"name", "version", "note"}}
+        # A disabled horizon is the base behaviour: leaving it out keeps every
+        # already-published strategy digest byte-identical.
+        if not self.max_hold_bars:
+            out.pop("max_hold_bars", None)
+        return out
 
     def digest(self) -> str:
         blob = json.dumps(self.tuning(), sort_keys=True, default=str)

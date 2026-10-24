@@ -36,6 +36,7 @@ export const NAV_GROUPS: NavGroup[] = [
     title: "پژوهش استراتژی",
     items: [
       { to: "/strategies", label: "آزمایشگاه استراتژی", id: "strategies" },
+      { to: "/profiles", label: "پروفایل‌های سود و زیان", id: "profiles" },
       { to: "/backtests", label: "بک‌تست", id: "backtests" },
       { to: "/versions", label: "نسخه‌های استراتژی", id: "versions" },
     ],

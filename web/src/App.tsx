@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import {
+  BarChart3,
   CandlestickChart,
   ChartLine,
   Database,
@@ -37,6 +38,7 @@ import Logs from "./pages/Logs";
 import PaperTrading from "./pages/PaperTrading";
 import PerformanceReports from "./pages/PerformanceReports";
 import Portfolio from "./pages/Portfolio";
+import Profiles from "./pages/Profiles";
 import Risk from "./pages/Risk";
 import SettingsPage from "./pages/Settings";
 import StrategyLab from "./pages/StrategyLab";
@@ -56,6 +58,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   data: Database,
   analysis: ChartLine,
   strategies: FlaskConical,
+  profiles: BarChart3,
   backtests: History,
   versions: GitBranch,
   paper: PlayCircle,
@@ -248,6 +251,7 @@ function Shell() {
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/tse" element={<TseMarket />} />
             <Route path="/strategies" element={<StrategyLab />} />
+            <Route path="/profiles" element={<Profiles />} />
             <Route path="/backtests" element={<Backtesting />} />
             <Route path="/paper" element={<PaperTrading />} />
             <Route path="/trades" element={<Trades />} />

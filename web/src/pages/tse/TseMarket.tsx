@@ -12,6 +12,7 @@ import {
 } from "../../api/tseClient";
 import CandleChart from "../../charts/CandleChart";
 import Badge, { ToneBadge } from "../../components/Badge";
+import ProfileBoard from "../../components/ProfileBoard";
 import { EmptyBlock, ErrorBlock, LoadingBlock } from "../../components/StateBlocks";
 import Table, { type Column } from "../../components/Table";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -408,6 +409,13 @@ export default function TseMarket() {
           </div>
         </div>
       ) : null}
+
+      <ProfileBoard
+        market="tse"
+        headingLevel="h2"
+        title="پروفایل‌های سود و زیان بورس تهران"
+        description="همان موتور بک‌تست کریپتو با وجود تقسیم‌شده، اسپرد و کندل روزانه‌ی بورس تهران. هر مرحله سود و زیان ناخالص و خالص خودش را دارد و هیچ سفارشی ساخته نمی‌شود."
+      />
 
       <p className="notice">
         این دیدگاه فقط برای پژوهش است. داده‌ی بورس از یک منبع عمومی می‌آید، ممکن است تأخیر داشته باشد و مبنای سفارش واقعی نیست.

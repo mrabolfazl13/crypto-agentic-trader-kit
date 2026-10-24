@@ -7,6 +7,8 @@ import math
 from conftest import make_snapshot
 
 from cat.month_scan import _breadth_wrapper, _pooled, breadth_at, breadth_series, render_report
+from cat.strategies import default_params
+from cat.strategy import Proposal
 from cat.strategy_lab import LAB_STRATEGIES, propose_breakout, propose_momentum, propose_pullback
 
 
@@ -223,3 +225,98 @@ def test_improvement_phase_builds_breadth_candidates(config, monkeypatch):
     wrapped = [kw for kw in calls if getattr(kw.get("signal"), "__name__", "") == "wrapped"]
     assert len(wrapped) == 2  # breadth50 and breadth50+stop2_target4
     assert all(kw["params"] is None for kw in wrapped if kw["name"].endswith(":breadth50"))
+
+
+def _open_position(snapshot, hours_ago: float):
+    from datetime import datetime, timedelta, timezone
+
+    from cat.strategy import Position
+
+    opened = datetime.fromtimestamp(snapshot.fetched_at, tz=timezone.utc) - timedelta(hours=hours_ago)
+    last = snapshot.klines[-1].close
+    return Position(symbol="MOM_USDT", qty=1.0, avg_entry=last, stop=last * 0.97, target=last * 1.08,
+                    decision_id="t-1", opened_at=opened.isoformat())
+
+
+def test_horizon_param_forces_an_exit_after_the_time_limit(config):
+    from cat.strategy import propose
+
+    snapshot = make_snapshot(prices=momentum_prices())
+    params = default_params().replace(max_hold_bars=3)
+    proposal = propose(snapshot, _open_position(snapshot, 3), params=params, **signal_kwargs(config))
+    assert proposal.action == "SELL"
+    assert proposal.reason == "exit_horizon"
+    assert proposal.entry == snapshot.quote.bid
+
+
+def test_horizon_param_leaves_a_young_position_to_the_strategy(config):
+    from cat.strategy import propose
+
+    snapshot = make_snapshot(prices=momentum_prices())
+    params = default_params().replace(max_hold_bars=3)
+    proposal = propose(snapshot, _open_position(snapshot, 1), params=params, **signal_kwargs(config))
+    assert proposal.reason != "exit_horizon"
+
+
+def test_horizon_is_absent_from_the_base_digest_until_it_is_used(config):
+    """A disabled horizon must not rename every already-published version."""
+    base = default_params()
+    assert "max_hold_bars" not in base.tuning()
+    timed = base.replace(max_hold_bars=3)
+    assert timed.tuning()["max_hold_bars"] == 3
+    assert timed.digest() != base.digest()
+
+
+def test_pooled_reports_hold_durations_and_intraday_share():
+    rows = [{
+        "metrics": {"net_return_pct": 0.5, "net_pnl": 5.0, "max_drawdown_pct": 1.0, "fees_paid": 0.3},
+        "buy_hold_pct": 1.0,
+        "trades": [
+            {"pnl": 1.0, "fees": 0.1, "reason": "target", "entry_time": 1_000_000, "exit_time": 1_000_000 + 2 * 3600},
+            {"pnl": -1.0, "fees": 0.1, "reason": "exit_time_limit", "entry_time": 1_000_000, "exit_time": 1_000_000 + 30 * 3600},
+            {"pnl": 2.0, "fees": 0.1, "reason": "stop", "entry_time": 1_000_000, "exit_time": 1_000_000 + 5 * 3600},
+        ],
+        "rejected": {},
+    }]
+    summary = _pooled(rows)
+    assert summary["median_hold_hours"] == 5.0
+    assert summary["mean_hold_hours"] == 12.33
+    assert summary["hold_under_3h_pct"] == 33.3
+    assert summary["hold_buckets"] == {"lt_1h": 0, "1_3h": 1, "3_8h": 1, "8_24h": 0, "gte_24h": 1}
+
+
+def test_backtest_time_stop_records_real_hold_durations(config):
+    """A forced exit must record the actual entry time, not epoch zero."""
+    from datetime import datetime
+
+    from cat.backtest import run_backtest
+    from cat.data import Kline, SymbolFilter
+    from cat.strategy import analyze, propose
+
+    step = 3600
+    start = 1_700_000_000
+    prices = [100.0 + index * 0.2 for index in range(160)]
+    bars = []
+    for index, price in enumerate(prices):
+        open_ = prices[index - 1] if index else price
+        bars.append(Kline(start + index * step, open_, max(open_, price) * 1.002,
+                          min(open_, price) * 0.998, price, 100.0, 100.0 * price, True))
+    filters = SymbolFilter(symbol="BTC_USDT", price_precision=2, qty_precision=4, min_qty=0.001,
+                           min_quote=3.0, max_quote=1_000_000.0, tradable=True, fee_pct=0.1)
+
+    def buy_once(snapshot, position, **kw):
+        if position is not None:
+            # The real exit policy, so the horizon rule is what gets measured.
+            return propose(snapshot, position, **kw)
+        analysis = analyze(snapshot, kw["params"])
+        entry = snapshot.quote.ask
+        return Proposal("BUY", 0.8, ["test entry"], entry, entry * 0.97, entry * 1.08, analysis, "test_entry")
+
+    result = run_backtest(
+        config, "BTC_USDT", bars=bars, higher_bars=[], filters=filters, timeframe="1h", warmup=80,
+        params=default_params().replace(max_hold_bars=3), propose_fn=buy_once,
+    )
+    assert result.trades
+    assert all(trade.entry_time >= start for trade in result.trades)  # entry_time is never the epoch
+    holds = [(trade.exit_time - trade.entry_time) / 3600.0 for trade in result.trades]
+    assert 3.0 in holds  # three 1h bars held, then the forced exit filled on the next open

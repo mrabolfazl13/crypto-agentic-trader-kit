@@ -19,7 +19,7 @@ from .indicators import closes
 from .portfolio import AccountState, ClosedTrade
 from .risk import evaluate
 from .strategies import StrategyParams, default_params
-from .strategy import Position, Proposal, analyze, propose
+from .strategy import Proposal, analyze, propose
 from datetime import timezone as _tz  # re-export guard
 
 
@@ -63,10 +63,16 @@ def select_closed_higher(higher_bars: list[Kline], decision_time: int, higher_st
     return [bar for bar in higher_bars if bar.open_time + higher_step <= decision_time]
 
 
-def _ts(position: Position) -> int:
+def _closed_ts(trade: Any) -> int:
+    """Fill time of the trade that was just closed.
+
+    The stop/target path fires on whichever bar touches the level, not only the
+    entry bar, so the entry time must come from the trade itself — deriving it
+    from the exit bar would report a holding time of zero for every stop.
+    """
     try:
-        return int(datetime.fromisoformat(position.opened_at).timestamp())
-    except ValueError:
+        return int(datetime.fromisoformat(trade.opened_at).timestamp())
+    except (AttributeError, TypeError, ValueError):
         return 0
 
 
@@ -169,7 +175,7 @@ def run_backtest(
                 trade = state.record_close(symbol, qty, exit_price, fee, reason=proposal.reason,
                                           decision_id=payload["decision"]["decision_id"], at=nxt.open_time)
                 if trade:
-                    result.trades.append(BacktestTrade(symbol, 0, nxt.open_time, trade.entry_avg, exit_price,
+                    result.trades.append(BacktestTrade(symbol, _closed_ts(trade), nxt.open_time, trade.entry_avg, exit_price,
                                                        trade.qty, trade.realized_pnl, trade.fees, trade.reason))
 
         # Intrabar stop/target on the bar we just traded into.
@@ -185,7 +191,7 @@ def run_backtest(
                 trade = state.record_close(symbol, qty, price, fee, reason="stop" if hit_stop else "target",
                                            decision_id=held.decision_id, at=check_bar.open_time)
                 if trade:
-                    result.trades.append(BacktestTrade(symbol, check_bar.open_time, check_bar.open_time,
+                    result.trades.append(BacktestTrade(symbol, _closed_ts(trade), check_bar.open_time,
                                                        trade.entry_avg, price, trade.qty, trade.realized_pnl, trade.fees, trade.reason))
 
         state.roll_periods(datetime.fromtimestamp(check_bar.open_time, tz=timezone.utc))
@@ -195,11 +201,14 @@ def run_backtest(
     # Close any residual position at the last close for a clean comparison.
     held = state.positions.get(symbol)
     if held:
+        # The fill happens at the close of the final bar, not its open; using the
+        # open would turn a same-bar entry/exit into a zero-length trade.
+        closed_at = bars[-1].open_time + step
         price = bars[-1].close
         fee = held.qty * price * fee_pct
-        trade = state.record_close(symbol, held.qty, price, fee, reason="end_of_test", decision_id=held.decision_id, at=bars[-1].open_time)
+        trade = state.record_close(symbol, held.qty, price, fee, reason="end_of_test", decision_id=held.decision_id, at=closed_at)
         if trade:
-            result.trades.append(BacktestTrade(symbol, _ts(held), bars[-1].open_time, trade.entry_avg, price, trade.qty,
+            result.trades.append(BacktestTrade(symbol, _closed_ts(trade), closed_at, trade.entry_avg, price, trade.qty,
                                                trade.realized_pnl, trade.fees, trade.reason))
         result.equity_curve[-1] = (bars[-1].open_time, state.cash)
 

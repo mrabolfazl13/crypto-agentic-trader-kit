@@ -41,6 +41,22 @@ def _higher_ok(analysis: Any) -> bool:
     return any("higher timeframe trend agrees" in item for item in analysis.bullish)
 
 
+_EXIT_KWARGS = (
+    "confidence_threshold", "require_multiple_signals", "no_trade_if_signals_conflict",
+    "min_reward_risk_ratio", "maker_fee_pct", "taker_fee_pct", "est_slippage_pct", "params",
+)
+
+
+def _exit(snapshot: MarketSnapshot, position: Position, kw: dict[str, Any]) -> Proposal:
+    """All lab strategies share one exit policy; entry-only overrides must not leak.
+
+    Extra entry switches (``min_atr_pct``, ``lookback``, …) are bound with
+    ``functools.partial`` and would otherwise be forwarded into ``propose``,
+    which accepts only the shared risk/exit contract.
+    """
+    return propose(snapshot, position, **{key: value for key, value in kw.items() if key in _EXIT_KWARGS})
+
+
 def _confidence(analysis: Any, confirmations: list[bool], spread_pct: float | None) -> float:
     """Transparent heuristic: confirmations add 0.05 each, never a probability of profit."""
     score = 0.58 + 0.05 * sum(1 for flag in confirmations if flag)
@@ -120,7 +136,7 @@ def _guard(snapshot: MarketSnapshot, kw: dict[str, Any], minimum: int) -> Propos
 def propose_breakout(snapshot: MarketSnapshot, position: Position | None, **kw: Any) -> Proposal:
     """Buy a close above the prior N-bar high while the trend stack and higher timeframe agree."""
     if position is not None:
-        return propose(snapshot, position, **kw)
+        return _exit(snapshot, position, kw)
     lookback = int(kw.get("lookback", 30))
     min_atr_pct = float(kw.get("min_atr_pct", 0.4))
     max_atr_pct = float(kw.get("max_atr_pct", 6.0))
@@ -168,7 +184,7 @@ def propose_breakout(snapshot: MarketSnapshot, position: Position | None, **kw: 
 def propose_momentum(snapshot: MarketSnapshot, position: Position | None, **kw: Any) -> Proposal:
     """Buy sustained 4h momentum (ROC over N bars) while RSI is not stretched."""
     if position is not None:
-        return propose(snapshot, position, **kw)
+        return _exit(snapshot, position, kw)
     lookback = int(kw.get("lookback", 20))
     min_roc = float(kw.get("min_roc_pct", 3.0))
     min_atr_pct = float(kw.get("min_atr_pct", 0.4))
@@ -211,7 +227,7 @@ def propose_momentum(snapshot: MarketSnapshot, position: Position | None, **kw: 
 def propose_pullback(snapshot: MarketSnapshot, position: Position | None, **kw: Any) -> Proposal:
     """Buy an RSI reset inside an intact uptrend (dip, not a breakdown)."""
     if position is not None:
-        return propose(snapshot, position, **kw)
+        return _exit(snapshot, position, kw)
     min_atr_pct = float(kw.get("min_atr_pct", 0.4))
     max_atr_pct = float(kw.get("max_atr_pct", 6.0))
     require_higher = bool(kw.get("require_higher", True))

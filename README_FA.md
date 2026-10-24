@@ -53,6 +53,8 @@ python trader.py status                 # equity، موقعیت‌ها، سفا�
 python trader.py report                 # گزارش روزانه در state/reports/
 python trader.py backtest --days 365    # بک‌تست روی داده‌ی واقعی
 python trader.py month-scan --days 30 --warmup 180 --timeframe 4h   # اسکن ۳۰ روزه‌ی ۴ استراتژی روی ۱۰۰ نماد + train/validation
+python trader.py month-scan --days 30 --timeframe 1h --max-hold 3   # همان اسکن با بستن اجباری موقعیت پس از ۳ کندل
+python trader.py profiles --days 30 --timeframe 1h --horizon short  # نردبان ۶ مرحله‌ای با افق زیر یک روز؛ نتیجه در state/research/profiles
 python tools/gate_a_backtest.py         # جدول شواهد دروازه‌ی A (چند پنجره)
 python trader.py verify-audit           # یکپارچگی زنجیره‌ی audit
 python trader.py stop                   # kill switch؛ resume برای برداشتن آن
@@ -66,6 +68,11 @@ pytest -q                               # تست‌های آفلاین ایمن�
 
 ### جهان معاملاتی و نمودار زنده
 `config.yaml` به‌صورت پیش‌فرض ۱۰۰ جفت USDT برتر Gate را بر اساس ارزش بازار (snapshot در `universe.json` با digest و منبع) نگه می‌دارد. کارت «بازار» در داشبورد همین فهرست را از `GET /api/v1/universe` می‌خواند و کندل‌ها را زنده از `GET /api/v1/market/candles?symbol=SOL_USDT&timeframe=4h&limit=180` می‌گیرد؛ پاسخ شامل `provenance` (منبع `gate:SYM:tf`، پنجره، زمان دریافت، کش) است. نماد خارج از فهرست → 404، timeframe نامعتبر → 400، قطعی صرافی → 503 (fail-closed). اگر می‌خواهید فهرست کوچک‌تر بماند، همان `symbols` را در `config.yaml` دستی محدود کنید — API و نمودار همان را دنبال می‌کنند.
+
+### نردبان مراحل و اندازه‌گیری مدت نگه‌داشت
+`python trader.py profiles --days 60 --timeframe 4h --horizon day` یک «نردبان توسعه» می‌سازد: شش پروفایل کامل که هر کدام فقط یک چیز را نسبت به مرحله‌ی قبل عوض می‌کنند (خانواده‌ی ورود، سقف نگه‌داشت، کف نوسان). هر مرحله روی همان کندل‌های بسته و با همان Risk Gate بک‌تست اجرا می‌شود و برای هر مرحله ثبت می‌شود: سود ناخالص، زیان ناخالص، خالص پس از کارمزد، کارمزد، نرخ برد، profit factor، میانه‌ی مدت نگه‌داشت و سهم معامله‌های زیر ۳ ساعت و زیر ۲۴ ساعت. انتخاب نامزد فقط روی نیمه‌ی اول (train) انجام می‌شود و نیمه‌ی دوم (validation) یک‌بار داوری می‌کند. نتیجه در `state/research/profiles/` (JSON + Markdown) ذخیره و در صفحه‌ی `/profiles` نمایش داده می‌شود؛ صفحه فقط‌خواندنی است.
+
+افق زمانی روی هر تایم‌فریم به کندل گرد می‌شود: `--horizon short` روی ۱ ساعته ۳ کندل (۳ ساعت) و روی ۴ ساعته ۱ کندل (۴ ساعت) است، چون نگه‌داشت ۲–۳ ساعته روی کندل ۴ ساعته قابل اندازه‌گیری نیست و برچسب زدن ۴ ساعت به‌عنوان ۳ ساعت مجاز نیست. `--horizon day` روی ۴ ساعته ۵ کندل (۲۰ ساعت) و روی ۱ ساعته ۲۳ کندل است. `month-scan --max-hold N` همان قاعده را روی اسکن ماهانه اعمال می‌کند (یک پیاده‌سازی در `StrategyParams.max_hold_bars`).
 
 ### وضعیت دروازه‌ها
 - دروازه‌ی A (داده و بک‌تست): اجرا شده — `state/reports/gate_a_backtest_2026-10-23.md`. بازده خالص در هشت پنجره بین `−0.97%` و `+0.00%` است، profit factor در بیشتر پنجره‌ها زیر ۱، و بیشترین drawdown زیر ۱.۳٪. این شواهد مجوز LIVE را نمی‌دهد.

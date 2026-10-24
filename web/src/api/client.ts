@@ -10,7 +10,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-export const API_BASE: string = (import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8177").replace(/\/+$/, "");
+// Same-origin by default: the dev server proxies `/api`, `serve` mounts the API
+// and the SPA together, and the edge nginx routes `/api/` to the backend.
+export const API_BASE: string = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
 const PREFIX = "/api/v1";
 
 /* ------------------------------------------------------------------ shared */
