@@ -24,7 +24,7 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field
@@ -278,6 +278,17 @@ class WalkForwardRequest(BaseModel):
     dataset_id: str | None = None
     grid: dict[str, list[Any]] = Field(default_factory=dict)
     folds: int = Field(default=4, ge=2, le=12)
+
+
+class OptimizeRequest(BaseModel):
+    symbol: str
+    timeframe: str | None = None
+    days: int | None = Field(default=None, ge=120, le=1500)
+    dataset_id: str | None = None
+    max_experiments: int = Field(default=3, ge=1, le=6)
+    folds: int = Field(default=3, ge=2, le=6)
+    warmup: int = Field(default=80, ge=1, le=500)
+    assumed_spread_pct: float = Field(default=0.05, ge=0.0, le=5.0)
 
 
 class KillSwitchRequest(BaseModel):
@@ -1094,6 +1105,103 @@ def create_app(root: Path | None = None) -> FastAPI:
         window = f"{prov['window']}" if isinstance(prov, dict) else f"days:{body.days}"
         return {**(result if isinstance(result, dict) else {"result": result}),
                 "provenance": _provenance("simulated", "engine", window)}
+
+    @router.get("/optimizer")
+    def optimizer_list(limit: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
+        from . import optimizer
+
+        return {"runs": optimizer.list_states(app_root, limit=limit),
+                "disclaimer": optimizer.DISCLAIMER_FA}
+
+    @router.get("/optimizer/{run_id}")
+    def optimizer_detail(run_id: str) -> dict[str, Any]:
+        from . import optimizer
+
+        try:
+            return optimizer.load_state(app_root, run_id)
+        except (FileNotFoundError, ValueError):
+            raise HTTPException(status_code=404, detail="حلقه‌ی بهینه‌سازی پیدا نشد.")
+
+    @router.post("/optimizer/start")
+    def optimizer_start(body: OptimizeRequest) -> dict[str, Any]:
+        config = get_config()
+        _guard_paper(config)
+        symbol = _require_symbol(config, _normalize_symbol(body.symbol))
+        tf = body.timeframe or config.timeframe
+        if not body.dataset_id and not body.days:
+            raise HTTPException(status_code=422, detail="یا dataset_id یا days باید داده شود.")
+        import importlib
+
+        try:
+            datasets_mod = importlib.import_module("cat.datasets")
+            optimizer_mod = importlib.import_module("cat.optimizer")
+        except ModuleNotFoundError:
+            raise HTTPException(status_code=503, detail="ماژول بهینه‌سازی در دسترس نیست — fail-closed")
+        try:
+            _bars, _higher, _filters, dataset_id = _series_for(
+                store, config, datasets_mod, symbol, tf, body.days, body.dataset_id)
+            state = optimizer_mod.start(
+                config, store, symbol=symbol, timeframe=tf, dataset_id=dataset_id,
+                max_experiments=body.max_experiments, folds=body.folds,
+                warmup=body.warmup, spread_pct=body.assumed_spread_pct,
+            )
+        except HTTPException:
+            raise
+        except (DataUnavailable, DataError):
+            store.log("error", "api", "optimizer data unavailable")
+            raise HTTPException(status_code=503, detail="داده در دسترس نیست — سیستم fail-closed است")
+        except (ValueError, datasets_mod.DatasetError) as exc:
+            raise HTTPException(status_code=422, detail=f"شروع بهینه‌سازی ناموفق: {exc}")
+        store.log("info", "api", f"optimizer started {state['run_id']} on {symbol} {tf}",
+                  {"dataset_id": dataset_id, "max_experiments": body.max_experiments})
+        return state
+
+    @router.post("/optimizer/{run_id}/stop")
+    def optimizer_stop(run_id: str) -> dict[str, Any]:
+        config = get_config()
+        _guard_paper(config)
+        from . import optimizer
+
+        try:
+            state = optimizer.stop(config, run_id)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="حلقه‌ی بهینه‌سازی پیدا نشد.")
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        store.log("info", "api", f"optimizer stop requested for {run_id}")
+        return state
+
+    @router.post("/optimizer/{run_id}/resume")
+    def optimizer_resume(run_id: str) -> dict[str, Any]:
+        config = get_config()
+        _guard_paper(config)
+        from . import optimizer
+
+        try:
+            state = optimizer.resume(config, store, run_id)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="حلقه‌ی بهینه‌سازی پیدا نشد.")
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        store.log("info", "api", f"optimizer resumed {run_id}")
+        return state
+
+    @router.get("/optimizer/{run_id}/export")
+    def optimizer_export(run_id: str, format: str = Query(default="json")) -> Response:
+        from . import optimizer
+
+        try:
+            state = optimizer.load_state(app_root, run_id)
+        except (FileNotFoundError, ValueError):
+            raise HTTPException(status_code=404, detail="حلقه‌ی بهینه‌سازی پیدا نشد.")
+        if format == "csv":
+            return Response(content=optimizer.export_csv(state), media_type="text/csv; charset=utf-8",
+                            headers={"Content-Disposition": f'attachment; filename="{run_id}.csv"'})
+        if format != "json":
+            raise HTTPException(status_code=422, detail="format باید json یا csv باشد.")
+        return Response(content=json.dumps(state, ensure_ascii=False, indent=2),
+                        media_type="application/json; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{run_id}.json"'})
 
     @router.post("/cycles/paper")
     def cycles_paper(body: CycleRequest) -> dict[str, Any]:

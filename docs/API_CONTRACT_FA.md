@@ -34,6 +34,9 @@
 | GET | `/analysis?symbol=&timeframe=&dataset_id=` | آخرین `analyze()`: regime، سیگنال‌ها، اندیکاتورها، حجم، سناریوها |
 | GET | `/profiles?market=crypto` یا `?market=tse` | فهرست اجراهای «نردبان مراحل» (هر اجرا یک پروفایل کامل با ۶ مرحله). فقط خواندن. اگر اجرایی ذخیره نشده باشد `runs=[]`، `count=0` و `note` دستور ساخت را می‌گوید؛ هرگز نتیجه‌ی نمونه جایش نمی‌گذارد. `provenance.kind=simulated`. بازار ناشناخته → `400`. |
 | GET | `/profiles/{run_id}?market=` | جزئیات یک اجرا: `meta` (تایم‌فریم، روز، افق، نمادهای اندازه‌گیری‌شده/درخواستی، سرمایه‌ی هر نماد، اسپرد فرضی، آخرین کندل)، `stages[]` (سود/زیان ناخالص، خالص، کارمزد، PF، نرخ برد، میانه‌ی نگه‌داشت، سهم زیر ۳ ساعت و زیر ۲۴ ساعت، تفکیک train/validation، معامله‌های آخر، منحنی سبد هم‌وزن) و `verdict`. `run_id` نامعتبر یا خارج از الگوی `^[a-z0-9][a-z0-9-]{2,80}$` → `404` (محافظ path traversal). |
+| GET | `/optimizer` | فهرست اجراهای حلقه‌ی بهینه‌سازی (جدیدترین اول) + `disclaimer`: شناسه، وضعیت (`running`/`stopping`/`stopped`/`done`/`failed`)، نماد/تایم‌فریم، پیشرفت، تعداد پذیرفته/ردشده، بهترین خالص و قهرمان فعلی. فقط خواندن. |
+| GET | `/optimizer/{run_id}` | وضعیت کامل یک اجرا: صف، آزمایش فعلی، `next_reason`، همه‌ی آزمایش‌ها (فرضیه، گرید، داوری، خالص/افت/PF/تعداد معامله‌ی خارج از نمونه، دلایل رد، درس ثبت‌شده) و `champion`. `run_id` نامعتبر یا ناشناخته → `404`. |
+| GET | `/optimizer/{run_id}/export?format=json|csv` | خروجی کامل تاریخچه برای بایگانی/تحلیل (CSV با UTF-8 BOM). فرمت نامعتبر → `422`، اجرای ناشناخته → `404`. |
 | GET | `/runs?kind=backtest|walk_forward|grid&symbol=` | فهرست اجراها + metrics |
 | GET | `/runs/{id}` | جزئیات اجرا: metrics، split، trades، rejections، equity curve، params |
 | GET | `/strategies` | نسخه‌های استراتژی + نتایج train/validation/test + وضعیت پذیرش |
@@ -48,6 +51,9 @@
 | POST | `/datasets/fetch` | `{symbol, timeframe, days}` → دریافت تاریخ از Gate و ساخت dataset |
 | POST | `/runs/backtest` | `{symbol, timeframe, days|dataset_id, params, strategy, rsi_reset, warmup, assumed_spread_pct}` → اجرای بک‌تست، ذخیره‌ی run، برگرداندن metrics؛ `strategy` یکی از `trend_v1`/`momentum_20`/`breakout_30`/`pullback_rsi` است و نام ناشناخته پیش از دریافت داده ۴۲۲ می‌گیرد |
 | POST | `/runs/walk-forward` | `{symbol, timeframe, days, grid: {param: [values]}, splits}` → ارزیابی walk-forward + تصمیم پذیرش |
+| POST | `/optimizer/start` | `{symbol, timeframe, days ≥ ۱۲۰ | dataset_id, max_experiments ۱..۶, folds ۲..۶, warmup, assumed_spread_pct}` → ساخت وضعیت پایدار و شروع حلقه در نخ پس‌زمینه. فقط در PAPER و فقط نماد allowlist؛ داده‌ی ناموجود `503` (fail-closed)، ورودی نامعتبر `422`، حلقه‌ی فعال دیگر `409`. |
+| POST | `/optimizer/{run_id}/stop` | درخواست توقف؛ بین دو آزمایش اعمال می‌شود و وضعیت `stopping` سپس `stopped` می‌گردد. حلقه‌ی غیرفعال → `409`. |
+| POST | `/optimizer/{run_id}/resume` | ادامه‌ی همان صف و همان `dataset_id` پس از توقف/خطا. اجرای `done` یا حلقه‌ی در حال اجرا → `409`. |
 | POST | `/cycles/paper` | اجرای یک چرخه‌ی paper (همان `trader.py cycle`)؛ نتیجه‌ی audit و outcomes |
 | POST | `/kill-switch` | `{active: true|false}` — فعال/غیرفعال کردن فایل stop (تنها راه «توقف»؛ راه «شروع زنده» وجود ندارد) |
 
