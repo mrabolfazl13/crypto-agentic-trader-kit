@@ -310,6 +310,31 @@ class CycleRequest(BaseModel):
     dry_run: bool = False
 
 
+class QuantBacktestRequest(BaseModel):
+    strategy: str = "ema_trend"
+    timeframe: str = "1h"
+    symbols: list[str] | None = None
+    limit: int = Field(default=5, ge=1, le=25)
+    params: dict[str, Any] | None = None
+    position_pct: float | None = Field(default=None, ge=0.5, le=25.0)
+    max_open_positions: int | None = Field(default=None, ge=1, le=20)
+    max_hold_hours: float | None = Field(default=None, ge=1.0, le=168.0)
+    fee_pct: float | None = Field(default=None, ge=0.0, le=1.0)
+    slippage_pct: float | None = Field(default=None, ge=0.0, le=1.0)
+    walk_forward: bool = False
+    folds: int | None = Field(default=None, ge=2, le=8)
+    test_days: int | None = Field(default=None, ge=1, le=30)
+
+
+class QuantLoopRequest(BaseModel):
+    resume: bool = True
+    search_symbols: int = Field(default=30, ge=5, le=60)
+    full_symbols: int | None = Field(default=None, ge=5, le=100)
+    max_experiments: int | None = Field(default=None, ge=1, le=50)
+    max_minutes: float | None = Field(default=None, ge=1.0, le=720.0)
+    plan_key: str | None = None
+
+
 def _grid_evaluations(grid: dict[str, list[Any]]) -> int:
     total = 1
     for values in grid.values():
@@ -1344,6 +1369,81 @@ def create_app(root: Path | None = None) -> FastAPI:
             effect = "توقف برداشته شد؛ سیستم در همان حالت PAPER ادامه می‌دهد (هیچ مسیر سرویس زنده وجود ندارد)."
         return {"active": body.active, "effect": effect, "kill_switch_file": path.name,
                 "mode": config.mode, "provenance": _provenance("paper", "engine")}
+
+    # ---- quant research (PAPER only; no order path) -----------------------
+    def _quant_service():
+        from .quant import service as quant_service  # lazy: optional deps live in a venv
+        return quant_service
+
+    def _quant_error(exc: Exception) -> HTTPException:
+        service = _quant_service()
+        if isinstance(exc, service.QuantUnavailable):
+            return HTTPException(status_code=503, detail={
+                "error": "quant_dependencies_missing", "missing": exc.missing,
+                "hint": "install requirements-quant.txt in the configured interpreter "
+                        "(CAT_QUANT_PYTHON) or run the loop via tools/quant_loop.py",
+            })
+        if isinstance(exc, (service.QuantDisabled, service.QuantBusy)):
+            return HTTPException(status_code=409, detail=str(exc))
+        if isinstance(exc, ValueError):
+            return HTTPException(status_code=400, detail=str(exc))
+        return HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
+
+    @router.get("/quant/status")
+    def quant_status() -> dict[str, Any]:
+        service = _quant_service()
+        try:
+            return service.status(app_root)
+        except Exception as exc:  # noqa: BLE001 - expose real cause instead of a dead panel
+            raise _quant_error(exc) from exc
+
+    @router.get("/quant/data")
+    def quant_data(limit: int = 200) -> dict[str, Any]:
+        service = _quant_service()
+        try:
+            return service.data(app_root, limit=limit)
+        except Exception as exc:  # noqa: BLE001
+            raise _quant_error(exc) from exc
+
+    @router.get("/quant/experiments")
+    def quant_experiments(limit: int = 50, loop_id: str | None = None) -> dict[str, Any]:
+        service = _quant_service()
+        try:
+            return service.experiments(app_root, limit=limit, loop_id=loop_id)
+        except Exception as exc:  # noqa: BLE001
+            raise _quant_error(exc) from exc
+
+    @router.get("/quant/loops")
+    def quant_loops(limit: int = 20) -> dict[str, Any]:
+        service = _quant_service()
+        try:
+            return service.loops(app_root, limit=limit)
+        except Exception as exc:  # noqa: BLE001
+            raise _quant_error(exc) from exc
+
+    @router.post("/quant/backtest")
+    def quant_backtest(body: QuantBacktestRequest) -> dict[str, Any]:
+        service = _quant_service()
+        try:
+            return service.manual_backtest(app_root, body.model_dump(exclude_none=True))
+        except Exception as exc:  # noqa: BLE001
+            raise _quant_error(exc) from exc
+
+    @router.post("/quant/loop/start")
+    def quant_loop_start(body: QuantLoopRequest) -> dict[str, Any]:
+        service = _quant_service()
+        try:
+            return service.start_loop(app_root, body.model_dump(exclude_none=True))
+        except Exception as exc:  # noqa: BLE001
+            raise _quant_error(exc) from exc
+
+    @router.post("/quant/loop/stop")
+    def quant_loop_stop() -> dict[str, Any]:
+        service = _quant_service()
+        try:
+            return service.stop_loop(app_root)
+        except Exception as exc:  # noqa: BLE001
+            raise _quant_error(exc) from exc
 
     # ---- wire the router --------------------------------------------------
     app.include_router(router)

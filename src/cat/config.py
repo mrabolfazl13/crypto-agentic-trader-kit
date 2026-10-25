@@ -92,6 +92,7 @@ class Config:
     market_options: dict[str, Any] = field(default_factory=dict)
     auto_cycle_hours: float = 0.0
     auto_review_days: float = 0.0
+    quant: dict[str, Any] = field(default_factory=dict)
 
     @property
     def spec(self) -> MarketSpec:
@@ -237,6 +238,9 @@ def load_config(path: str | os.PathLike[str] | None = None, root: Path | None = 
     fees = raw.get("fees") if isinstance(raw.get("fees"), dict) else {}
     data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
     automation = raw.get("automation") if isinstance(raw.get("automation"), dict) else {}
+    quant = raw.get("quant") if isinstance(raw.get("quant"), dict) else {}
+    if raw.get("quant") is not None and not isinstance(raw.get("quant"), dict):
+        warnings.append("quant section is not a mapping; defaults are used")
 
     timeframe = str(trading.get("timeframe", "1h"))
     if spec.name != DEFAULT_MARKET and timeframe not in spec.timeframes:
@@ -291,6 +295,7 @@ def load_config(path: str | os.PathLike[str] | None = None, root: Path | None = 
         market_options=market_options,
         auto_cycle_hours=_interval(automation, "paper_cycle_hours"),
         auto_review_days=_interval(automation, "research_review_days"),
+        quant=dict(quant),
         strategy_params=params_from_dict(
             strategy.get("params") if isinstance(strategy.get("params"), dict) else None,
             base=StrategyParams(

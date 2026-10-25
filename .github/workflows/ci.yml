@@ -8,14 +8,14 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt -r requirements-quant.txt
       # The suite is offline by design: no exchange calls, no API keys.
       - name: Safety and engine tests
         run: python -m pytest -q

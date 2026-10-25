@@ -42,6 +42,7 @@ import PaperTrading from "./pages/PaperTrading";
 import PerformanceReports from "./pages/PerformanceReports";
 import Portfolio from "./pages/Portfolio";
 import Profiles from "./pages/Profiles";
+import QuantResearch from "./pages/QuantResearch";
 import Risk from "./pages/Risk";
 import SettingsPage from "./pages/Settings";
 import StrategyLab from "./pages/StrategyLab";
@@ -65,6 +66,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   strategies: FlaskConical,
   profiles: BarChart3,
   backtests: History,
+  quant: BrainCircuit,
   optimizer: BrainCircuit,
   versions: GitBranch,
   paper: PlayCircle,
@@ -260,6 +262,7 @@ function Shell() {
             <Route path="/strategies" element={<StrategyLab />} />
             <Route path="/profiles" element={<Profiles />} />
             <Route path="/backtests" element={<Backtesting />} />
+            <Route path="/quant" element={<QuantResearch />} />
             <Route path="/optimizer" element={<Optimizer />} />
             <Route path="/paper" element={<PaperTrading />} />
             <Route path="/trades" element={<Trades />} />

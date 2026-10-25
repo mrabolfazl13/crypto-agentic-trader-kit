@@ -1,0 +1,10 @@
+# Research stack for cat.quant: the data lake, backtest engine, optimizer and
+# LightGBM experiment. Kept separate from requirements.txt so the PAPER trading
+# path stays dependency-light; CI installs both to exercise the quant tests.
+numpy>=2.0
+pandas>=2.2
+pyarrow>=16.0
+optuna>=3.6
+lightgbm>=4.3
+scikit-learn>=1.4
+psutil>=5.9
