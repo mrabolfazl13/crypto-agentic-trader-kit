@@ -185,6 +185,38 @@ def test_cycle_success_mirrors_and_records(workspace: Path, monkeypatch):
     assert store.get_meta(scheduler_mod.CYCLE_SUMMARY) == "cycle ok: 1 outcome"
 
 
+def test_partial_symbol_errors_are_logged_with_details(workspace: Path, monkeypatch):
+    store = open_store(workspace)
+
+    class FakeEngine:
+        def __init__(self, config):
+            pass
+
+        def run_cycle(self, *, now, dry_run):
+            return SimpleNamespace(
+                outcomes=[object()],
+                errors=[f"SYM{i}_USDT: HTTP 429" for i in range(7)],
+                kill_switch=False,
+                summary=lambda: "cycle ok with partial errors",
+            )
+
+    monkeypatch.setattr(scheduler_mod, "Engine", FakeEngine)
+    monkeypatch.setattr(scheduler_mod, "mirror_cycle", lambda *a, **k: None)
+    auto = Automation(workspace, store, config_loader=_loader(workspace))
+
+    result = auto.run_cycle(datetime(2026, 10, 25, tzinfo=UTC))
+
+    assert result["status"] == "ok"
+    rows = store._rows(
+        "SELECT level, message, context_json FROM logs "
+        "WHERE source='automation' AND level='warning' ORDER BY id DESC LIMIT 1")
+    assert rows and "symbol errors: 7" in rows[0]["message"]
+    context = json.loads(rows[0]["context_json"])
+    assert context["error_count"] == 7
+    assert len(context["errors"]) == 5
+    assert context["errors"][0] == "SYM0_USDT: HTTP 429"
+
+
 def test_unreachable_data_never_mirrors(workspace: Path, monkeypatch):
     store = open_store(workspace)
     mirrored: list[str] = []

@@ -180,6 +180,6 @@ data:
   primary_exchange: gate
   confirm_timeframe: 1d
   fallback_exchange: mexc
-  proxy: "http://127.0.0.1:1080"   # پروکسی محلی؛ با CAT_PROXY قابل بازنویسی است
+  proxy: "http://127.0.0.1:1080"   # پروکسی محلی؛ با CAT_PROXY قابل بازنویسی است (۲۰۲۶-۱۰-۲۵: قطع شد و Gate را ۱۹–۲۷ خطا کرد؛ پس از بازگشت وصل، بازگردانده شد)
   max_concurrency: 4               # اسکن ۱۰۰ نماد با حداکثر ۴ درخواست موازی (سقف سخت: ۸)
   filters_cache_seconds: 3600      # دقت قیمت/مقدار هر جفت یک ساعت کش می‌شود

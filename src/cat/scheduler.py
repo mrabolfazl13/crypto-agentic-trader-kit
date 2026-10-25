@@ -231,6 +231,14 @@ class Automation:
                 outcomes = list(getattr(result, "outcomes", []) or [])
                 errors = list(getattr(result, "errors", []) or [])
                 kill = bool(getattr(result, "kill_switch", False))
+                if errors:
+                    # A count alone cannot explain an outage: keep the first few
+                    # symbol errors (truncated) so the next cycle is diagnosable.
+                    detail = {"error_count": len(errors),
+                              "errors": [str(item)[:200] for item in errors[:5]]}
+                    self.store.log("error" if (not outcomes and not kill) else "warning",
+                                   "automation",
+                                   f"scheduled paper cycle symbol errors: {len(errors)}", detail)
                 if not outcomes and errors and not kill:
                     self.store.log("error", "automation",
                                    f"scheduled paper cycle unreachable: {errors[:3]}")
