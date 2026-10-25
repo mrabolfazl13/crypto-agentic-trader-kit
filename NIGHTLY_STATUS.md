@@ -34,6 +34,7 @@
 - baseline: 24 اجرا (8 ترکیب × 3 برش) در 176.1 ثانیه، بدون خطا؛ `EXPERIMENT_LOG.csv` و `state/quant/results/baseline/`.
 - walk-forward: 8 ترکیب × 4 فولد × 7 روز، همه قبل از test، در 116.6 ثانیه؛ `state/quant/results/walk_forward/`.
 - منابع: حداکثر RSS در baseline 353.9 MB؛ `state/quant` 230 MB؛ کل مخزن 450 MB (18% سقف 2.5 GiB).
+- checkpoint: commit `0980513` با 38 فایل (پلتفرم کوانت + موتور اصلاح‌شده + تست‌ها + گزارش‌ها). خروجی‌های `state/` طبق `.gitignore` خارج از commit هستند.
 - خروجی baseline قدیمی با بنچمارک بدون هزینه به `state/quant/results/archive/baseline_v0_costfree_benchmark/` منتقل شد (حذف نشد).
 
 ## 4. نقص‌های موتور و اصلاح‌ها
