@@ -103,6 +103,10 @@ def main() -> int:
     parser.add_argument("--trials", type=int, default=6, help="trials per fold")
     parser.add_argument("--finalists", type=int, default=3, help="trials re-scored on the inner selection")
     parser.add_argument("--inner-selection-fraction", type=float, default=0.20)
+    parser.add_argument("--end", default="",
+                        help="cap the data window end (ISO date, e.g. 2026-06-01) so a run can "
+                             "replicate on an earlier regime slice; the cap is never extended "
+                             "and the final holdout still starts where the test slice starts")
     parser.add_argument("--out-dir",
                         default=str(ROOT / "state" / "quant" / "results" / "nested_walk_forward"))
     parser.add_argument("--log", default=str(ROOT / "EXPERIMENT_LOG.csv"))
@@ -119,6 +123,13 @@ def main() -> int:
     if args.configs:
         configs = tuple((part.split(":")[0], part.split(":")[1]) for part in args.configs.split(","))
     window = data_window(settings, symbols)
+    if args.end:
+        cap = int(datetime.fromisoformat(args.end).replace(tzinfo=timezone.utc).timestamp())
+        if cap <= window.start_ts:
+            raise SystemExit(f"--end {args.end} precedes the data window start {window.iso()['start']}")
+        if cap >= window.end_ts:
+            raise SystemExit(f"--end {args.end} is beyond the data window end {window.iso()['end']}")
+        window = Window(window.start_ts, cap)
     splits = chronological_splits(window, train=settings.walk_forward.train_fraction,
                                   validation=settings.walk_forward.validation_fraction)
     fold_window = Window(window.start_ts, splits["test"].start_ts)

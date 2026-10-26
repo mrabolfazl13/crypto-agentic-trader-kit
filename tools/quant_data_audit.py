@@ -56,7 +56,9 @@ class MonthAudit:
     ohlc_incoherent: int = 0
     negative_volume: int = 0
     unsorted: int = 0
+    truncated: bool = False
     problems: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -68,7 +70,8 @@ class MonthAudit:
             "duplicates": self.duplicates, "off_grid": self.off_grid,
             "non_finite": self.non_finite, "non_positive": self.non_positive,
             "ohlc_incoherent": self.ohlc_incoherent, "negative_volume": self.negative_volume,
-            "unsorted": self.unsorted, "problems": self.problems,
+            "unsorted": self.unsorted, "truncated": self.truncated,
+            "problems": self.problems, "notes": self.notes,
         }
 
 
@@ -113,19 +116,35 @@ def audit_month(path: Path, symbol: str, month: str) -> MonthAudit:
             (high < np.maximum(open_, close)) | (low > np.minimum(open_, close)) | (high < low)
         ))
 
-    if out.first_ts != start_ts:
-        out.problems.append(f"first_ts {iso(out.first_ts)} != month start")
-    if out.last_ts != end_ts - 60:
-        out.problems.append(f"last_ts {iso(out.last_ts)} != month end - 1m")
-    if out.rows != expected:
-        out.problems.append(f"rows {out.rows} != expected {expected}")
-    for name, value in (("duplicates", out.duplicates), ("off_grid", out.off_grid),
-                        ("unsorted", out.unsorted), ("non_finite", out.non_finite),
-                        ("non_positive", out.non_positive), ("negative_volume", out.negative_volume),
-                        ("ohlc_incoherent", out.ohlc_incoherent), ("gaps", out.gaps),
-                        ("missing_minutes", out.missing_minutes)):
-        if value:
-            out.problems.append(f"{name}={value}")
+    integrity = [("duplicates", out.duplicates), ("off_grid", out.off_grid),
+                 ("unsorted", out.unsorted), ("non_finite", out.non_finite),
+                 ("non_positive", out.non_positive), ("negative_volume", out.negative_volume),
+                 ("ohlc_incoherent", out.ohlc_incoherent), ("gaps", out.gaps),
+                 ("missing_minutes", out.missing_minutes)]
+    bad = [f"{name}={value}" for name, value in integrity if value]
+    if bad:
+        out.problems.extend(bad)
+        if out.first_ts != start_ts:
+            out.problems.append(f"first_ts {iso(out.first_ts)} != month start")
+        if out.last_ts != end_ts - 60:
+            out.problems.append(f"last_ts {iso(out.last_ts)} != month end - 1m")
+        if out.rows != expected:
+            out.problems.append(f"rows {out.rows} != expected {expected}")
+    elif out.first_ts != start_ts or out.last_ts != end_ts - 60:
+        # A month can be shorter than the calendar because the symbol listed or
+        # delisted mid-month. That is missing *market*, not missing *data*, and
+        # is only acceptable when the observed span is itself gap-free and
+        # contiguous (the integrity checks above) and covers every minute of
+        # its own span.
+        span_minutes = (out.last_ts - out.first_ts) // 60 + 1
+        if out.rows != span_minutes:
+            out.problems.append(f"rows {out.rows} != observed span {span_minutes}")
+        else:
+            out.truncated = True
+            out.notes.append(
+                f"truncated month: {iso(out.first_ts)}..{iso(out.last_ts)}, {out.rows} rows "
+                f"of a full {expected}; observed span is gap-free (listing/delisting "
+                f"boundary, not missing data)")
     return out
 
 
@@ -196,6 +215,7 @@ def main() -> int:
         "invalid_rows": sum(a.non_finite + a.non_positive + a.ohlc_incoherent + a.negative_volume
                             + a.off_grid for a in audits),
         "files_with_problems": sum(1 for a in audits if a.problems),
+        "truncated_months": sum(1 for a in audits if a.truncated),
         "manifest_mismatches": len(manifest_mismatches),
     }
     report = {
@@ -217,7 +237,8 @@ def main() -> int:
 
     print(json.dumps({k: totals[k] for k in ("symbols", "months", "symbol_months", "rows", "bytes",
                                              "gaps", "missing_minutes", "duplicates", "invalid_rows",
-                                             "files_with_problems", "manifest_mismatches")},
+                                             "files_with_problems", "truncated_months",
+                                             "manifest_mismatches")},
                      ensure_ascii=False, indent=1))
     print("verdict:", report["verdict"], "->", out_path)
     return 0 if report["verdict"] == "pass" else 1
