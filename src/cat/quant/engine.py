@@ -157,6 +157,11 @@ def symbol_candidates(settings: QuantSettings, symbol: str, *, strategy: str, ti
         "first_close": float(closes[0]) if closes is not None else None,
         "last_close": float(closes[-1]) if closes is not None else None,
         "gaps": int((signals["complete"] == False).sum()),  # noqa: E712 - explicit for pandas
+        # Marks for the portfolio equity curve: the closed-bar close series the
+        # signals were computed on, so an open position is valued at a price that
+        # actually existed at or before the mark timestamp.
+        "mark_ts": signal_bars["bar_end"].to_numpy(dtype="int64") if len(signal_bars) else None,
+        "mark_close": signal_bars["close"].to_numpy(dtype="float64") if len(signal_bars) else None,
     }
 
 
@@ -188,6 +193,7 @@ def run_backtest(settings: QuantSettings, symbols: Iterable[str], *, strategy: s
     rejections: dict[str, int] = {}
     diagnostics = _empty_diagnostics()
     closes: dict[str, tuple[float, float]] = {}
+    marks: dict[str, tuple[Any, Any]] = {}
     errors: dict[str, str] = {}
     skipped_before_window = 0
 
@@ -210,6 +216,8 @@ def run_backtest(settings: QuantSettings, symbols: Iterable[str], *, strategy: s
             skipped_before_window += 1
         if data["first_close"] is not None and data["last_close"] is not None:
             closes[symbol] = (data["first_close"], data["last_close"])
+        if data.get("mark_ts") is not None and data.get("mark_close") is not None:
+            marks[symbol] = (data["mark_ts"], data["mark_close"])
         per_symbol.append({
             "symbol": symbol, "bars": data["bars"], "signal_bars": data["signal_bars"],
             "entry_signals": data["entry_signals"], "candidates": len(data["candidates"]),
@@ -220,7 +228,7 @@ def run_backtest(settings: QuantSettings, symbols: Iterable[str], *, strategy: s
             progress({"phase": "backtest", "done": index, "total": len(symbols), "symbol": symbol,
                       "candidates": len(candidates)})
 
-    portfolio = simulate_portfolio(candidates, settings=sim, rejections=rejections)
+    portfolio = simulate_portfolio(candidates, settings=sim, rejections=rejections, marks=marks)
     benchmark = equal_weight_buy_hold(closes, fee_pct=sim.fee_pct, slippage_pct=sim.slippage_pct)
     metrics = portfolio["metrics"]
     metrics["signal_diagnostics"] = diagnostics
@@ -255,7 +263,10 @@ def run_backtest(settings: QuantSettings, symbols: Iterable[str], *, strategy: s
         "data_version": current_data_version(settings),
         "sim": {"initial_capital": sim.initial_capital, "fee_pct": sim.fee_pct,
                 "slippage_pct": sim.slippage_pct, "position_pct": sim.position_pct,
-                "max_open_positions": sim.max_open_positions, "max_hold_hours": sim.max_hold_hours},
+                "max_open_positions": sim.max_open_positions, "max_hold_hours": sim.max_hold_hours,
+                "min_edge_cost_ratio": sim.min_edge_cost_ratio,
+                "risk_per_trade_pct": sim.risk_per_trade_pct,
+                "drawdown_basis": metrics.get("drawdown_basis")},
         "elapsed_seconds": round(time.monotonic() - started, 2),
         "note": "PAPER backtest on stored 1m bars; net of fees and slippage; not a forecast",
     }

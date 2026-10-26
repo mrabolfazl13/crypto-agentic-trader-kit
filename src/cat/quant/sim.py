@@ -234,8 +234,7 @@ def _metrics(trades: list[dict[str, Any]], equity_curve: list[list[float]], capi
         "avg_loss": round(-gross_loss / len(losses), 4) if losses else None,
         "fees": round(float(sum(trade["fees"] for trade in trades)), 4),
         "max_drawdown_pct": round(max_dd, 3),
-        "max_open_risk_pct": round(max_open_risk_pct, 3),
-        # Realized equity only moves when a trade closes, so the worst unrealized
+        "max_open_risk_pct": round(max_open_risk_pct, 3),        # Realized equity only moves when a trade closes, so the worst unrealized
         # excursion is tracked separately and the larger of the two is the honest
         # risk figure a gate should compare against.
         "effective_drawdown_pct": round(max(max_dd, max_open_risk_pct), 3),
@@ -246,11 +245,18 @@ def _metrics(trades: list[dict[str, Any]], equity_curve: list[list[float]], capi
 
 
 def simulate_portfolio(candidates: list[SignalTrade], *, settings: SimSettings,
-                       rejections: dict[str, int] | None = None) -> dict[str, Any]:
+                       rejections: dict[str, int] | None = None,
+                       marks: dict[str, tuple[np.ndarray, np.ndarray]] | None = None) -> dict[str, Any]:
     """Shared-cash portfolio pass over per-symbol candidates.
 
-    Sizing uses equity measured at cost basis (cash + open position cost), which
-    ignores unrealized PnL instead of inventing a mark for every minute.
+    ``marks`` maps a symbol to ``(close timestamps, closes)`` and lets the equity
+    curve value open positions at the last known price instead of at cost. Without
+    it the curve only moves when a trade closes, which understates drawdown by
+    construction: a position that falls 30% and then recovers to break-even would
+    otherwise report a drawdown of almost zero.
+
+    Sizing still uses equity at cost basis so a position cannot be enlarged by its
+    own unrealized gain.
     """
     rejections = dict(rejections or {})
     capital = float(settings.initial_capital)
@@ -262,6 +268,7 @@ def simulate_portfolio(candidates: list[SignalTrade], *, settings: SimSettings,
     curve: list[list[float]] = []
     total_gross_value_seconds = 0.0
     worst_open_risk = 0.0
+    mark_fallbacks = 0
 
     def realize(position: _Position) -> None:
         nonlocal cash
@@ -277,9 +284,65 @@ def simulate_portfolio(candidates: list[SignalTrade], *, settings: SimSettings,
             "reason": trade.reason, "bars": trade.bars,
         })
 
+    def mark_price(symbol: str, timestamp: int, fallback: float) -> float:
+        nonlocal mark_fallbacks
+        series = marks.get(symbol) if marks else None
+        if series is None:
+            mark_fallbacks += 1
+            return fallback
+        timestamps, closes = series
+        index = int(np.searchsorted(timestamps, np.int64(timestamp), side="right")) - 1
+        if index < 0:
+            mark_fallbacks += 1
+            return fallback
+        return float(closes[index])
+
     def mark_equity(timestamp: int) -> None:
-        equity = cash + sum(position.qty * position.trade.entry for position in open_positions)
+        equity = cash + sum(position.qty * mark_price(position.trade.symbol, timestamp, position.trade.entry)
+                            for position in open_positions)
         curve.append([float(timestamp), round(equity, 6)])
+
+    def mark_to_market_curve() -> list[list[float]]:
+        """Re-value the book at every bar close a position was open through.
+
+        The event curve above only moves when a trade closes, so a position that
+        halves and recovers to break-even reports a drawdown of zero. This walks the
+        stored close series instead, which makes the drawdown a measurement rather
+        than an accounting artefact.
+        """
+        if not closed:
+            return []
+        start = min(trade["entry_ts"] for trade in closed)
+        end = max(trade["exit_ts"] for trade in closed)
+        pieces: list[np.ndarray] = []
+        for timestamps, _ in marks.values():
+            lo = int(np.searchsorted(timestamps, np.int64(start), side="left"))
+            hi = int(np.searchsorted(timestamps, np.int64(end), side="right"))
+            if hi > lo:
+                pieces.append(timestamps[lo:hi].astype("int64"))
+        pieces.append(np.array([trade["exit_ts"] for trade in closed], dtype="int64"))
+        timeline = np.unique(np.concatenate(pieces)) if pieces else np.array([], dtype="int64")
+
+        exits = np.array(sorted((trade["exit_ts"], trade["net"]) for trade in closed), dtype="float64")
+        exit_stamps, exit_nets = exits[:, 0], np.cumsum(exits[:, 1])
+        by_entry = sorted(closed, key=lambda trade: trade["entry_ts"])
+        running: list[dict[str, Any]] = []
+        pointer = 0
+        series: list[list[float]] = []
+        for stamp in timeline:
+            while pointer < len(by_entry) and by_entry[pointer]["entry_ts"] <= stamp:
+                running.append(by_entry[pointer])
+                pointer += 1
+            running = [trade for trade in running if trade["exit_ts"] > stamp]
+            realized_index = int(np.searchsorted(exit_stamps, float(stamp), side="right")) - 1
+            realized = float(exit_nets[realized_index]) if realized_index >= 0 else 0.0
+            unrealized = 0.0
+            for trade in running:
+                price = mark_price(trade["symbol"], int(stamp), trade["entry"])
+                # The entry fee is already spent, so it belongs in the mark.
+                unrealized += trade["qty"] * (price - trade["entry"]) - trade["qty"] * trade["entry"] * fee
+            series.append([float(stamp), round(capital + realized + unrealized, 6)])
+        return series
 
     if ordered:
         curve.append([float(ordered[0].entry_ts - 1), capital])
@@ -323,14 +386,20 @@ def simulate_portfolio(candidates: list[SignalTrade], *, settings: SimSettings,
         realize(position)
         mark_equity(position.trade.exit_ts)
 
-    if curve:
+    marked = mark_to_market_curve() if marks and closed else []
+    if marked:
+        curve = marked
+    elif curve:
         curve.append([float(max(item["exit_ts"] for item in closed)), round(cash, 6)])
+    if curve:
         first_ts, last_ts = curve[0][0], curve[-1][0]
         span = max(last_ts - first_ts, 1.0)
         exposure = total_gross_value_seconds / (capital * span) * 100.0
     else:
         exposure = 0.0
     metrics = _metrics(closed, curve, capital, rejections, worst_open_risk)
+    metrics["drawdown_basis"] = "mark_to_market" if marks else "cost_basis"
+    metrics["mark_fallbacks"] = mark_fallbacks
     metrics["exposure_pct"] = round(exposure, 3)
     metrics["avg_hold_hours"] = round(
         float(np.mean([(trade["exit_ts"] - trade["entry_ts"]) / 3600.0 for trade in closed])), 3

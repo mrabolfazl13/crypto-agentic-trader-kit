@@ -6,6 +6,8 @@ expected price, timestamp and PnL can be derived on paper.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -313,4 +315,48 @@ def test_risk_sizing_falls_back_to_notional_when_there_is_no_stop():
                            risk_per_trade_pct=1.0)
     result = simulate_portfolio([candidate], settings=settings)
     assert result["metrics"]["trades"] == 1
+
+
+# ------------------------------------------------- honest mark to market
+
+def _marks(prices: dict[int, float]) -> dict[str, tuple[Any, Any]]:
+    timestamps = np.array(sorted(prices), dtype="int64")
+    closes = np.array([prices[int(ts)] for ts in timestamps], dtype="float64")
+    return {"TESTUSDT": (timestamps, closes)}
+
+
+def test_mark_to_market_reveals_a_drawdown_that_realized_pnl_hides():
+    """A position that halves and recovers to break-even is a 50% drawdown, not 0%."""
+    candidate = SignalTrade(symbol="TESTUSDT", signal_ts=0, entry_ts=60, exit_ts=3600,
+                            entry=100.0, exit=100.0, stop=0.0, target=0.0, reason="end_of_data",
+                            bars=60)
+    settings = SimSettings(initial_capital=1_000.0, fee_pct=0.0, slippage_pct=0.0,
+                           position_pct=100.0, max_open_positions=1, max_hold_hours=24.0)
+    flat = simulate_portfolio([candidate], settings=settings)
+    assert flat["metrics"]["drawdown_basis"] == "cost_basis"
+    assert flat["metrics"]["max_drawdown_pct"] == pytest.approx(0.0)
+
+    marked = simulate_portfolio(
+        [candidate], settings=settings,
+        marks=_marks({60: 100.0, 1800: 50.0, 3600: 100.0}),
+    )
+    assert marked["metrics"]["drawdown_basis"] == "mark_to_market"
+    assert marked["metrics"]["mark_fallbacks"] == 0
+    assert marked["metrics"]["max_drawdown_pct"] == pytest.approx(50.0, abs=1e-6)
+    # The realized result is unchanged: marks change the *measurement*, not the PnL.
+    assert marked["metrics"]["net_return_pct"] == pytest.approx(flat["metrics"]["net_return_pct"])
+
+
+def test_a_mark_missing_for_a_symbol_falls_back_to_cost_and_says_so():
+    candidate = SignalTrade(symbol="TESTUSDT", signal_ts=0, entry_ts=60, exit_ts=3600,
+                            entry=100.0, exit=110.0, stop=95.0, target=110.0, reason="target",
+                            bars=60)
+    settings = SimSettings(initial_capital=1_000.0, fee_pct=0.0, slippage_pct=0.0,
+                           position_pct=100.0, max_open_positions=1, max_hold_hours=24.0)
+    result = simulate_portfolio([candidate], settings=settings, marks={"OTHERUSDT": (
+        np.array([60, 3600], dtype="int64"), np.array([1.0, 1.0], dtype="float64"))})
+    assert result["metrics"]["drawdown_basis"] == "mark_to_market"
+    assert result["metrics"]["mark_fallbacks"] >= 1
+    assert result["metrics"]["max_drawdown_pct"] == pytest.approx(0.0), "cost basis, not an invention"
+
 
