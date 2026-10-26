@@ -127,6 +127,9 @@ def test_portfolio_fee_and_sizing_math():
     assert result["metrics"]["net_pnl"] == pytest.approx(net, rel=1e-6)
     assert result["metrics"]["final_equity"] == pytest.approx(1_000.0 + net, rel=1e-6)
     assert result["metrics"]["fees"] == pytest.approx(qty * 210.0 * 0.001, rel=1e-6)
+    record = result["trades"][0]
+    assert record["stop"] == 98.0 and record["target"] == 110.0
+    assert record["mae_pct"] == pytest.approx(0.02), "the path excursion survives into the record"
 
 
 def test_portfolio_caps_concurrent_positions_and_keeps_cash_sane():

@@ -280,6 +280,10 @@ def simulate_portfolio(candidates: list[SignalTrade], *, settings: SimSettings,
         closed.append({
             "symbol": trade.symbol, "entry_ts": trade.entry_ts, "exit_ts": trade.exit_ts,
             "entry": round(trade.entry, 8), "exit": round(trade.exit, 8), "qty": round(position.qty, 8),
+            "stop": round(trade.stop, 8), "target": round(trade.target, 8),
+            # Excursions are kept so an exit hypothesis can be checked against the
+            # path a trade actually took instead of being argued from averages.
+            "mae_pct": round(trade.mae_pct, 6), "mfe_pct": round(trade.mfe_pct, 6),
             "gross": round(gross, 6), "fees": round(fees, 6), "net": round(net, 6),
             "reason": trade.reason, "bars": trade.bars,
         })
