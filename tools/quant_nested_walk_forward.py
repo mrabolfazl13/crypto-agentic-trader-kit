@@ -60,7 +60,8 @@ def fold_protocol(train: Window, inner_selection_fraction: float) -> tuple[Windo
 
 def evaluate_fold(settings, symbols_search: list[str], symbols: list[str], *, strategy: str,
                   timeframe: str, plan: dict[str, Window], trials: int, finalists: int,
-                  inner_selection_fraction: float, seed: int) -> dict:
+                  inner_selection_fraction: float, seed: int,
+                  include_trades: bool = False) -> dict:
     search, selection = fold_protocol(plan["train"], inner_selection_fraction)
     test = plan["test"]
     if search.end_ts > plan["train"].end_ts or selection.end_ts > plan["train"].end_ts \
@@ -75,7 +76,7 @@ def evaluate_fold(settings, symbols_search: list[str], symbols: list[str], *, st
     scored = run_backtest(settings, symbols, strategy=strategy, timeframe=timeframe, params=params,
                           sim=simulate_settings(settings),
                           start_ts=test.start_ts, end_ts=test.end_ts)
-    return {
+    payload = {
         "fold": plan["fold"],
         "train": plan["train"].iso(), "search": search.iso(), "selection": selection.iso(),
         "test": test.iso(),
@@ -92,6 +93,9 @@ def evaluate_fold(settings, symbols_search: list[str], symbols: list[str], *, st
         "errors": scored["errors"],
         "elapsed_seconds": round(time.monotonic() - started, 2),
     }
+    if include_trades:
+        payload["trades_detail"] = scored["trades"]
+    return payload
 
 
 def main() -> int:
@@ -103,6 +107,9 @@ def main() -> int:
     parser.add_argument("--trials", type=int, default=6, help="trials per fold")
     parser.add_argument("--finalists", type=int, default=3, help="trials re-scored on the inner selection")
     parser.add_argument("--inner-selection-fraction", type=float, default=0.20)
+    parser.add_argument("--dump-trades", action="store_true",
+                        help="also write <run_id>.trades.json with the per-fold test trades, "
+                             "for failed-trade analysis (the final holdout is still never read)")
     parser.add_argument("--end", default="",
                         help="cap the data window end (ISO date, e.g. 2026-06-01) so a run can "
                              "replicate on an earlier regime slice; the cap is never extended "
@@ -156,14 +163,25 @@ def main() -> int:
                 continue
         partial = out_dir / f"{run_id}.partial.json"
         records: list[dict] = []
+        trade_dump: dict[str, list] = {}
         config_started = time.monotonic()
         for plan in plans:
             fold = evaluate_fold(settings, symbols_search, symbols, strategy=strategy,
                                  timeframe=timeframe, plan=plan, trials=args.trials,
                                  finalists=args.finalists,
                                  inner_selection_fraction=args.inner_selection_fraction,
-                                 seed=42 + plan["fold"])
+                                 seed=42 + plan["fold"], include_trades=args.dump_trades)
+            if args.dump_trades:
+                trade_dump[str(fold["fold"])] = fold.pop("trades_detail", [])
             records.append(fold)
+            if args.dump_trades:
+                (out_dir / f"{run_id}.trades.json").write_text(json.dumps(
+                    {"run_id": run_id, "code_version": version, "window": fold_window.iso(),
+                     "final_test_read": False,
+                     "note": "trades are test-fold output used for diagnosis; "
+                             "the final holdout starting "
+                             f"{splits['test'].iso()['start']} was never read",
+                     "folds": trade_dump}, ensure_ascii=False, indent=1), encoding="utf-8")
             partial.write_text(json.dumps(
                 {"run_id": run_id, "code_version": version, "data_version": data_version,
                  "window": fold_window.iso(), "final_test_start": splits["test"].iso()["start"],

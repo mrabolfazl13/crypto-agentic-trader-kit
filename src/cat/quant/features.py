@@ -80,6 +80,11 @@ def params_from_dict(base: QuantParams | None = None, overrides: dict[str, Any] 
         raise ValueError(f"ema_fast ({params.ema_fast}) must be below ema_slow ({params.ema_slow})")
     if params.rsi_pullback_low >= params.rsi_pullback_high:
         raise ValueError("rsi_pullback_low must be below rsi_pullback_high")
+    if params.atr_target_mult < params.atr_stop_mult:
+        # A target smaller than the stop needs a >78% hit rate just to break even at
+        # these cost levels; the inner search otherwise picks such configs on noise.
+        raise ValueError(f"atr_target_mult ({params.atr_target_mult}) must be at least "
+                         f"atr_stop_mult ({params.atr_stop_mult})")
     return params
 
 
