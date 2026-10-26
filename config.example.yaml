@@ -73,6 +73,10 @@ quant:
     min_profit_factor: 1.10
     max_drawdown_pct: 10.0
     min_positive_fold_pct: 60
+    # Pre-registered for the next cycle: positive net return must also beat buy & hold
+    # on the validation slice and on the walk-forward sum.
+    require_benchmark_edge: true
+    benchmark_margin_pct: 0.05
     max_minutes: 180
   ml:
     enabled: true

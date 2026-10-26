@@ -169,20 +169,21 @@ test فقط یک‌بار و بعد از تصمیم‌گیری‌های pre-regi
 | بیشترین RSS baseline | 353.9 MB |
 | خطا در اجرای baseline | 0 |
 | زمان walk-forward (8 ترکیب × 4 فولد) | 116.6 ثانیه |
+| زمان nested walk-forward (8 ترکیب × 4 فولد × 6 trial) | 597.5 ثانیه |
 | پوشش تشخیص | 100/100 نماد برای هر 8 آزمایش؛ 0 خطای نماد |
 | `state/quant` | 230 MB (raw: 229 MB) |
-| `state/quant/results` | 452 KB |
+| `state/quant/results` | 705 KB |
 | کل مخزن | 450 MB (18.0% سقف 2.5 GiB) |
-| تست کامل | 342 passed در 35.44 ثانیه |
+| تست کامل | 348 passed در 34.80 ثانیه |
 
 هیچ داده‌ای برای آزادکردن فضا حذف نشد. خروجی‌های baseline قدیمی (که بنچمارک بدون هزینه داشتند) به `state/quant/results/archive/baseline_v0_costfree_benchmark/` منتقل شدند، نه پاک.
 
 ## 8. چیزهایی که هنوز اثبات نشده‌اند
 
-1. **سوددهی**: هیچ ترکیبی پس از هزینه از buy & hold جلو نیست؛ حتی دو فرضیه‌ی پذیرفته‌شده‌ی قبلی.
+1. **سوددهی**: هیچ ترکیبی پس از هزینه از buy & hold جلو نیست؛ حتی دو فرضیه‌ی پذیرفته‌شده‌ی قبلی و پارامترهای بهینه‌شده‌ی چرخه‌ی دوم.
 2. **پایداری چندرژیمی**: چهار ماه، یک مسیر تاریخی، و بازار صعودی اوت–سپتامبر.
-3. **benchmark-relative gate**: گیت فعلی «بهتر از بنچمارک» را الزام نمی‌کند. افزودنش پیشنهاد چرخه‌ی بعد است، نه تغییر گذشته‌نگر.
-4. **بهینه‌سازی مجدد**: عمداً اجرا نشد. جست‌وجوی جدید روی همین holdout، مصرف دوباره‌ی تست و بایاس انتخاب را بیشتر می‌کند؛ ابتدا باید پنجره‌ی OOS تازه یا طرح از پیش ثبت‌شده تعریف شود.
+3. **benchmark-relative gate**: اکنون پیش‌ثبت و فعال است (`beats_validation_benchmark` و `beats_fold_benchmark`)؛ تصمیم‌های قبلی بازنویسی نشدند. جزئیات و نتیجه‌ی اعمال آن در بند 12.
+4. **بهینه‌سازی مجدد**: در چرخه‌ی دوم با nested walk-forward روی پنجره‌ی قبل از test اجرا شد و test نهایی دوباره خوانده نشد؛ نتیجه در بند 12. برای هر جست‌وجوی بعدی همچنان پنجره‌ی OOS تازه لازم است.
 5. **دروازه‌ی B (PAPER)**: شواهد 28 روزه هنوز کامل نیست.
 6. **مدل هزینه**: fee/slippage ثابت؛ عمق دفتر سفارش و اثر بازار مدل نشده.
 7. **ML**: AUC حدود 0.6، برچسب نادر، PF فولد 0.505؛ رد شده و «نجات» نشد.
@@ -191,8 +192,8 @@ test فقط یک‌بار و بعد از تصمیم‌گیری‌های pre-regi
 
 **ناقص (partial).**
 
-- **کامل و تأییدشده در این شب:** بازبینی داده، اصلاح موتور + تست رگرسیون، قیف تشخیص هر گیت، ریشه‌یابی 6 فرضیه‌ی ردشده و 26 رکورد صفر-معامله (14 نسخه‌ی متمایز)، baseline و walk-forward قابل‌بازتولید با بنچمارک هزینه‌دار، 342 تست سبز، لاگ کامل در `EXPERIMENT_LOG.csv`.
-- **باقی‌مانده:** شواهد 28 روزه‌ی PAPER؛ اجرای بهینه‌سازی محدود با معنای train-only روی پنجره‌ی تازه؛ گیت مقایسه با بنچمارک برای چرخه‌ی بعد؛ داده‌ی چندرژیمی/بیشتر برای ادعای پایداری؛ تأیید hash آرشیو منبع در صورت نیاز به ممیزی زنجیره‌ی کامل.
+- **کامل و تأییدشده در این شب:** بازبینی داده، اصلاح موتور + تست رگرسیون، قیف تشخیص هر گیت، ریشه‌یابی 6 فرضیه‌ی ردشده و 26 رکورد صفر-معامله (14 نسخه‌ی متمایز)، baseline و walk-forward قابل‌بازتولید با بنچمارک هزینه‌دار، گیت مقایسه با بنچمارک، nested walk-forward با انتخاب درونی و بدون خواندن test نهایی، 348 تست سبز، لاگ کامل در `EXPERIMENT_LOG.csv`.
+- **باقی‌مانده:** شواهد 28 روزه‌ی PAPER؛ داده‌ی چندرژیمی/بیشتر برای ادعای پایداری؛ تأیید hash آرشیو منبع در صورت نیاز به ممیزی زنجیره‌ی کامل.
 - **مسدودکننده‌ی Live:** دروازه‌ی B و تأیید صریح مالک؛ هیچ‌کدام در این کار درخواست یا جعل نشد.
 
 ## 10. بازتولید
@@ -212,6 +213,9 @@ C:/Users/Alex/.venvs/crypto-quant/Scripts/python.exe tools/quant_walk_forward_ba
 
 # قیف هر گیت برای 8 آزمایش + شواهد حلقه‌ی قدیمی
 C:/Users/Alex/.venvs/crypto-quant/Scripts/python.exe tools/quant_signal_diagnostics.py --with-metrics
+
+# بهینه‌سازی تودرتو روی پنجره‌ی قبل از test (test نهایی خوانده نمی‌شود)
+C:/Users/Alex/.venvs/crypto-quant/Scripts/python.exe tools/quant_nested_walk_forward.py --resume
 ```
 
 برای بازتولید دقیق اعداد، از همان تنظیمات `config.yaml` (fee 0.10، slippage 0.05، 10 موقعیت، 5%، 24h، folds=4، test_days=7) و همان data_version `f59419026803846a` استفاده کنید. ستون‌های `EXPERIMENT_LOG.csv`: date, run_id, code_version, strategy, timeframe, slice, params_label, data_start, data_end, window_start, window_end, trades, net_return_pct, max_drawdown_pct, effective_drawdown_pct, profit_factor, win_rate_pct, fees, exposure_pct, benchmark_return_pct, excess_return_pct, status.
@@ -224,8 +228,9 @@ C:/Users/Alex/.venvs/crypto-quant/Scripts/python.exe tools/quant_signal_diagnost
 - `src/cat/quant/sim.py` — `equal_weight_buy_hold` هزینه‌دار.
 - `src/cat/quant/features.py` — قیف گیت‌ها (شمارش تجمعی و شرط خام).
 - `src/cat/quant/ml.py` — تقسیم درونی train، آستانه قبل از validation بیرونی، بنچمارک هزینه‌دار.
-- `src/cat/quant/optimizer.py` — امتیازدهی trial فقط روی train.
-- `src/cat/quant/loop.py` — تشخیص «نبود سیگنال» در برابر «رد شدن سیگنال در اجرا».
+- `src/cat/quant/optimizer.py` — امتیازدهی trial فقط روی train؛ افزودن `optimize_windows` با پنجره‌ی صریح، انتخاب finalist روی inner selection و نگهبان پنجره‌ی مجاز.
+- `src/cat/quant/loop.py` — تشخیص «نبود سیگنال» در برابر «رد شدن سیگنال در اجرا»؛ دو گیت بنچمارک پیش‌ثبت‌شده.
+- `src/cat/quant/settings.py` — `require_benchmark_edge` و `benchmark_margin_pct`.
 - `src/cat/quant/service.py` — نمایش `signal_diagnostics` در API.
 
 تست‌ها:
@@ -239,6 +244,7 @@ C:/Users/Alex/.venvs/crypto-quant/Scripts/python.exe tools/quant_signal_diagnost
 - `tools/quant_signal_diagnostics.py`
 - `tools/quant_baseline.py`
 - `tools/quant_walk_forward_baseline.py`
+- `tools/quant_nested_walk_forward.py`
 
 مستندات و خروجی:
 
@@ -280,3 +286,83 @@ M web/src/theme.css
 ```
 
 بخشی از این فایل‌ها (config، API، پنل وب، ingest/loop، CI) کار پلتفرم کوانت از قبل در working tree بود و در این شب دوباره آزموده و در checkpoint commit `0980513` ثبت شد؛ بخش دیگر (موتور، تست‌ها، ابزارهای ممیزی/baseline، گزارش‌ها) در همین شب ایجاد یا اصلاح شد. خروجی‌های `state/` طبق `.gitignore` وارد commit نمی‌شوند و دستورهای بازتولید در بند 10 آن‌ها را می‌سازند.
+
+### فایل‌های چرخه‌ی دوم
+
+```
+M EXPERIMENT_LOG.csv
+M NIGHTLY_REPORT.md
+M NIGHTLY_STATUS.md
+M config.example.yaml
+M config.yaml
+M docs/QUANT_RESEARCH_FA.md
+M src/cat/quant/loop.py
+M src/cat/quant/optimizer.py
+M src/cat/quant/settings.py
+M tests/test_quant_platform.py
+?? tools/quant_nested_walk_forward.py
+```
+
+خروجی‌های `state/quant/results/nested_walk_forward/` (8 JSON + summary + لاگ) طبق `.gitignore` خارج از commit هستند و با دستور بند 12 بازتولید می‌شوند. ردیف‌های تازه‌ی `EXPERIMENT_LOG.csv` (8 ردیف) بخشی از رکورد قابل‌ممیزی‌اند و commit می‌شوند.
+
+## 12. چرخه‌ی دوم: گیت بنچمارک و بهینه‌سازی تودرتو (2026-10-26)
+
+این بخش پس از تحویل اولیه اضافه شد. داده‌ی جدیدی دانلود نشد، test نهایی دوباره خوانده نشد و هیچ آستانه‌ای پس از دیدن نتیجه شل نشد.
+
+### 12.1 گیت بنچمارک
+
+- `acceptance()` دو گیت جدید دارد: `beats_validation_benchmark` (بازده خالص validation منهای BH همان پنجره) و `beats_fold_benchmark` (جمع بازده فولدها منهای جمع BH همان فولدها). هر دو باید حداقل `benchmark_margin_pct = 0.05` واحد درصد مثبت باشند.
+- اگر عدد بنچمارک در معیارها نباشد، گیت fail-closed رد می‌کند؛ «نداشتن بنچمارک» شاهد لبه نیست.
+- غیرفعال‌کردن فقط با `quant.loop.require_benchmark_edge: false` ممکن است و در خود خروجی گیت با `required: disabled` ثبت می‌شود.
+- تصمیم‌های ذخیره‌شده‌ی چرخه‌ی اول بازنویسی نشدند؛ این گیت از اجرای بعدی حلقه اعمال می‌شود و در همین گزارش برای داوری nested walk-forward هم استفاده شد.
+- تست‌های جدید: `test_benchmark_gate_rejects_a_candidate_that_only_matches_buy_and_hold`، `test_benchmark_gate_requires_the_configured_margin`، `test_benchmark_gate_fails_closed_when_the_benchmark_is_missing`، `test_benchmark_gate_can_be_disabled_only_by_explicit_settings`، `test_nested_optimizer_chooses_finalists_on_the_inner_selection_window`، `test_nested_optimizer_refuses_a_window_that_leaves_the_fold_train_slice`.
+
+### 12.2 پروتکل nested walk-forward
+
+- `tools/quant_nested_walk_forward.py` پنجره‌ی غلتان را از 2026-06-01 تا 2026-08-31T12:00Z می‌گیرد؛ جایی که test نهایی شروع می‌شود. test نهایی (2026-08-31T12:00Z تا 2026-10-01) در هیچ فراخوانی خوانده نشد و در payload هر 8 اجرا `final_test_read=false` است.
+- 4 فولد × 7 روز. در هر فولد، 80% اول train پنجره‌ی search و 20% آخر پنجره‌ی inner selection است. 6 trial (کاهش‌یافته به 3 برای mean_reversion با توقف زودهنگام) فقط روی search امتیاز می‌گیرند، 3 finalist روی selection دوباره سنجیده می‌شوند و پارامتر برنده روی هفته‌ی دیده‌نشده تست می‌شود.
+- `optimize_windows` با `allowed_window` تضمین می‌کند search و selection از fold train بیرون نزنند؛ تست واحد این نگهبان را پوشش می‌دهد.
+- 30 نماد search و 100 نماد scored، 180 trial، 32 فولد، 0 خطای نماد، 597.5 ثانیه. هر 32 انتخاب روی inner selection انجام شد (`chosen_on = inner selection`).
+
+### 12.3 نتیجه
+
+| ترکیب | معامله | جمع بازده فولدها | جمع BH | اختلاف | PF میانگین | بیشترین DD مؤثر | فولد مثبت | حکم |
+|---|---|---|---|---|---|---|---|---|
+| trend_pullback·1h | 339 | +3.6295% | +19.5361% | -15.9066 | 1.0598 | 3.691% | 25% | رد |
+| breakout·4h | 220 | +1.0786% | +19.5361% | -18.4575 | 0.7328 | 6.484% | 25% | رد |
+| mean_reversion·1h | 3 | +0.6344% | +19.5361% | -18.9017 | 0.0 | 0.155% | 25% | رد |
+| ema_trend·4h | 249 | +0.4798% | +19.5361% | -19.0563 | 1.0364 | 5.980% | 25% | رد |
+| breakout·1h | 429 | -0.7505% | +19.5361% | -20.2866 | 0.8107 | 3.987% | 25% | رد |
+| momentum·4h | 357 | -1.7609% | +19.5361% | -21.2970 | 0.8815 | 6.291% | 25% | رد |
+| ema_trend·1h | 322 | -2.0694% | +19.5361% | -21.6055 | 0.8963 | 6.293% | 25% | رد |
+| trend_pullback·15m | 653 | -5.9111% | +19.5361% | -25.4472 | 0.6134 | 5.030% | 25% | رد |
+
+جمع BH برای همه یکسان است (+19.5361%) چون همان 100 نماد و همان چهار هفته‌ی فولد است؛ این یک چک سازگاری است، نه نتیجه‌ی تکراری.
+
+- هیچ ترکیبی شرط 60% فولد مثبت را ندارد؛ هر هشت ترکیب دقیقاً 1 فولد از 4 را مثبت بسته‌اند. هفته‌ی سوم (2026-08-17 تا 2026-08-24) با BH +27.05% تنها هفته‌ی مثبت است و استراتژی‌ها در همان هفته هم بسیار کمتر از BH گرفتند (+0.30% تا +9.28%). هفته‌ی چهارم با BH -6.13% برای بیشتر استراتژی‌ها منفی بود.
+- بهترین جمع‌ها: `trend_pullback·1h` (+3.6295%، PF 1.0598) و `ema_trend·4h` (+0.4798%، PF 1.0364). هر دو فقط 25% فولد مثبت دارند و 15.9 تا 19.1 واحد از BH عقب‌اند؛ گیت‌های PF و بنچمارک را هم پاس نمی‌کنند.
+- پارامتر برنده در هر چهار فولد متفاوت است. برای `ema_trend·4h`: EMA 28/74، سپس 7/114، سپس 6/36 و در نهایت 33/84؛ stop 2.06/3.96/3.54/1.80 و target 6.61/1.91/5.55/7.56. هیچ ناحیه‌ی پایدار پارامتری وجود ندارد.
+- نمونه‌ی مستقیم تعمیم‌ناپذیری: در فولد 4 پارامتر برنده روی selection +8.9441% با PF 2.5351 داد، ولی روی هفته‌ی بعد -5.4970% شد. انتخاب درونی هم نویز را از بین نمی‌برد.
+- نتیجه: مشکل تنها بایاس انتخاب پارامتر در چرخه‌ی اول نبود. با یک پروتکل پاک که هیچ‌کدام از پنجره‌های داوری را در جست‌وجو نمی‌بیند، هیچ‌کدام از هشت فرضیه پس از هزینه و نسبت به buy & hold لبه‌ی پایدار نشان نمی‌دهد. این یک نتیجه‌ی منفی معتبر و قابل‌بازتولید است.
+
+### 12.4 منابع چرخه‌ی دوم
+
+| شاخص | مقدار |
+|---|---|
+| زمان کل | 597.5 ثانیه |
+| trialها | 180 (168 = 7 ترکیب × 4 فولد × 6؛ 12 = mean_reversion × 4 × 3 با توقف زودهنگام) |
+| فولدها | 32 |
+| خطای نماد | 0 |
+| انتخاب درونی | 32/32 |
+| خواندن test نهایی | 0 |
+| خروجی | `state/quant/results/nested_walk_forward/` (253 KB) + 8 ردیف در `EXPERIMENT_LOG.csv` |
+| تست کامل | 348 passed در 34.80 ثانیه |
+
+`EXPERIMENT_LOG.csv` اکنون 41 خط دارد: 24 ردیف baseline، 8 ردیف walk-forward و 8 ردیف nested walk-forward. ردیف‌های چرخه‌ی دوم با `slice=nested_walk_forward` و `params_label=nested-train-only` مشخص‌اند.
+
+### 12.5 چیزهایی که این چرخه اثبات نکرد
+
+- این پروتکل «داده‌ی تازه» نیست؛ همان چهار ماه است، فقط پنجره‌ی داوری تازه و بدون نشت است. ادعای پایداری چندرژیمی همچنان اثبات نشده.
+- test نهایی دست‌نخورده ماند؛ بنابراین هیچ عدد جدیدی از آن گزارش نشده است.
+- دروازه‌ی B (PAPER) همچنان به شواهد 28 روزه نیاز دارد و Live بسته است.
+

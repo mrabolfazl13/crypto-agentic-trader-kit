@@ -61,6 +61,11 @@ class LoopSettings:
     min_profit_factor: float = 1.10
     max_drawdown_pct: float = 10.0
     min_positive_fold_pct: float = 60.0
+    # Pre-registered for the next cycle: a candidate must also beat buy & hold on
+    # both the validation slice and the walk-forward sum. A risk-adjusted positive
+    # return alone is not an edge if simply holding the basket would have paid more.
+    require_benchmark_edge: bool = True
+    benchmark_margin_pct: float = 0.05
     max_minutes: float = 180.0
 
 
@@ -245,6 +250,9 @@ def load_quant_settings(config: Any) -> QuantSettings:
                                      name="quant.loop.max_drawdown_pct"),
             min_positive_fold_pct=_number(loop_raw, "min_positive_fold_pct", 60.0, low=0.0, high=100,
                                           name="quant.loop.min_positive_fold_pct"),
+            require_benchmark_edge=bool(loop_raw.get("require_benchmark_edge", True)),
+            benchmark_margin_pct=_number(loop_raw, "benchmark_margin_pct", 0.05, low=0.0, high=100,
+                                         name="quant.loop.benchmark_margin_pct"),
             max_minutes=_number(loop_raw, "max_minutes", 180, low=1, high=24 * 60, name="quant.loop.max_minutes"),
         ),
         ml=MLSettings(

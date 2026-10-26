@@ -50,15 +50,23 @@ class TrialResult:
     score: float
     search: dict[str, Any]
     status: str = "completed"
+    selection: dict[str, Any] | None = None
+    selection_score: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "number": self.number, "params": self.params, "score": round(self.score, 4),
             "status": self.status,
             "search": {key: self.search.get(key) for key in ("trades", "net_return_pct",
                                                              "profit_factor",
                                                              "effective_drawdown_pct")},
         }
+        if self.selection is not None:
+            payload["selection_score"] = round(float(self.selection_score or 0.0), 4)
+            payload["selection"] = {key: self.selection.get(key) for key in
+                                    ("trades", "net_return_pct", "profit_factor",
+                                     "effective_drawdown_pct")}
+        return payload
 
 
 def _params_key(params: dict[str, Any]) -> str:
@@ -74,16 +82,45 @@ def _suggest(trial: optuna.Trial, name: str) -> Any:
     return trial.suggest_float(name, float(low), float(high))
 
 
-def optimize(settings: QuantSettings, symbols: Iterable[str], *, strategy: str, timeframe: str,
-             base: QuantParams | None = None, trials: int | None = None,
-             seed: int = 42, progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
-    """Search the strategy's audited space; ranking is validation net return with a trade floor."""
+def _objective_score(metrics: dict[str, Any], min_trades: int) -> float:
+    trades = int(metrics.get("trades") or 0)
+    if trades < min_trades:
+        # Absence of evidence must never win: a zero-trade variant is penalized.
+        return -100.0 + trades * 0.1
+    score = float(metrics.get("net_return_pct") or 0.0)
+    score -= float(metrics.get("effective_drawdown_pct") or 0.0) * 0.25
+    return score
+
+
+def optimize_windows(settings: QuantSettings, symbols: Iterable[str], *, strategy: str, timeframe: str,
+                     search_window: Window, selection_window: Window | None = None,
+                     allowed_window: Window | None = None, base: QuantParams | None = None,
+                     trials: int | None = None, seed: int = 42, finalists: int = 3,
+                     progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+    """Bounded search scored on explicit windows only.
+
+    Trials are ranked on ``search_window``. When ``selection_window`` is given,
+    only the top ``finalists`` are scored there and the choice is made on that
+    inner slice; the outer validation/test slice is never passed in. ``allowed_window``
+    guards nested walk-forward callers: a bug that points search or selection at
+    the outer fold test fails here instead of silently leaking it.
+    """
     symbols = list(symbols)
     base = base or QuantParams()
     trials = int(trials or settings.loop.trials_per_experiment)
-    window = data_window(settings, symbols)
-    splits = chronological_splits(window, train=settings.walk_forward.train_fraction,
-                                  validation=settings.walk_forward.validation_fraction)
+    if search_window.end_ts <= search_window.start_ts:
+        raise ValueError("search window is empty")
+    if selection_window is not None:
+        if selection_window.end_ts <= selection_window.start_ts:
+            raise ValueError("selection window is empty")
+        if selection_window.start_ts < search_window.end_ts:
+            raise ValueError("selection window must start after the search window ends")
+    for label, window in (("search", search_window), ("selection", selection_window)):
+        if window is None:
+            continue
+        if allowed_window and (window.start_ts < allowed_window.start_ts
+                               or window.end_ts > allowed_window.end_ts):
+            raise ValueError(f"{label} window falls outside the allowed training window")
     fields = SPACES.get(strategy, ())
     sim = simulate_settings(settings)
     min_trades = max(5, settings.loop.min_trades // 2)
@@ -108,21 +145,14 @@ def optimize(settings: QuantSettings, symbols: Iterable[str], *, strategy: str, 
         except ValueError as exc:
             records.append(TrialResult(trial.number, candidate, -1e9, {}, status=f"invalid: {exc}"))
             raise optuna.TrialPruned() from exc
-        search_metrics = score_window(params, splits["train"])
-        trades = int(search_metrics.get("trades") or 0)
-        if trades < min_trades:
-            # Absence of evidence must never win: a zero-trade variant is penalized.
-            score = -100.0 + trades * 0.1
-        else:
-            score = float(search_metrics.get("net_return_pct") or 0.0)
-            drawdown = float(search_metrics.get("effective_drawdown_pct") or 0.0)
-            score -= drawdown * 0.25
+        search_metrics = score_window(params, search_window)
+        score = _objective_score(search_metrics, min_trades)
         cache[key] = score
         records.append(TrialResult(trial.number, candidate, score, search_metrics))
         recent.append(score)
         if progress:
             progress({"phase": "trial", "trial": trial.number + 1, "trials": trials,
-                      "score": round(score, 3), "trades": trades,
+                      "score": round(score, 3), "trades": int(search_metrics.get("trades") or 0),
                       "params": candidate})
         # Early stop: the last three trials all showed no evidence at all.
         if len(recent) >= 3 and all(value <= -99 for value in recent[-3:]):
@@ -134,14 +164,57 @@ def optimize(settings: QuantSettings, symbols: Iterable[str], *, strategy: str, 
                                 sampler=optuna.samplers.TPESampler(seed=seed, n_startup_trials=4))
     study.optimize(objective, n_trials=trials, catch=(Exception,))
     completed = [record for record in records if record.status == "completed"]
-    best = max(completed, key=lambda record: record.score) if completed else None
+    best: TrialResult | None = None
+    chosen_on = "search"
+    if selection_window is not None and completed:
+        finalist_records = sorted(completed, key=lambda record: record.score, reverse=True)[
+            :max(1, int(finalists))]
+        for record in finalist_records:
+            params = params_from_dict(base, record.params)
+            record.selection = score_window(params, selection_window)
+            record.selection_score = _objective_score(record.selection, min_trades)
+        best = max(finalist_records, key=lambda record: float(record.selection_score or -1e9))
+        chosen_on = "inner selection"
+    elif completed:
+        best = max(completed, key=lambda record: record.score)
     best_params = params_from_dict(base, best.params).as_dict() if best else base.as_dict()
+    best_payload: dict[str, Any] = {"params": best_params, "score": round(best.score, 4) if best else None}
+    if best is not None and best.selection_score is not None:
+        best_payload["selection_score"] = round(best.selection_score, 4)
+        best_payload["selection"] = {key: best.selection.get(key) for key in
+                                     ("trades", "net_return_pct", "profit_factor",
+                                      "effective_drawdown_pct")}
+    if selection_window is None:
+        note = "trials ranked on the train window only; validation and test are never read by this search"
+    else:
+        note = ("trials ranked on the search window only; finalists chosen on the inner selection "
+                "window; the outer fold test was never read by this search")
     return {
         "strategy": strategy, "timeframe": timeframe, "fields": list(fields),
         "trials": [record.as_dict() for record in records],
-        "best": {"params": best_params, "score": round(best.score, 4) if best else None},
+        "finalists": [record.number for record in sorted(
+            completed, key=lambda record: record.score, reverse=True)[:max(1, int(finalists))]
+            if selection_window is not None],
+        "best": best_payload,
+        "chosen_on": chosen_on,
         "stop_reason": stop_reason or ("trial budget reached" if len(records) >= trials else "search ended"),
-        "window": {"train": splits["train"].iso(), "validation": splits["validation"].iso()},
+        "window": {"search": search_window.iso(),
+                   "selection": selection_window.iso() if selection_window else None},
         "elapsed_seconds": round(time.monotonic() - started, 2),
-        "note": "trials ranked on the train window only; validation and test are never read by this search",
+        "note": note,
     }
+
+
+def optimize(settings: QuantSettings, symbols: Iterable[str], *, strategy: str, timeframe: str,
+             base: QuantParams | None = None, trials: int | None = None,
+             seed: int = 42, progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+    """Search the strategy's audited space; trials are ranked on train only."""
+    symbols = list(symbols)
+    window = data_window(settings, symbols)
+    splits = chronological_splits(window, train=settings.walk_forward.train_fraction,
+                                  validation=settings.walk_forward.validation_fraction)
+    result = optimize_windows(settings, symbols, strategy=strategy, timeframe=timeframe,
+                              search_window=splits["train"], base=base, trials=trials, seed=seed,
+                              progress=progress)
+    result["window"] = {"train": splits["train"].iso(), "validation": splits["validation"].iso()}
+    return result

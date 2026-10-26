@@ -121,7 +121,7 @@ def analyze_weakness(experiment: dict[str, Any]) -> list[dict[str, Any]]:
 
 def acceptance(validation: dict[str, Any], aggregate: dict[str, Any], champion: dict[str, Any] | None,
                settings: QuantSettings) -> dict[str, Any]:
-    """Pre-registered gates. A candidate must clear every one and beat the champion OOS."""
+    """Pre-registered gates. A candidate must clear every one, beat buy & hold and beat the champion."""
     loop = settings.loop
     trades = int(aggregate.get("trades") or 0)
     factor = aggregate.get("profit_factor_mean")
@@ -131,6 +131,21 @@ def acceptance(validation: dict[str, Any], aggregate: dict[str, Any], champion: 
     positive = float(aggregate.get("positive_fold_pct") or 0.0)
     net = float(validation.get("net_return_pct") or 0.0)
     champion_net = float((champion or {}).get("validation_net_pct") or 0.0) if champion else None
+    margin = loop.benchmark_margin_pct
+
+    def edge(strategy_net: float, benchmark: Any) -> tuple[float | None, bool]:
+        # Fail closed: without a benchmark number there is no evidence of edge.
+        if not isinstance(benchmark, (int, float)):
+            return None, False
+        excess = round(float(strategy_net) - float(benchmark), 4)
+        return excess, excess >= margin
+
+    validation_excess, validation_beats = edge(net, validation.get("benchmark_return_pct"))
+    fold_net = float(aggregate.get("net_return_pct_sum") or 0.0)
+    fold_excess, folds_beat = edge(fold_net, aggregate.get("benchmark_return_pct_sum"))
+    if not loop.require_benchmark_edge:
+        validation_beats = folds_beat = True
+
     gates = {
         "min_trades": {"required": loop.min_trades, "actual": trades, "pass": trades >= loop.min_trades},
         "profit_factor": {"required": loop.min_profit_factor,
@@ -141,12 +156,19 @@ def acceptance(validation: dict[str, Any], aggregate: dict[str, Any], champion: 
         "positive_folds_pct": {"required": loop.min_positive_fold_pct, "actual": positive,
                                "pass": positive >= loop.min_positive_fold_pct},
         "positive_validation_net": {"required": "> 0", "actual": round(net, 4), "pass": net > 0},
+        "beats_validation_benchmark": {
+            "required": f">= buy & hold + {margin}pp" if loop.require_benchmark_edge else "disabled",
+            "actual": validation_excess, "pass": validation_beats},
+        "beats_fold_benchmark": {
+            "required": f">= buy & hold + {margin}pp" if loop.require_benchmark_edge else "disabled",
+            "actual": fold_excess, "pass": folds_beat},
         "beats_champion": {"required": champion_net, "actual": round(net, 4),
                            "pass": champion is None or net > champion_net + 0.05},
     }
     failed = [name for name, gate in gates.items() if not gate["pass"]]
     if not failed:
-        return {"decision": "accepted", "reason": "all pre-registered gates passed and beat the champion",
+        return {"decision": "accepted", "reason": "all pre-registered gates passed, beat buy & hold "
+                                                   "and the champion",
                 "gates": gates}
     details = "; ".join(f"{name} (need {gates[name]['required']}, got {gates[name]['actual']})"
                         for name in failed)

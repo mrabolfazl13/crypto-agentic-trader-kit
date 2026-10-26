@@ -148,9 +148,11 @@ def test_walk_forward_rejects_a_window_too_short_for_its_folds():
 # ------------------------------------------------------------ acceptance gates
 
 PASSING = {
-    "validation": {"net_return_pct": 2.0, "effective_drawdown_pct": 5.0},
+    "validation": {"net_return_pct": 2.0, "effective_drawdown_pct": 5.0,
+                   "benchmark_return_pct": 1.0},
     "aggregate": {"trades": 40, "profit_factor_mean": 1.3, "positive_fold_pct": 75.0,
-                  "max_drawdown_pct": 6.0, "net_return_pct_sum": 8.0},
+                  "max_drawdown_pct": 6.0, "net_return_pct_sum": 8.0,
+                  "benchmark_return_pct_sum": 5.0},
 }
 
 
@@ -213,6 +215,46 @@ def test_champion_must_be_beaten_by_the_configured_margin():
     validation, aggregate = gates(net_return_pct=3.10)
     result = acceptance(validation, aggregate, champion, quant_settings(Path(".")))
     assert result["gates"]["beats_champion"]["pass"] is True
+
+
+def test_benchmark_gate_rejects_a_candidate_that_only_matches_buy_and_hold():
+    validation, aggregate = gates(benchmark_return_pct=2.0)
+    result = acceptance(validation, aggregate, None, quant_settings(Path(".")))
+    assert result["gates"]["beats_validation_benchmark"]["pass"] is False
+    assert result["gates"]["beats_validation_benchmark"]["actual"] == 0.0
+    assert "beats_validation_benchmark" in result["reason"]
+
+    validation, aggregate = gates(benchmark_return_pct_sum=8.0)
+    result = acceptance(validation, aggregate, None, quant_settings(Path(".")))
+    assert result["gates"]["beats_fold_benchmark"]["pass"] is False
+    assert "beats_fold_benchmark" in result["reason"]
+
+
+def test_benchmark_gate_requires_the_configured_margin():
+    validation, aggregate = gates(benchmark_return_pct=1.96)  # excess +0.04 < 0.05
+    result = acceptance(validation, aggregate, None, quant_settings(Path(".")))
+    assert result["gates"]["beats_validation_benchmark"]["actual"] == 0.04
+    assert result["gates"]["beats_validation_benchmark"]["pass"] is False
+
+
+def test_benchmark_gate_fails_closed_when_the_benchmark_is_missing():
+    validation, aggregate = gates()
+    del validation["benchmark_return_pct"]
+    del aggregate["benchmark_return_pct_sum"]
+    result = acceptance(validation, aggregate, None, quant_settings(Path(".")))
+    assert result["gates"]["beats_validation_benchmark"]["pass"] is False
+    assert result["gates"]["beats_fold_benchmark"]["pass"] is False
+    assert result["decision"] == "rejected"
+
+
+def test_benchmark_gate_can_be_disabled_only_by_explicit_settings():
+    validation, aggregate = gates()
+    del validation["benchmark_return_pct"]
+    del aggregate["benchmark_return_pct_sum"]
+    legacy = quant_settings(Path("."), loop=LoopSettings(require_benchmark_edge=False))
+    result = acceptance(validation, aggregate, None, legacy)
+    assert result["gates"]["beats_validation_benchmark"]["required"] == "disabled"
+    assert result["decision"] == "accepted"
 
 
 def test_loop_limits_come_from_settings_not_from_the_engine():
@@ -412,6 +454,48 @@ def test_optimizer_scores_trials_on_train_only(tmp_path: Path, monkeypatch):
     assert set(calls) == {(train_window.start_ts, train_window.end_ts)}, \
         "validation must never be read by the search"
     assert result["note"].startswith("trials ranked on the train window only")
+
+
+def test_nested_optimizer_chooses_finalists_on_the_inner_selection_window(tmp_path: Path, monkeypatch):
+    import cat.quant.optimizer as optimizer_module
+
+    search = Window(0, 600_000)
+    selection = Window(600_000, 700_000)
+    calls: list[tuple[int, int]] = []
+
+    def fake_run_backtest(settings, symbols, *, strategy, timeframe, params, sim,
+                          start_ts, end_ts):
+        calls.append((start_ts, end_ts))
+        return {"metrics": {"trades": 50, "net_return_pct": 1.0, "effective_drawdown_pct": 2.0}}
+
+    monkeypatch.setattr(optimizer_module, "run_backtest", fake_run_backtest)
+    result = optimizer_module.optimize_windows(
+        quant_settings(tmp_path), ["TESTUSDT"], strategy="breakout", timeframe="1h",
+        search_window=search, selection_window=selection,
+        allowed_window=Window(0, 700_000), trials=3, finalists=2)
+    assert set(calls) == {(search.start_ts, search.end_ts),
+                          (selection.start_ts, selection.end_ts)}, \
+        "only the search and inner selection windows may be scored"
+    assert calls.count((selection.start_ts, selection.end_ts)) == 2, \
+        "only the finalists are scored on the inner selection window"
+    assert result["chosen_on"] == "inner selection"
+    assert result["best"]["selection_score"] == pytest.approx(0.5)
+    assert "outer fold test was never read" in result["note"]
+
+
+def test_nested_optimizer_refuses_a_window_that_leaves_the_fold_train_slice(tmp_path: Path):
+    import cat.quant.optimizer as optimizer_module
+
+    with pytest.raises(ValueError, match="outside the allowed training window"):
+        optimizer_module.optimize_windows(
+            quant_settings(tmp_path), ["TESTUSDT"], strategy="breakout", timeframe="1h",
+            search_window=Window(0, 600_000), selection_window=Window(650_000, 800_000),
+            allowed_window=Window(0, 700_000), trials=1)
+    with pytest.raises(ValueError, match="must start after the search window"):
+        optimizer_module.optimize_windows(
+            quant_settings(tmp_path), ["TESTUSDT"], strategy="breakout", timeframe="1h",
+            search_window=Window(0, 600_000), selection_window=Window(500_000, 700_000),
+            allowed_window=Window(0, 700_000), trials=1)
 
 
 def test_ml_threshold_is_chosen_before_the_outer_validation_is_scored(tmp_path: Path, monkeypatch):
