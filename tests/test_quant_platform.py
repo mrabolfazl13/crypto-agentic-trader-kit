@@ -15,7 +15,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import cat.api as api_module
+# The research stack is optional at runtime (requirements-quant.txt). Without this
+# guard a half-installed environment dies during collection and hides the whole
+# base suite; CI still installs both requirement files and asserts the imports in
+# an explicit step, so a real regression cannot pass unnoticed there.
+pytest.importorskip("optuna", reason="quant research stack missing: pip install -r requirements-quant.txt")
+
+import cat.api as api_module  # noqa: E402  (must follow the importorskip guard)
 from cat.quant import service as quant_service
 from cat.quant.engine import Window, walk_forward_windows
 from cat.quant.loop import acceptance, analyze_weakness

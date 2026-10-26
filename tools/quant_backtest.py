@@ -42,6 +42,10 @@ def main() -> int:
     parser.add_argument("--max-hold-hours", type=float, default=None)
     parser.add_argument("--fee-pct", type=float, default=None)
     parser.add_argument("--slippage-pct", type=float, default=None)
+    parser.add_argument("--min-edge-cost-ratio", type=float, default=None,
+                        help="drop entries whose target cannot pay the round trip this many times")
+    parser.add_argument("--risk-per-trade-pct", type=float, default=None,
+                        help="size each position so a stop-out costs this share of equity")
     parser.add_argument("--json", default=None, help="write the full result JSON here")
     args = parser.parse_args()
 
@@ -58,6 +62,8 @@ def main() -> int:
         "max_hold_hours": args.max_hold_hours,
         "fee_pct": args.fee_pct,
         "slippage_pct": args.slippage_pct,
+        "min_edge_cost_ratio": args.min_edge_cost_ratio,
+        "risk_per_trade_pct": args.risk_per_trade_pct,
     }.items() if value is not None})
 
     started = time.monotonic()

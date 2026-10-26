@@ -16,6 +16,11 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt -r requirements-quant.txt
+      # The quant test module skips itself when the research stack is absent, so a
+      # half-installed laptop still gets a usable base suite. CI must never take that
+      # path: the stack is asserted here instead of trusting the skip.
+      - name: Research stack is installed
+        run: python -c "import optuna, pyarrow, lightgbm, sklearn, psutil; print('quant stack OK')"
       # The suite is offline by design: no exchange calls, no API keys.
       - name: Safety and engine tests
         run: python -m pytest -q

@@ -43,6 +43,10 @@ class BacktestSettings:
     max_open_positions: int = 10
     max_hold_hours: float = 24.0
     min_signal_bars: int = 30
+    # Off by default so every stored experiment keeps reproducing. Turning either on
+    # is a pre-registered hypothesis, not a tuning knob: the gates decide the outcome.
+    min_edge_cost_ratio: float = 0.0
+    risk_per_trade_pct: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -229,6 +233,10 @@ def load_quant_settings(config: Any) -> QuantSettings:
                                    name="quant.backtest.max_hold_hours"),
             min_signal_bars=_integer(backtest_raw, "min_signal_bars", 30, low=2, high=5000,
                                      name="quant.backtest.min_signal_bars"),
+            min_edge_cost_ratio=_number(backtest_raw, "min_edge_cost_ratio", 0.0, low=0.0, high=50.0,
+                                        name="quant.backtest.min_edge_cost_ratio"),
+            risk_per_trade_pct=_number(backtest_raw, "risk_per_trade_pct", 0.0, low=0.0, high=5.0,
+                                       name="quant.backtest.risk_per_trade_pct"),
         ),
         walk_forward=WalkForwardSettings(
             folds=_integer(wf_raw, "folds", 4, low=2, high=12, name="quant.walk_forward.folds"),

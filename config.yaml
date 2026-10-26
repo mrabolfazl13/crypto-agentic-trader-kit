@@ -205,6 +205,10 @@ quant:
     position_pct: 5.0
     max_open_positions: 10
     max_hold_hours: 24
+    # هر دو پیش‌فرض خاموش (0) تا نتایج ذخیره‌شده بازتولید شوند؛ روشن‌کردنشان فرضیه‌ی
+    # پیش‌ثبت‌شده است، نه تیونینگ. سقف notional و محدودیت ریسک دست‌نخورده می‌مانند.
+    min_edge_cost_ratio: 0.0
+    risk_per_trade_pct: 0.0
   walk_forward:
     folds: 4
     test_days: 7

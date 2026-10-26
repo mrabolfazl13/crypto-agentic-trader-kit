@@ -238,3 +238,79 @@ def test_gate_funnel_explains_a_zero_trade_market_instead_of_hiding_it():
     assert gates["entry_signals"] == 0
     funnel = {step["gate"]: step["passing"] for step in gates["funnel"]}
     assert funnel["trend"] == 0 and funnel["momentum_above_threshold"] == 0
+
+
+# ------------------------------------------------- cost-aware and risk-based entries
+
+def test_round_trip_cost_covers_both_legs_and_both_frictions():
+    assert SimSettings(fee_pct=0.10, slippage_pct=0.05).round_trip_cost_pct() == pytest.approx(0.30)
+
+
+def test_target_inside_the_cost_band_is_refused_and_counted():
+    """A 0.4% target against a 0.3% round trip cannot pay for itself twice over."""
+    frame = bars_1m([100.0] * 10)
+    signals = pd.DataFrame([signal(300, atr_pct=0.001)])
+    off, _ = generate_trades(frame, signals, symbol="TESTUSDT", strategy="ema_trend",
+                             params=QuantParams(), settings=SETTINGS)
+    assert len(off) == 1, "the switch must be off by default so old results reproduce"
+
+    strict = SimSettings(initial_capital=1_000.0, fee_pct=0.10, slippage_pct=0.05,
+                         position_pct=100.0, max_open_positions=1, max_hold_hours=1.0,
+                         min_edge_cost_ratio=2.0)
+    trades, rejections = generate_trades(frame, signals, symbol="TESTUSDT", strategy="ema_trend",
+                                         params=QuantParams(), settings=strict)
+    assert trades == []
+    assert rejections.get("target_inside_cost_band") == 1
+
+
+def test_cost_band_allows_a_target_that_clears_the_costs():
+    frame = bars_1m([100.0] * 10)
+    signals = pd.DataFrame([signal(300, atr_pct=0.02)])  # 2% ATR -> 6% target
+    strict = SimSettings(initial_capital=1_000.0, fee_pct=0.10, slippage_pct=0.05,
+                         position_pct=100.0, max_open_positions=1, max_hold_hours=1.0,
+                         min_edge_cost_ratio=2.0)
+    trades, rejections = generate_trades(frame, signals, symbol="TESTUSDT", strategy="ema_trend",
+                                         params=QuantParams(), settings=strict)
+    assert len(trades) == 1 and "target_inside_cost_band" not in rejections
+
+
+def test_risk_sizing_makes_a_stop_out_cost_the_same_share_of_equity():
+    """1% risk with a 5% stop must buy 2 units of a 100 entry, not the whole account."""
+    candidate = SignalTrade(symbol="TESTUSDT", signal_ts=0, entry_ts=60, exit_ts=3600,
+                            entry=100.0, exit=95.0, stop=95.0, target=110.0, reason="stop",
+                            bars=60, mae_pct=0.05)
+    sized = SimSettings(initial_capital=1_000.0, fee_pct=0.10, slippage_pct=0.05,
+                        position_pct=100.0, max_open_positions=1, max_hold_hours=24.0,
+                        risk_per_trade_pct=1.0)
+    result = simulate_portfolio([candidate], settings=sized)
+    trade = result["trades"][0]
+    assert trade["qty"] == pytest.approx(2.0, rel=1e-9)
+    fees = 2.0 * (100.0 + 95.0) * 0.001
+    assert trade["net"] == pytest.approx(-10.0 - fees, rel=1e-6)
+    assert result["metrics"]["net_return_pct"] == pytest.approx((-10.0 - fees) / 10.0, rel=1e-6)
+
+
+def test_risk_sizing_never_exceeds_the_notional_cap():
+    """A very tight stop must not turn equal-risk sizing into an oversized position."""
+    candidate = SignalTrade(symbol="TESTUSDT", signal_ts=0, entry_ts=60, exit_ts=3600,
+                            entry=100.0, exit=101.0, stop=99.9, target=110.0, reason="target",
+                            bars=60, mae_pct=0.001)
+    settings = SimSettings(initial_capital=1_000.0, fee_pct=0.10, slippage_pct=0.05,
+                           position_pct=5.0, max_open_positions=1, max_hold_hours=24.0,
+                           risk_per_trade_pct=1.0)
+    result = simulate_portfolio([candidate], settings=settings)
+    trade = result["trades"][0]
+    assert trade["qty"] * 100.0 <= 1_000.0 * 0.05 + 1e-9
+
+
+def test_risk_sizing_falls_back_to_notional_when_there_is_no_stop():
+    """buy_hold carries stop=0; it must still be sized instead of rejected."""
+    candidate = SignalTrade(symbol="TESTUSDT", signal_ts=0, entry_ts=60, exit_ts=3600,
+                            entry=100.0, exit=110.0, stop=0.0, target=0.0, reason="end_of_data",
+                            bars=60)
+    settings = SimSettings(initial_capital=1_000.0, fee_pct=0.10, slippage_pct=0.05,
+                           position_pct=100.0, max_open_positions=1, max_hold_hours=24.0,
+                           risk_per_trade_pct=1.0)
+    result = simulate_portfolio([candidate], settings=settings)
+    assert result["metrics"]["trades"] == 1
+

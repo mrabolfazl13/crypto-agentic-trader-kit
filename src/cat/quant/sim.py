@@ -48,6 +48,21 @@ class SimSettings:
     max_open_positions: int = 10
     max_hold_hours: float = 24.0
     min_notional: float = 10.0
+    # Pre-registered switch, off by default so every earlier result reproduces.
+    # When > 0 an entry is dropped unless its ATR target could pay the whole round
+    # trip (fee + slippage on both legs) this many times over. A signal whose target
+    # lives inside the cost band has negative expectancy by construction, so trading
+    # it is a guaranteed slow bleed rather than a hypothesis.
+    min_edge_cost_ratio: float = 0.0
+    # Pre-registered switch, off by default. When > 0 the position is sized so that
+    # a stop-out costs this share of equity, instead of sizing by fixed notional.
+    # Fixed notional risks a different amount on every symbol because the ATR stop
+    # moves; equal risk per trade is what makes a drawdown comparable across them.
+    risk_per_trade_pct: float = 0.0
+
+    def round_trip_cost_pct(self) -> float:
+        """Both legs, both frictions: what a trade must earn back before it earns anything."""
+        return 2.0 * (self.fee_pct + self.slippage_pct)
 
 
 def _exec_index(timestamps: np.ndarray, bar_end: int) -> int | None:
@@ -140,6 +155,13 @@ def generate_trades(bars: pd.DataFrame, signals: pd.DataFrame, *, symbol: str, s
         entry = float(opens[start]) * (1.0 + slip)
         stop_pct = min(max(params.atr_stop_mult * float(atr_pct[index]), 0.002), 0.10)
         target_pct = min(max(params.atr_target_mult * float(atr_pct[index]), 0.004), 0.25)
+        if settings.min_edge_cost_ratio > 0.0:
+            # Refuse signals whose whole move is eaten by costs: the target must pay
+            # the round trip ``min_edge_cost_ratio`` times before it counts as an edge.
+            required_target_pct = settings.min_edge_cost_ratio * settings.round_trip_cost_pct() / 100.0
+            if target_pct < required_target_pct:
+                reject("target_inside_cost_band")
+                continue
         stop = entry * (1.0 - stop_pct)
         target = entry * (1.0 + target_pct)
 
@@ -273,7 +295,14 @@ def simulate_portfolio(candidates: list[SignalTrade], *, settings: SimSettings,
             continue
         equity = cash + sum(position.qty * position.trade.entry for position in open_positions)
         budget = equity * settings.position_pct / 100.0
-        qty = budget / (candidate.entry * (1.0 + fee))
+        if settings.risk_per_trade_pct > 0.0 and candidate.stop > 0.0 and candidate.entry > candidate.stop:
+            # Equal risk per trade: size from the distance to the stop, never above the
+            # notional cap, so a wide stop cannot silently risk more of the account.
+            risk_budget = equity * settings.risk_per_trade_pct / 100.0
+            risk_qty = risk_budget / (candidate.entry - candidate.stop)
+            qty = min(budget / (candidate.entry * (1.0 + fee)), risk_qty)
+        else:
+            qty = budget / (candidate.entry * (1.0 + fee))
         cost = qty * candidate.entry * (1.0 + fee)
         if cost > cash:
             qty = cash / (candidate.entry * (1.0 + fee)) if cash > 0 else 0.0

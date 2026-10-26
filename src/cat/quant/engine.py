@@ -113,6 +113,8 @@ def simulate_settings(settings: QuantSettings, **overrides: Any) -> SimSettings:
         "max_open_positions": backtest.max_open_positions,
         "max_hold_hours": backtest.max_hold_hours,
         "min_notional": 10.0,
+        "min_edge_cost_ratio": backtest.min_edge_cost_ratio,
+        "risk_per_trade_pct": backtest.risk_per_trade_pct,
     }
     values.update({key: value for key, value in overrides.items() if key in values})
     return SimSettings(**values)

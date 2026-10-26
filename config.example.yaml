@@ -63,6 +63,12 @@ quant:
     position_pct: 5.0
     max_open_positions: 10
     max_hold_hours: 24
+    # Both off by default (0) so every stored experiment keeps reproducing. Turning
+    # either on is a pre-registered hypothesis, not tuning.
+    # min_edge_cost_ratio: the ATR target must pay the round trip this many times over.
+    # risk_per_trade_pct: a stop-out costs this share of equity (the notional cap stays).
+    min_edge_cost_ratio: 0.0
+    risk_per_trade_pct: 0.0
   walk_forward:
     folds: 4
     test_days: 7
