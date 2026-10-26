@@ -115,14 +115,73 @@ def simulate_settings(settings: QuantSettings, **overrides: Any) -> SimSettings:
         "min_notional": 10.0,
         "min_edge_cost_ratio": backtest.min_edge_cost_ratio,
         "risk_per_trade_pct": backtest.risk_per_trade_pct,
+        "regime_symbol": backtest.regime_symbol,
+        "regime_ema": backtest.regime_ema,
     }
     values.update({key: value for key, value in overrides.items() if key in values})
     return SimSettings(**values)
 
 
+_REGIME_CACHE: dict[tuple[str, str, str, int], tuple[np.ndarray, np.ndarray]] = {}
+
+
+def _regime_series(settings: QuantSettings, symbol: str, timeframe: str,
+                   period: int) -> tuple[np.ndarray, np.ndarray]:
+    """(bar_close_ts, above_ema) over the whole lake, computed once per process.
+
+    The series never depends on the evaluated window, so a fold, the inner search
+    and the inner selection all reuse the same closed-bar mask instead of rereading
+    the proxy for every backtest call. Callers slice it by their own window.
+    """
+    key = (str(settings.data_dir), symbol, timeframe, int(period))
+    cached = _REGIME_CACHE.get(key)
+    if cached is not None:
+        return cached
+    bars = load_bars(settings, symbol)
+    frame = resample(bars, timeframe)
+    close = frame["close"].to_numpy(dtype="float64")
+    ema = pd.Series(close).ewm(span=period, adjust=False, min_periods=period).mean().to_numpy()
+    if not np.isfinite(ema).any():
+        raise StorageError(f"regime proxy {symbol}: EMA({period}) is never defined on {timeframe}")
+    allowed = (np.isfinite(ema) & (close > ema)
+               & frame["complete"].fillna(False).astype(bool).to_numpy(dtype=bool))
+    _REGIME_CACHE[key] = (frame["bar_end"].to_numpy(dtype="int64"), allowed)
+    return _REGIME_CACHE[key]
+
+
+def market_regime(settings: QuantSettings, sim: SimSettings, timeframe: str, *,
+                  start_ts: int | None, end_ts: int | None) -> np.ndarray:
+    """Bar-close timestamps where the regime proxy is above its own long EMA.
+
+    Only ``complete`` buckets count: a gap is an unknown regime, and an unknown
+    regime must block entries rather than pass them. EMA is the standard span
+    form (alpha = 2 / (n + 1)) on closed bars, so a signal that closes on such a
+    bar already knows the regime before the next bar's open fills it.
+
+    A missing proxy raises: falling back to "no gate" would silently reproduce the
+    ungated run this filter is supposed to be measured against.
+    """
+    period = int(sim.regime_ema)
+    if period < 2:
+        raise ValueError(f"regime_ema must be >= 2, got {period}")
+    if timeframe not in TIMEFRAME_SECONDS:
+        raise ValueError(f"unsupported timeframe {timeframe!r}")
+    try:
+        ends, allowed = _regime_series(settings, sim.regime_symbol, timeframe, period)
+    except StorageError as exc:
+        raise StorageError(f"regime proxy {sim.regime_symbol}: {exc}") from exc
+    allowed = allowed.copy()
+    if start_ts is not None:
+        allowed &= ends >= int(start_ts)
+    if end_ts is not None:
+        allowed &= ends < int(end_ts)
+    return ends[allowed]
+
+
 def symbol_candidates(settings: QuantSettings, symbol: str, *, strategy: str, timeframe: str,
                       params: QuantParams, sim: SimSettings, start_ts: int | None = None,
-                      end_ts: int | None = None, warmup: bool = True) -> dict[str, Any]:
+                      end_ts: int | None = None, warmup: bool = True,
+                      regime_allowed: np.ndarray | None = None) -> dict[str, Any]:
     """Candidate trades for one symbol. Warmup bars may precede ``start_ts``; entries may not."""
     warmup_seconds = TIMEFRAME_SECONDS[timeframe] * params.warmup_bars() if warmup else 0
     load_start = int(start_ts) - warmup_seconds if start_ts is not None else None
@@ -138,7 +197,8 @@ def symbol_candidates(settings: QuantSettings, symbol: str, *, strategy: str, ti
         diagnostic_bars = diagnostic_bars[diagnostic_bars["bar_end"] < int(end_ts)]
     gates = gate_funnel(diagnostic_bars, strategy, params)
     trades, rejections = generate_trades(bars, signals, symbol=symbol, strategy=strategy,
-                                         params=params, settings=sim, entry_after_ts=start_ts)
+                                         params=params, settings=sim, entry_after_ts=start_ts,
+                                         regime_allowed=regime_allowed)
     # The benchmark must measure the evaluated window, not the indicator warmup
     # that was loaded in front of it: otherwise every fold's buy & hold spans
     # extra days the strategy was never allowed to trade.
@@ -187,6 +247,10 @@ def run_backtest(settings: QuantSettings, symbols: Iterable[str], *, strategy: s
     """Portfolio backtest over the given symbols, with an equal-weight benchmark."""
     symbols = list(symbols)
     sim = sim or simulate_settings(settings)
+    # One regime load per run, not per symbol. When the gate is on, a missing proxy
+    # raises here and the whole run stops instead of scoring an ungated look-alike.
+    regime_allowed = (market_regime(settings, sim, timeframe, start_ts=start_ts, end_ts=end_ts)
+                      if sim.regime_symbol else None)
     started = time.monotonic()
     candidates: list[SignalTrade] = []
     per_symbol: list[dict[str, Any]] = []
@@ -200,7 +264,8 @@ def run_backtest(settings: QuantSettings, symbols: Iterable[str], *, strategy: s
     for index, symbol in enumerate(symbols, start=1):
         try:
             data = symbol_candidates(settings, symbol, strategy=strategy, timeframe=timeframe,
-                                     params=params, sim=sim, start_ts=start_ts, end_ts=end_ts)
+                                     params=params, sim=sim, start_ts=start_ts, end_ts=end_ts,
+                                     regime_allowed=regime_allowed)
         except StorageError as exc:
             errors[symbol] = str(exc)
             continue
@@ -266,7 +331,11 @@ def run_backtest(settings: QuantSettings, symbols: Iterable[str], *, strategy: s
                 "max_open_positions": sim.max_open_positions, "max_hold_hours": sim.max_hold_hours,
                 "min_edge_cost_ratio": sim.min_edge_cost_ratio,
                 "risk_per_trade_pct": sim.risk_per_trade_pct,
+                "regime_symbol": sim.regime_symbol, "regime_ema": sim.regime_ema,
                 "drawdown_basis": metrics.get("drawdown_basis")},
+        "regime": {"enabled": bool(sim.regime_symbol), "symbol": sim.regime_symbol or None,
+                   "ema": sim.regime_ema if sim.regime_symbol else None,
+                   "allowed_bars": int(len(regime_allowed)) if regime_allowed is not None else None},
         "elapsed_seconds": round(time.monotonic() - started, 2),
         "note": "PAPER backtest on stored 1m bars; net of fees and slippage; not a forecast",
     }

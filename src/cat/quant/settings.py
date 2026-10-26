@@ -47,6 +47,10 @@ class BacktestSettings:
     # is a pre-registered hypothesis, not a tuning knob: the gates decide the outcome.
     min_edge_cost_ratio: float = 0.0
     risk_per_trade_pct: float = 0.0
+    # Empty = no regime gate. A symbol here allows long entries only while that
+    # symbol closes above its EMA(regime_ema) on the same timeframe.
+    regime_symbol: str = ""
+    regime_ema: int = 200
 
 
 @dataclass(frozen=True)
@@ -200,6 +204,9 @@ def load_quant_settings(config: Any) -> QuantSettings:
 
     ingest_raw = _mapping(raw.get("ingest"))
     backtest_raw = _mapping(raw.get("backtest"))
+    regime_symbol = str(backtest_raw.get("regime_symbol", "") or "").strip().upper()
+    if regime_symbol and (not regime_symbol.isalnum() or len(regime_symbol) > 20):
+        raise ValueError("quant.backtest.regime_symbol must be a plain symbol like BTCUSDT")
     wf_raw = _mapping(raw.get("walk_forward"))
     loop_raw = _mapping(raw.get("loop"))
     ml_raw = _mapping(raw.get("ml"))
@@ -237,6 +244,9 @@ def load_quant_settings(config: Any) -> QuantSettings:
                                         name="quant.backtest.min_edge_cost_ratio"),
             risk_per_trade_pct=_number(backtest_raw, "risk_per_trade_pct", 0.0, low=0.0, high=5.0,
                                        name="quant.backtest.risk_per_trade_pct"),
+            regime_symbol=regime_symbol,
+            regime_ema=_integer(backtest_raw, "regime_ema", 200, low=2, high=1000,
+                                name="quant.backtest.regime_ema"),
         ),
         walk_forward=WalkForwardSettings(
             folds=_integer(wf_raw, "folds", 4, low=2, high=12, name="quant.walk_forward.folds"),

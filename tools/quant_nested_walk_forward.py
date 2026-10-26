@@ -61,7 +61,7 @@ def fold_protocol(train: Window, inner_selection_fraction: float) -> tuple[Windo
 def evaluate_fold(settings, symbols_search: list[str], symbols: list[str], *, strategy: str,
                   timeframe: str, plan: dict[str, Window], trials: int, finalists: int,
                   inner_selection_fraction: float, seed: int,
-                  include_trades: bool = False) -> dict:
+                  include_trades: bool = False, sim=None) -> dict:
     search, selection = fold_protocol(plan["train"], inner_selection_fraction)
     test = plan["test"]
     if search.end_ts > plan["train"].end_ts or selection.end_ts > plan["train"].end_ts \
@@ -74,7 +74,7 @@ def evaluate_fold(settings, symbols_search: list[str], symbols: list[str], *, st
         trials=trials, seed=seed, finalists=finalists)
     params = params_from_dict(overrides=search_result["best"]["params"])
     scored = run_backtest(settings, symbols, strategy=strategy, timeframe=timeframe, params=params,
-                          sim=simulate_settings(settings),
+                          sim=sim or simulate_settings(settings),
                           start_ts=test.start_ts, end_ts=test.end_ts)
     payload = {
         "fold": plan["fold"],
@@ -110,6 +110,11 @@ def main() -> int:
     parser.add_argument("--dump-trades", action="store_true",
                         help="also write <run_id>.trades.json with the per-fold test trades, "
                              "for failed-trade analysis (the final holdout is still never read)")
+    parser.add_argument("--regime-symbol", default="",
+                        help="enable the pre-registered regime gate (D-012): long entries only "
+                             "while this symbol is above its own EMA on the same timeframe")
+    parser.add_argument("--regime-ema", type=int, default=200,
+                        help="EMA period for --regime-symbol (default 200)")
     parser.add_argument("--end", default="",
                         help="cap the data window end (ISO date, e.g. 2026-06-01) so a run can "
                              "replicate on an earlier regime slice; the cap is never extended "
@@ -122,6 +127,10 @@ def main() -> int:
     args = parser.parse_args()
 
     settings = load_quant_settings(load_config(root=ROOT))
+    sim = simulate_settings(settings)
+    if args.regime_symbol:
+        sim = simulate_settings(settings, regime_symbol=args.regime_symbol,
+                                regime_ema=int(args.regime_ema))
     symbols = universe_symbols(settings)
     if args.limit:
         symbols = symbols[: max(1, args.limit)]
@@ -150,7 +159,9 @@ def main() -> int:
     run_stamp = utc_stamp()
     print(f"nested walk-forward: {len(configs)} configs x {len(plans)} folds x {args.trials} trials; "
           f"{len(symbols_search)} search symbols, {len(symbols)} scored symbols; "
-          f"rolling window ends {fold_window.iso()['end']} (final test starts "
+          f"regime={sim.regime_symbol or 'off'}"
+          + (f"/ema{sim.regime_ema}" if sim.regime_symbol else "")
+          + f"; rolling window ends {fold_window.iso()['end']} (final test starts "
           f"{splits['test'].iso()['start']}, never read)", flush=True)
 
     for strategy, timeframe in configs:
@@ -170,7 +181,8 @@ def main() -> int:
                                  timeframe=timeframe, plan=plan, trials=args.trials,
                                  finalists=args.finalists,
                                  inner_selection_fraction=args.inner_selection_fraction,
-                                 seed=42 + plan["fold"], include_trades=args.dump_trades)
+                                 seed=42 + plan["fold"], include_trades=args.dump_trades,
+                                 sim=sim)
             if args.dump_trades:
                 trade_dump[str(fold["fold"])] = fold.pop("trades_detail", [])
             records.append(fold)
@@ -217,7 +229,9 @@ def main() -> int:
                                        - float(aggregate.get("benchmark_return_pct_sum") or 0.0), 4),
             "status": f"completed; decision={decision['decision']}; "
                       f"positive_folds_pct={aggregate.get('positive_fold_pct')}; "
-                      f"folds={aggregate.get('folds')}; final_test_read=false",
+                      f"folds={aggregate.get('folds')}; final_test_read=false; "
+                      f"regime={sim.regime_symbol or 'off'}"
+                      + (f"/ema{sim.regime_ema}" if sim.regime_symbol else ""),
         }
         payload = {
             "run_id": run_id, "created_at": row["date"], "code_version": version,
@@ -226,7 +240,9 @@ def main() -> int:
                          "inner_selection_fraction": args.inner_selection_fraction,
                          "search_symbols": len(symbols_search), "scored_symbols": len(symbols),
                          "folds": settings.walk_forward.folds,
-                         "test_days": settings.walk_forward.test_days},
+                         "test_days": settings.walk_forward.test_days,
+                         "regime_symbol": sim.regime_symbol or None,
+                         "regime_ema": sim.regime_ema if sim.regime_symbol else None},
             "window": fold_window.iso(), "final_test_start": splits["test"].iso()["start"],
             "final_test_read": False,
             "folds": records, "aggregate": aggregate, "decision": decision,

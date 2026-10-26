@@ -24,7 +24,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-from .engine import (Window, aggregate_folds, data_window, load_bars, run_backtest,
+from .engine import (Window, aggregate_folds, data_window, load_bars, market_regime, run_backtest,
                      simulate_settings, walk_forward_windows)
 from .features import QuantParams, TIMEFRAME_SECONDS, add_indicators, resample
 from .settings import QuantSettings
@@ -182,6 +182,8 @@ def ml_backtest(settings: QuantSettings, symbols: Iterable[str], *, timeframe: s
                 start_ts: int | None = None, end_ts: int | None = None,
                 horizon_hours: int | None = None, progress=None) -> dict[str, Any]:
     sim = sim or simulate_settings(settings)
+    regime_allowed = (market_regime(settings, sim, timeframe, start_ts=start_ts, end_ts=end_ts)
+                      if sim.regime_symbol else None)
     candidates: list[SignalTrade] = []
     rejections: dict[str, int] = {}
     closes: dict[str, tuple[float, float]] = {}
@@ -195,7 +197,8 @@ def ml_backtest(settings: QuantSettings, symbols: Iterable[str], *, timeframe: s
             if bars.empty or signals.empty:
                 continue
             trades, rejected = generate_trades(bars, signals, symbol=symbol, strategy="ema_trend",
-                                               params=params, settings=sim, entry_after_ts=start_ts)
+                                               params=params, settings=sim, entry_after_ts=start_ts,
+                                               regime_allowed=regime_allowed)
         except Exception as exc:  # noqa: BLE001
             errors[symbol] = f"{type(exc).__name__}: {exc}"
             continue

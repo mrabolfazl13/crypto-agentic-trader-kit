@@ -59,6 +59,12 @@ class SimSettings:
     # Fixed notional risks a different amount on every symbol because the ATR stop
     # moves; equal risk per trade is what makes a drawdown comparable across them.
     risk_per_trade_pct: float = 0.0
+    # Pre-registered switch, off by default so every earlier result reproduces. When
+    # set, entries are only allowed on bars where this proxy closed above its own
+    # EMA(regime_ema) on the same timeframe. The engine computes that mask once per
+    # run; a missing mask is an error, never a silent pass back to ungated trading.
+    regime_symbol: str = ""
+    regime_ema: int = 200
 
     def round_trip_cost_pct(self) -> float:
         """Both legs, both frictions: what a trade must earn back before it earns anything."""
@@ -86,11 +92,17 @@ def _next_exit_array(signals: pd.DataFrame) -> np.ndarray:
 
 def generate_trades(bars: pd.DataFrame, signals: pd.DataFrame, *, symbol: str, strategy: str,
                     params: QuantParams, settings: SimSettings,
-                    entry_after_ts: int | None = None) -> tuple[list[SignalTrade], dict[str, int]]:
+                    entry_after_ts: int | None = None,
+                    regime_allowed: np.ndarray | None = None) -> tuple[list[SignalTrade], dict[str, int]]:
     """Build non-overlapping candidate trades for one symbol from its closed-bar signals.
 
     ``entry_after_ts`` keeps indicator warmup visible while refusing fills before the
     evaluated window starts (used by walk-forward folds and the untouched hold-out).
+
+    ``regime_allowed`` lists the bar-close timestamps where the market regime permits
+    a long entry. When ``settings.regime_symbol`` is set the mask is mandatory: a run
+    that quietly traded without its own gate would be indistinguishable from the
+    ungated result it is meant to be compared against.
     """
     rejections: dict[str, int] = {}
     if bars.empty or signals.empty:
@@ -132,11 +144,20 @@ def generate_trades(bars: pd.DataFrame, signals: pd.DataFrame, *, symbol: str, s
     next_exit = _next_exit_array(signals)
     entries = signals["entry"].fillna(False).to_numpy(dtype=bool)
     atr_pct = signals["atr_pct"].to_numpy(dtype="float64")
+    regime_on: np.ndarray | None = None
+    if settings.regime_symbol:
+        if regime_allowed is None:
+            raise ValueError(f"regime gate on {settings.regime_symbol!r} needs its mask; "
+                             "refusing to trade without the pre-registered filter")
+        regime_on = np.isin(bar_ends, np.asarray(regime_allowed, dtype="int64"))
     trades: list[SignalTrade] = []
     busy_until = -1
 
     for index in range(len(signals)):
         if not entries[index]:
+            continue
+        if regime_on is not None and not bool(regime_on[index]):
+            reject("regime_off")
             continue
         if not np.isfinite(atr_pct[index]) or atr_pct[index] <= 0:
             reject("invalid_atr")

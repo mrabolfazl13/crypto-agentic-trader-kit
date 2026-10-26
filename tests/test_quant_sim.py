@@ -366,3 +366,42 @@ def test_a_mark_missing_for_a_symbol_falls_back_to_cost_and_says_so():
     assert result["metrics"]["max_drawdown_pct"] == pytest.approx(0.0), "cost basis, not an invention"
 
 
+
+
+# ------------------------------------------------------------- market regime gate (D-012)
+
+def test_regime_gate_blocks_every_entry_while_the_market_is_not_trending():
+    frame = bars_1m([100.0] * 20)
+    signals = pd.DataFrame([signal(300), signal(600)])
+    gated = SimSettings(initial_capital=1_000.0, fee_pct=0.10, slippage_pct=0.05,
+                        position_pct=100.0, max_open_positions=1, max_hold_hours=1.0,
+                        regime_symbol="BTCUSDT")
+    trades, rejections = generate_trades(frame, signals, symbol="TESTUSDT", strategy="ema_trend",
+                                         params=QuantParams(), settings=gated,
+                                         regime_allowed=np.array([], dtype="int64"))
+    assert trades == []
+    assert rejections.get("regime_off") == 2, "every signal must be counted against the gate"
+
+
+def test_regime_gate_passes_the_same_signals_when_the_mask_covers_them():
+    frame = bars_1m([100.0] * 20)
+    signals = pd.DataFrame([signal(300), signal(600)])
+    gated = SimSettings(initial_capital=1_000.0, fee_pct=0.10, slippage_pct=0.05,
+                        position_pct=100.0, max_open_positions=1, max_hold_hours=1.0,
+                        regime_symbol="BTCUSDT")
+    ungated, _ = generate_trades(frame, signals, symbol="TESTUSDT", strategy="ema_trend",
+                                 params=QuantParams(), settings=SETTINGS)
+    trades, rejections = generate_trades(frame, signals, symbol="TESTUSDT", strategy="ema_trend",
+                                         params=QuantParams(), settings=gated,
+                                         regime_allowed=np.array([300, 600], dtype="int64"))
+    assert [trade.entry_ts for trade in trades] == [trade.entry_ts for trade in ungated]
+    assert "regime_off" not in rejections
+
+
+def test_regime_gate_refuses_to_trade_without_its_mask():
+    frame = bars_1m([100.0] * 10)
+    signals = pd.DataFrame([signal(300)])
+    gated = SimSettings(regime_symbol="BTCUSDT")
+    with pytest.raises(ValueError):
+        generate_trades(frame, signals, symbol="TESTUSDT", strategy="ema_trend",
+                        params=QuantParams(), settings=gated)

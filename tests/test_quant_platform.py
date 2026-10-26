@@ -588,6 +588,67 @@ def test_backtest_reports_the_gate_funnel_even_with_zero_trades(tmp_path: Path, 
     assert result["metrics"]["trades"] == 0
 
 
+# ------------------------------------------------------- market regime gate (D-012)
+
+def test_market_regime_requires_closed_complete_bars(tmp_path: Path, monkeypatch):
+    import cat.quant.engine as engine
+
+    rising = _bars_1m(600, drift=0.01)
+    monkeypatch.setattr(engine, "load_bars", lambda *args, **kwargs: rising)
+    settings = quant_settings(tmp_path)
+    sim = engine.simulate_settings(settings, regime_symbol="BTCUSDT", regime_ema=3)
+    allowed = engine.market_regime(settings, sim, "1h", start_ts=0, end_ts=600 * 60)
+    assert allowed.tolist() == [10800 + 3600 * step for step in range(7)], \
+        "EMA(3) is defined from the third complete bucket, and the window end is exclusive"
+
+    gapped = rising.drop(index=70).reset_index(drop=True)  # one missing 1m bar in hour two
+    monkeypatch.setattr(engine, "load_bars", lambda *args, **kwargs: gapped)
+    engine._REGIME_CACHE.clear()
+    allowed = engine.market_regime(settings, sim, "1h", start_ts=0, end_ts=600 * 60)
+    assert 7200 not in allowed.tolist(), "an incomplete bucket is an unknown regime, so it blocks"
+
+
+def test_market_regime_is_empty_but_valid_in_a_downtrend(tmp_path: Path, monkeypatch):
+    import cat.quant.engine as engine
+
+    falling = _bars_1m(600, base=1_000.0, drift=-0.05)
+    monkeypatch.setattr(engine, "load_bars", lambda *args, **kwargs: falling)
+    settings = quant_settings(tmp_path)
+    sim = engine.simulate_settings(settings, regime_symbol="BTCUSDT", regime_ema=3)
+    allowed = engine.market_regime(settings, sim, "1h", start_ts=0, end_ts=600 * 60)
+    assert allowed.size == 0, "a whole down window is a result, not a crash"
+
+
+def test_market_regime_raises_when_the_ema_is_never_defined(tmp_path: Path, monkeypatch):
+    import cat.quant.engine as engine
+
+    short = _bars_1m(120, drift=0.01)
+    monkeypatch.setattr(engine, "load_bars", lambda *args, **kwargs: short)
+    settings = quant_settings(tmp_path)
+    sim = engine.simulate_settings(settings, regime_symbol="BTCUSDT", regime_ema=200)
+    with pytest.raises(engine.StorageError):
+        engine.market_regime(settings, sim, "1h", start_ts=0, end_ts=120 * 60)
+
+
+def test_backtest_fails_loud_when_the_regime_proxy_is_missing(tmp_path: Path, monkeypatch):
+    import cat.quant.engine as engine
+
+    frame = _bars_1m(600, drift=0.01)
+
+    def fake_load(settings, symbol, **kwargs):
+        if symbol == "MISSINGUSDT":
+            raise engine.StorageError(f"{symbol}: no stored bars")
+        return frame
+
+    monkeypatch.setattr(engine, "load_bars", fake_load)
+    monkeypatch.setattr(engine, "current_data_version", lambda settings: {})
+    settings = quant_settings(tmp_path)
+    sim = engine.simulate_settings(settings, regime_symbol="MISSINGUSDT", regime_ema=3)
+    with pytest.raises(engine.StorageError):
+        engine.run_backtest(settings, ["TESTUSDT"], strategy="ema_trend", timeframe="1h",
+                            params=engine.QuantParams(), sim=sim)
+
+
 # ------------------------------------------------------------------ data guards
 
 def test_load_bars_reads_only_months_that_overlap_the_window():
