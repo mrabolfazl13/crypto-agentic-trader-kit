@@ -358,6 +358,8 @@ M tests/test_quant_platform.py
 | خروجی | `state/quant/results/nested_walk_forward/` (253 KB) + 8 ردیف در `EXPERIMENT_LOG.csv` |
 | تست کامل | 348 passed در 34.80 ثانیه |
 
+checkpoint چرخه‌ی دوم: commit `2cd9ad0` (11 فایل، 615 insertion).
+
 `EXPERIMENT_LOG.csv` اکنون 41 خط دارد: 24 ردیف baseline، 8 ردیف walk-forward و 8 ردیف nested walk-forward. ردیف‌های چرخه‌ی دوم با `slice=nested_walk_forward` و `params_label=nested-train-only` مشخص‌اند.
 
 ### 12.5 چیزهایی که این چرخه اثبات نکرد
@@ -365,4 +367,18 @@ M tests/test_quant_platform.py
 - این پروتکل «داده‌ی تازه» نیست؛ همان چهار ماه است، فقط پنجره‌ی داوری تازه و بدون نشت است. ادعای پایداری چندرژیمی همچنان اثبات نشده.
 - test نهایی دست‌نخورده ماند؛ بنابراین هیچ عدد جدیدی از آن گزارش نشده است.
 - دروازه‌ی B (PAPER) همچنان به شواهد 28 روزه نیاز دارد و Live بسته است.
+
+### 12.6 اجرای واقعی حلقه با گیت جدید
+
+برای اینکه گیت جدید فقط در تست واحد نماند، یک آزمایش کامل `ema_trend·4h` از مسیر خود حلقه اجرا شد (8 trial، 30 نماد search، 100 نماد ارزیابی، 4 فولد): loop `loop-40f4a6fcef`، experiment `exp-395b29c72f`، 37.5 ثانیه.
+
+| شاخص | مقدار |
+|---|---|
+| validation: معامله / بازده / PF / DD مؤثر | 242 / +3.3189% / 1.1707 / 5.591% |
+| validation BH / اختلاف | +16.731% / -13.4121 |
+| walk-forward: جمع بازده / جمع BH / اختلاف | +3.2733% / +19.5361% / -16.2628 |
+| PF میانگین فولدها / فولد مثبت | 1.2318 / 25% |
+| تصمیم | `rejected` |
+
+دلیل ذخیره‌شده: `positive_folds_pct` (25% < 60%)، `beats_validation_benchmark` (-13.4121 < 0.05) و `beats_fold_benchmark` (-16.2628 < 0.05). این نمونه نشان می‌دهد گیت جدید در مسیر واقعی حلقه اعمال می‌شود و پارامترهایی که فقط روی validation عدد مثبت می‌سازند، بدون برتری از بنچمارک و پایداری فولد پذیرفته نمی‌شوند. لاگ: `state/quant/results/loop_gate_smoke.log`؛ رکورد در `state/quant/research.sqlite3` (طبق `.gitignore` خارج از commit). برچسب فارسی دو گیت جدید به پنل اضافه شد و `npm run typecheck` بدون خطا گذشت.
 

@@ -78,6 +78,8 @@ const GATE_LABEL: Record<string, string> = {
   positive_folds_pct: "درصد فولدهای مثبت",
   min_positive_fold_pct: "حداقل فولد مثبت",
   positive_validation_net: "بازده خالص اعتبارسنجی",
+  beats_validation_benchmark: "بهتر از بنچمارک در اعتبارسنجی",
+  beats_fold_benchmark: "بهتر از بنچمارک در فولدها",
   beats_champion: "بهتر از قهرمان",
 };
 
@@ -85,7 +87,7 @@ const GATE_LABEL: Record<string, string> = {
 function reasonLabel(reason: string | null): string | null {
   if (!reason) return null;
   if (reason.includes("all pre-registered gates passed")) {
-    return "همه‌ی گیت‌های از پیش ثبت‌شده پاس شد و از قهرمان بهتر بود.";
+    return "همه‌ی گیت‌های از پیش ثبت‌شده پاس شد و از بنچمارک و قهرمان بهتر بود.";
   }
   return reason
     .replace(/^failed:\s*/, "رد شد — ")
