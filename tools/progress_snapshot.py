@@ -64,11 +64,13 @@ def experiment_log() -> dict:
 def nested_walk_forwards() -> list[dict]:
     out = []
     for path in sorted((ROOT / "state" / "quant" / "results").glob("*/nested-wf-*.json")):
-        if path.name.endswith(".partial.json"):
+        if path.name.endswith(".partial.json") or path.name.endswith(".trades.json"):
             continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data.get("folds"), list) or "aggregate" not in data:
             continue
         agg = data.get("aggregate") or {}
         net, bench = agg.get("net_return_pct_sum"), agg.get("benchmark_return_pct_sum")

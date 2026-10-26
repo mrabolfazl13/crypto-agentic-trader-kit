@@ -197,10 +197,9 @@ def test_params_reject_out_of_bounds_and_inverted_emas():
         params_from_dict(overrides={"ema_fast": 60, "ema_slow": 20})
     with pytest.raises(ValueError):
         params_from_dict(overrides={"not_a_field": 1})
-    # Risking more than the target pays was selected on noise by the inner search.
-    with pytest.raises(ValueError, match="atr_target_mult"):
-        params_from_dict(overrides={"atr_stop_mult": 3.5, "atr_target_mult": 1.0})
-    assert params_from_dict(overrides={"atr_stop_mult": 2.0, "atr_target_mult": 2.0}).atr_target_mult == 2.0
+    # D-011: a reward:risk floor was measured, made the aggregate worse, and was reverted.
+    tight = params_from_dict(overrides={"atr_stop_mult": 3.5, "atr_target_mult": 1.0})
+    assert tight.atr_target_mult == 1.0 and tight.atr_stop_mult == 3.5
 
 
 def test_signal_frame_has_no_signal_during_warmup():
