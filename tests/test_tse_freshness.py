@@ -80,13 +80,20 @@ def test_weekend_tse_snapshot_is_not_stale(workspace: Path):
     assert snapshot.quote.ts == pytest.approx(datetime(2026, 10, 21, 12, 30, 2, tzinfo=calendar.TEHRAN).timestamp())
 
 
-def test_engine_snapshot_marks_single_source_but_stays_fresh(workspace: Path):
+def test_engine_snapshot_marks_single_source_but_stays_fresh(workspace: Path, monkeypatch: pytest.MonkeyPatch):
     write_universe(workspace)
     write_tse_config(workspace)
     config = load_config(root=workspace)
     engine = Engine(config)
     engine.gate = fixture_provider(workspace)
     engine.cross = None
+    # Fixture klines are pinned to the 2026-10-21 session; anchor freshness to that
+    # same fixed week, otherwise the real wall clock legitimately labels them stale
+    # once a later TSE session completes.
+    anchor = datetime(2026, 10, 23, 20, 0, tzinfo=UTC).timestamp()
+    monkeypatch.setattr(
+        Engine, "freshness_reference", lambda self: calendar.staleness_reference(anchor)
+    )
 
     snapshot = engine.snapshot(FOLD_TICKER)
 
