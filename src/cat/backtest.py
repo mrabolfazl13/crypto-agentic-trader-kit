@@ -146,6 +146,7 @@ def run_backtest(
     params: StrategyParams | None = None,
     propose_fn: Callable[..., Proposal] | None = None,
     window_bars: int | None = None,
+    decision_every: int = 1,
 ) -> BacktestResult:
     params = params or default_params()
     timeframe = timeframe or config.timeframe
@@ -162,6 +163,12 @@ def run_backtest(
         if warmup > len(bars) - 2:
             raise ValueError("not enough bars to replay after warmup")
         warmup = max(warmup, window_bars)
+    # The deployed engine decides on its cycle tick, not on every bar: `decision_every`
+    # bars per tick (12 at 15m for a 3h cycle). Between ticks only the exit ledger runs,
+    # because stop/target are exchange-side brackets. Default 1 keeps every historical
+    # replay byte-identical.
+    if decision_every < 1:
+        raise ValueError("decision_every must be at least 1 bar")
     prices = closes(bars)
     result = BacktestResult(
         symbol=symbol, timeframe=timeframe, bars=len(bars),
@@ -212,83 +219,86 @@ def run_backtest(
         evidence = None
 
     while index < len(bars) - 1:
-        history = bars[: index + 1]
-        # Clamped like production: at most window_bars bars, always ending on the
-        # decision bar. Nothing newer than `window` reaches the classifier.
-        window = history[-window_bars:] if window_bars else history
-        decision_time = bars[index].open_time + step
-        higher = select_closed_higher(higher_bars, decision_time, higher_step)
-        snap = _snapshot(symbol, timeframe, window, higher[-200:] if len(higher) >= 60 else None, bars[index], filters, assumed_spread_pct, config.limits.stop_on_data_staleness_seconds)
-        position = state.positions.get(symbol)
-        signal = propose_fn or propose
-        proposal = signal(snap, position, **{
-            "confidence_threshold": config.confidence_threshold,
-            "require_multiple_signals": config.require_multiple_signals,
-            "no_trade_if_signals_conflict": config.no_trade_if_signals_conflict,
-            "min_reward_risk_ratio": config.limits.min_reward_risk_ratio,
-            "maker_fee_pct": config.maker_fee_pct,
-            "taker_fee_pct": config.taker_fee_pct,
-            "est_slippage_pct": config.limits.max_slippage_pct,
-            "params": params,
-        })
-        risk = evaluate(
-            config, state, snap, proposal, position,
-            now=datetime.fromtimestamp(decision_time, tz=timezone.utc),
-            prices={symbol: bars[index].close}, kill_switch_active=False, clock_ok=True,
-        )
-        analysis = analyze(snap, params)
-        payload = build_decision(decision_id=f"bt-{index}", now=datetime.fromtimestamp(decision_time, tz=timezone.utc),
-                                 snapshot=snap, proposal=proposal, risk=risk, analysis=analysis)
-        if validate_decision(config.root, payload["decision"]):
-            risk.approved = False
-            risk.reasons = ["schema invalid"]
+        # A decision tick is the only moment production can propose; off-tick bars fall
+        # straight through to the intrabar exit check below.
+        if (index - warmup) % decision_every == 0:
+            history = bars[: index + 1]
+            # Clamped like production: at most window_bars bars, always ending on the
+            # decision bar. Nothing newer than `window` reaches the classifier.
+            window = history[-window_bars:] if window_bars else history
+            decision_time = bars[index].open_time + step
+            higher = select_closed_higher(higher_bars, decision_time, higher_step)
+            snap = _snapshot(symbol, timeframe, window, higher[-200:] if len(higher) >= 60 else None, bars[index], filters, assumed_spread_pct, config.limits.stop_on_data_staleness_seconds)
+            position = state.positions.get(symbol)
+            signal = propose_fn or propose
+            proposal = signal(snap, position, **{
+                "confidence_threshold": config.confidence_threshold,
+                "require_multiple_signals": config.require_multiple_signals,
+                "no_trade_if_signals_conflict": config.no_trade_if_signals_conflict,
+                "min_reward_risk_ratio": config.limits.min_reward_risk_ratio,
+                "maker_fee_pct": config.maker_fee_pct,
+                "taker_fee_pct": config.taker_fee_pct,
+                "est_slippage_pct": config.limits.max_slippage_pct,
+                "params": params,
+            })
+            risk = evaluate(
+                config, state, snap, proposal, position,
+                now=datetime.fromtimestamp(decision_time, tz=timezone.utc),
+                prices={symbol: bars[index].close}, kill_switch_active=False, clock_ok=True,
+            )
+            analysis = analyze(snap, params)
+            payload = build_decision(decision_id=f"bt-{index}", now=datetime.fromtimestamp(decision_time, tz=timezone.utc),
+                                     snapshot=snap, proposal=proposal, risk=risk, analysis=analysis)
+            if validate_decision(config.root, payload["decision"]):
+                risk.approved = False
+                risk.reasons = ["schema invalid"]
 
-        if not risk.approved:
-            key = proposal.reason if proposal.action in ("NO_TRADE", "HOLD") else (risk.reasons[0].split(":")[0] if risk.reasons else "unknown")
-            result.rejected[key] = result.rejected.get(key, 0) + 1
-        else:
-            nxt = bars[index + 1]
-            slip = config.limits.max_slippage_pct / 100.0
-            if risk.action == "BUY":
-                entry = nxt.open * (1 + slip)
-                qty = risk.qty
-                cost = qty * entry
-                fee = cost * fee_pct
-                if cost + fee <= state.cash:
-                    state.record_fill(cost=cost, fee=fee, qty=qty, price=entry, symbol=symbol,
-                                      stop=risk.stop, target=risk.target, decision_id=payload["decision"]["decision_id"],
-                                      at=nxt.open_time)
-                    held = state.positions[symbol]
-                    shift = entry - risk.entry
-                    held.stop, held.target = risk.stop + shift, risk.target + shift
-                    # Everything below was knowable at the decision bar; the exit
-                    # ledger keeps it separate from the post-trade analysis.
-                    evidence = {
-                        "entry": entry,
-                        "entry_reason": proposal.reason,
-                        "decision_time": decision_time,
-                        "confidence": float(proposal.confidence),
-                        "regime": analysis.regime,
-                        "volume_state": analysis.volume_state,
-                        "indicators": dict(analysis.indicators),
-                        "bullish": list(analysis.bullish),
-                        "bearish": list(analysis.bearish),
-                        "initial_stop": held.stop,
-                        "initial_target": held.target,
-                        "capital_pct": cost / mark(index) * 100.0,
-                        "mfe_pct": 0.0,
-                        "mae_pct": 0.0,
-                    }
+            if not risk.approved:
+                key = proposal.reason if proposal.action in ("NO_TRADE", "HOLD") else (risk.reasons[0].split(":")[0] if risk.reasons else "unknown")
+                result.rejected[key] = result.rejected.get(key, 0) + 1
             else:
-                exit_price = nxt.open * (1 - slip)
-                qty = risk.qty
-                fee = qty * exit_price * fee_pct
-                held_before = state.positions.get(symbol)
-                final_stop = held_before.stop if held_before else None
-                final_target = held_before.target if held_before else None
-                trade = state.record_close(symbol, qty, exit_price, fee, reason=proposal.reason,
-                                          decision_id=payload["decision"]["decision_id"], at=nxt.open_time)
-                append_trade(trade, nxt.open_time, exit_price, final_stop, final_target)
+                nxt = bars[index + 1]
+                slip = config.limits.max_slippage_pct / 100.0
+                if risk.action == "BUY":
+                    entry = nxt.open * (1 + slip)
+                    qty = risk.qty
+                    cost = qty * entry
+                    fee = cost * fee_pct
+                    if cost + fee <= state.cash:
+                        state.record_fill(cost=cost, fee=fee, qty=qty, price=entry, symbol=symbol,
+                                          stop=risk.stop, target=risk.target, decision_id=payload["decision"]["decision_id"],
+                                          at=nxt.open_time)
+                        held = state.positions[symbol]
+                        shift = entry - risk.entry
+                        held.stop, held.target = risk.stop + shift, risk.target + shift
+                        # Everything below was knowable at the decision bar; the exit
+                        # ledger keeps it separate from the post-trade analysis.
+                        evidence = {
+                            "entry": entry,
+                            "entry_reason": proposal.reason,
+                            "decision_time": decision_time,
+                            "confidence": float(proposal.confidence),
+                            "regime": analysis.regime,
+                            "volume_state": analysis.volume_state,
+                            "indicators": dict(analysis.indicators),
+                            "bullish": list(analysis.bullish),
+                            "bearish": list(analysis.bearish),
+                            "initial_stop": held.stop,
+                            "initial_target": held.target,
+                            "capital_pct": cost / mark(index) * 100.0,
+                            "mfe_pct": 0.0,
+                            "mae_pct": 0.0,
+                        }
+                else:
+                    exit_price = nxt.open * (1 - slip)
+                    qty = risk.qty
+                    fee = qty * exit_price * fee_pct
+                    held_before = state.positions.get(symbol)
+                    final_stop = held_before.stop if held_before else None
+                    final_target = held_before.target if held_before else None
+                    trade = state.record_close(symbol, qty, exit_price, fee, reason=proposal.reason,
+                                              decision_id=payload["decision"]["decision_id"], at=nxt.open_time)
+                    append_trade(trade, nxt.open_time, exit_price, final_stop, final_target)
 
         # Intrabar stop/target on the bar we just traded into.
         check_bar = bars[index + 1]

@@ -239,3 +239,68 @@ def test_an_impossible_window_fails_closed_instead_of_silently_shrinking(config)
     with pytest.raises(ValueError):
         run_backtest(config, config.symbols[0], bars=_flat(5), higher_bars=[], filters=SYMBOL_FILTER,
                      timeframe="1h", warmup=4, window_bars=4, propose_fn=_spy([]))
+
+
+def _ticks(seen: list[int]):
+    """A propose_fn that always wants in when flat, and records the bar it was asked about."""
+    def propose(snap, position, **kwargs):
+        seen.append(snap.klines[-1].open_time)
+        if position is None:
+            return Proposal(action="BUY", confidence=0.9, rationale=["test entry"],
+                            entry=103.0, stop=100.0, target=112.0,
+                            analysis=Analysis(regime="TRENDING_UP", summary="stub"),
+                            reason="entry_signal")
+        return Proposal(action="NO_TRADE", confidence=0.0, rationale=[], entry=None, stop=None,
+                        target=None, analysis=Analysis(regime="TRENDING_UP", summary="stub"),
+                        reason="no_signal")
+    return propose
+
+
+def test_off_tick_bars_are_never_asked_for_a_proposal(config):
+    """Production decides on its own clock, so an off-tick bar must not even reach propose."""
+    seen: list[int] = []
+    run_backtest(config, config.symbols[0], bars=_bars(STOP_ROWS), higher_bars=[],
+                 filters=SYMBOL_FILTER, timeframe="1h", warmup=2, decision_every=3,
+                 propose_fn=_ticks(seen))
+    assert seen == [START + i * STEP for i in (2, 5, 8)]
+
+
+def test_a_throttled_replay_only_enters_on_decision_ticks(config):
+    seen: list[int] = []
+    result = run_backtest(config, config.symbols[0], bars=_bars(STOP_ROWS), higher_bars=[],
+                          filters=SYMBOL_FILTER, timeframe="1h", warmup=2, decision_every=4,
+                          propose_fn=_ticks(seen))
+    assert result.trades, "the fixture must actually take a position"
+    for trade in result.trades:
+        decided_bar = (trade.entry_time - START) // STEP - 1
+        assert (decided_bar - 2) % 4 == 0
+
+
+def test_resting_brackets_still_close_a_position_between_ticks(config):
+    """Off-tick bars abandon the *proposal*, not the trade: stop/target are exchange-side."""
+    result = run_backtest(config, config.symbols[0], bars=_bars(STOP_ROWS), higher_bars=[],
+                          filters=SYMBOL_FILTER, timeframe="1h", warmup=2, decision_every=6,
+                          propose_fn=_ticks([]))
+    assert result.trades[0].reason == "stop"
+    assert result.trades[0].exit_time == START + 4 * STEP
+
+
+def test_decision_every_one_leaves_the_historical_replay_untouched(config):
+    seen_default: list[int] = []
+    default = run_backtest(config, config.symbols[0], bars=_bars(STOP_ROWS), higher_bars=[],
+                           filters=SYMBOL_FILTER, timeframe="1h", warmup=2,
+                           propose_fn=_ticks(seen_default))
+    seen_explicit: list[int] = []
+    explicit = run_backtest(config, config.symbols[0], bars=_bars(STOP_ROWS), higher_bars=[],
+                            filters=SYMBOL_FILTER, timeframe="1h", warmup=2, decision_every=1,
+                            propose_fn=_ticks(seen_explicit))
+    assert seen_explicit == seen_default
+    assert [(t.entry_time, t.exit_time, t.pnl, t.reason) for t in explicit.trades] == \
+           [(t.entry_time, t.exit_time, t.pnl, t.reason) for t in default.trades]
+    assert explicit.rejected == default.rejected
+
+
+def test_a_cadence_below_one_bar_fails_closed(config):
+    with pytest.raises(ValueError):
+        run_backtest(config, config.symbols[0], bars=_bars(STOP_ROWS), higher_bars=[],
+                     filters=SYMBOL_FILTER, timeframe="1h", decision_every=0, propose_fn=_ticks([]))

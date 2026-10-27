@@ -60,6 +60,18 @@ MIN_WINDOW_BARS = 300
 ASSUMED_SPREAD_PCT = 0.05
 
 
+def decision_every_bars(cycle_hours: float, timeframe: str, *, cadence: str) -> int:
+    """Bars between decisions. `replay` = every bar (the protocol D-020 first ran);
+    `production` = one tick per `automation.paper_cycle_hours`, which is the deployed
+    clock. At 15m that is 12 bars, so an unthrottled replay is decision-dense by 12x
+    and its cadence must not be read as the build's. Between ticks the position is not
+    abandoned: stop/target are exchange-side brackets, which the replay already models.
+    """
+    if cadence == "replay":
+        return 1
+    return max(1, int(round(cycle_hours * 3600.0 / TIMEFRAME_SECONDS[timeframe])))
+
+
 def canonical_symbol(lake_symbol: str) -> str:
     """The lake ids candles as `BTCUSDT`; the deployed allowlist is `BTC_USDT`.
 
@@ -86,7 +98,8 @@ def _permissive_filter(symbol: str) -> SymbolFilter:
 
 
 def replay_symbol(config, settings, symbol: str, *, timeframe: str, params,
-                  window_bars: int, count_from: int | None, count_to: int | None) -> dict[str, Any]:
+                  window_bars: int, decision_every: int,
+                  count_from: int | None, count_to: int | None) -> dict[str, Any]:
     minutes = load_bars(settings, symbol)
     frame = resample(minutes, timeframe)
     frame = frame[frame["complete"]]
@@ -114,7 +127,7 @@ def replay_symbol(config, settings, symbol: str, *, timeframe: str, params,
     result = run_backtest(config, canonical_symbol(symbol), bars=slice_bars, higher_bars=daily,
                           filters=_permissive_filter(symbol), timeframe=timeframe,
                           warmup=window_bars, assumed_spread_pct=ASSUMED_SPREAD_PCT,
-                          params=params, window_bars=window_bars)
+                          params=params, window_bars=window_bars, decision_every=decision_every)
     days = (slice_bars[-1].open_time + step - slice_bars[window_bars].open_time) / 86400.0
     holdings = [(t.exit_time - t.entry_time) / 3600.0 for t in result.trades]
     wins = [t for t in result.trades if t.pnl > 0]
@@ -122,6 +135,7 @@ def replay_symbol(config, settings, symbol: str, *, timeframe: str, params,
         "symbol": symbol,
         "counted_days": round(days, 3),
         "bars": len(slice_bars) - window_bars,
+        "decision_ticks": (len(slice_bars) - window_bars + decision_every - 1) // decision_every,
         "closed_trades": len(result.trades),
         "trades_per_day": round(len(result.trades) / days, 4) if days > 0 else None,
         "holding_hours_median": round(median(holdings), 2) if holdings else None,
@@ -134,9 +148,63 @@ def replay_symbol(config, settings, symbol: str, *, timeframe: str, params,
         "max_drawdown_pct": round(result.max_drawdown_pct, 3),
         "fees_paid": round(result.fees_paid, 4),
         "rejections": dict(sorted(result.rejected.items(), key=lambda kv: -kv[1])),
+        # The serial-account schedule below needs the actual timeline, not only counts.
+        "trade_timeline": [{"symbol": symbol, "entry_time": t0.entry_time, "exit_time": t0.exit_time,
+                            "pnl": round(t0.pnl, 6), "fees": round(t0.fees, 6), "reason": t0.reason}
+                           for t0 in sorted(result.trades, key=lambda x: x.entry_time)],
         "exit_reasons": {reason: sum(1 for t in result.trades if t.reason == reason)
                          for reason in {t.reason for t in result.trades}},
         "elapsed_seconds": round(time.monotonic() - started, 2),
+    }
+
+
+def serial_account_schedule(timelines: list[list[dict[str, Any]]], *, window_days: float,
+                            max_trades_per_day: int, cooldown_minutes_after_loss: int) -> dict[str, Any]:
+    """One account, one position at a time: the schedule the deployed caps actually allow.
+
+    Trades from every per-symbol replay are merged and taken greedily by entry time;
+    an entry is skipped when it overlaps the open position, when it would break
+    `max_trades_per_day`, or when it falls inside the post-loss cooldown. This is the
+    number Gate B is judged on — the pooled per-symbol rate is not.
+    """
+    trades = sorted((row for timeline in timelines for row in timeline), key=lambda row: row["entry_time"])
+    taken: list[dict[str, Any]] = []
+    free_at = 0
+    per_day: dict[int, int] = {}
+    skipped_overlap = skipped_cap = skipped_cooldown = 0
+    for trade in trades:
+        if trade["entry_time"] < free_at:
+            skipped_overlap += 1
+            continue
+        day = trade["entry_time"] // 86400
+        if per_day.get(day, 0) >= max_trades_per_day:
+            skipped_cap += 1
+            continue
+        if taken:
+            last = taken[-1]
+            if last["pnl"] <= 0 and trade["entry_time"] < last["exit_time"] + cooldown_minutes_after_loss * 60:
+                skipped_cooldown += 1
+                continue
+        taken.append(trade)
+        per_day[day] = per_day.get(day, 0) + 1
+        free_at = trade["exit_time"]
+    wins = [row for row in taken if row["pnl"] > 0]
+    losses = [row for row in taken if row["pnl"] <= 0]
+    gross_win = sum(row["pnl"] for row in wins)
+    gross_loss = abs(sum(row["pnl"] for row in losses))
+    days = max(window_days, 0.001)
+    return {
+        "taken": len(taken),
+        "skipped": {"overlapping_position": skipped_overlap, "max_trades_per_day": skipped_cap,
+                    "cooldown_after_loss": skipped_cooldown},
+        "trades_per_day": round(len(taken) / days, 4),
+        "win_rate_pct": round(len(wins) / len(taken) * 100.0, 2) if taken else None,
+        "profit_factor": round(gross_win / gross_loss, 3) if gross_loss > 0 else None,
+        "net_pnl_per_1000": round(sum(row["pnl"] for row in taken), 4),
+        "fees": round(sum(row["fees"] for row in taken), 4),
+        "days_to_30_trades": round(30.0 / (len(taken) / days), 2) if taken else None,
+        "note": ("greedy schedule over the same per-symbol trades: one account, one position, "
+                 "the deployed per-day cap and loss cooldown applied"),
     }
 
 
@@ -152,6 +220,9 @@ def main() -> int:
     parser.add_argument("--from", dest="count_from", default="2026-05-01")
     parser.add_argument("--to", dest="count_to", default="2026-08-01")
     parser.add_argument("--window-bars", type=int, default=MIN_WINDOW_BARS)
+    parser.add_argument("--cadence", choices=("replay", "production"), default="replay",
+                        help="replay = decide every bar (D-020 protocol); production = one "
+                             "decision per automation.paper_cycle_hours, as the deployed clock does")
     parser.add_argument("--params", help="optional StrategyParams JSON to replay instead of shipped")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
@@ -174,8 +245,11 @@ def main() -> int:
     count_from = _epoch(args.count_from) if args.count_from else None
     count_to = _epoch(args.count_to) if args.count_to else None
     limits = config.limits
+    decide_every = decision_every_bars(config.auto_cycle_hours, args.timeframe, cadence=args.cadence)
     print(f"frequency replay: {len(symbols)} symbols x {args.timeframe} counted "
-          f"{args.count_from}..{args.count_to}, classifier {params.label()}, warm-up={args.window_bars} bars")
+          f"{args.count_from}..{args.count_to}, classifier {params.label()}, "
+          f"warm-up={args.window_bars} bars, {args.cadence} cadence = 1 decision every {decide_every} bar(s) "
+          f"({config.auto_cycle_hours}h cycle)")
     print(f"account caps in force: allocation {limits.max_account_allocation_pct}% of "
           f"{config.allocated_capital} capital, {limits.max_trades_per_day} trades/day, "
           f"cooldown {limits.cooldown_minutes_after_loss} min after a loss")
@@ -185,7 +259,8 @@ def main() -> int:
     for index, symbol in enumerate(symbols, start=1):
         try:
             row = replay_symbol(config, settings, symbol, timeframe=args.timeframe, params=params,
-                                window_bars=args.window_bars, count_from=count_from, count_to=count_to)
+                                window_bars=args.window_bars, decision_every=decide_every,
+                                count_from=count_from, count_to=count_to)
         except Exception as exc:  # one bad symbol must not end the replay
             row = {"symbol": symbol, "error": f"{type(exc).__name__}: {exc}"}
         rows.append(row)
@@ -204,6 +279,10 @@ def main() -> int:
         for reason, count in row["rejections"].items():
             pooled_rejections[reason] = pooled_rejections.get(reason, 0) + count
     holding_means = [row["holding_hours_mean"] for row in measured if row["holding_hours_mean"]]
+    schedule = serial_account_schedule(
+        [row.get("trade_timeline", []) for row in measured], window_days=days,
+        max_trades_per_day=limits.max_trades_per_day,
+        cooldown_minutes_after_loss=limits.cooldown_minutes_after_loss)
     per_day = sorted((row["trades_per_day"] or 0.0) for row in measured)
     summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -212,6 +291,10 @@ def main() -> int:
         "counted_to": args.count_to,
         "counted_days_per_symbol": round(days, 3),
         "window_bars": args.window_bars,
+        "cadence": args.cadence,
+        "decide_every_bars": decide_every,
+        "decision_bars_total": sum(row.get("decision_ticks", 0) for row in measured),
+        "production_cycle_hours": config.auto_cycle_hours,
         "classifier": params.as_dict(),
         "symbols_replayed": len(measured),
         "symbols_skipped": [row["symbol"] for row in rows if "closed_trades" not in row],
@@ -234,6 +317,7 @@ def main() -> int:
                                     if row["profit_factor"] is not None},
         "net_vs_buy_hold_pct_by_symbol": {row["symbol"]: [row["net_return_pct"], row["buy_hold_pct"]]
                                           for row in measured if row["net_return_pct"] is not None},
+        "single_account_schedule": schedule,
         "rejections_pooled": dict(sorted(pooled_rejections.items(), key=lambda kv: -kv[1])),
         "data_version": current_data_version(settings),
         "elapsed_seconds": round(time.monotonic() - started, 1),
@@ -252,6 +336,11 @@ def main() -> int:
         print(f"mean holding {round(mean(holding_means), 2)}h ⇒ a single shared account could make at most "
               f"{summary['single_account_bound']['serial_position_max_trades_per_day']}/day "
               f"(cap {limits.max_trades_per_day}/day)")
+    print(f"single shared account (serial, {limits.max_trades_per_day}/day cap): "
+          f"{schedule['taken']} trades = {schedule['trades_per_day']}/day, "
+          f"pf={schedule['profit_factor']}, win={schedule['win_rate_pct']}%, "
+          f"net={schedule['net_pnl_per_1000']} per 1000, "
+          f"days_to_30={schedule['days_to_30_trades']}")
     top = ", ".join(f"{reason} {count}" for reason, count in list(summary["rejections_pooled"].items())[:6])
     print(f"rejections pooled: {top or 'none'}")
     print(f"written: {out_dir / f'frequency-{args.timeframe}.json'}")

@@ -60,10 +60,18 @@ done
 # منبعِ فانل جدولِ decisions است، نه run_rejections (آن سطرهای grid/walk_forward هستند؛ F-021)
 python tools/paper_gate_b.py --db state/reports/server_platform_snapshot.sqlite3 --out state/reports/gate_b_evidence_server.json
 
-# بازپخشِ فرکانسِ کدِ مستقر (D-020 قدمِ ب؛ سقفِ ۳۰ حسابِ مستقل، نه رفتارِ یک حسابِ واقعی)
-for tf in 4h 1h; do
+# بازپخشِ فرکانسِ کدِ مستقر (D-020 قدمِ ب و پ؛ فقط‌خواندنی، بدونِ سطرِ CSV چون این داوریِ استراتژی نیست)
+for tf in 4h 1h 15m; do   # هر-میله = پروتکلِ نخستِ D-020 (تواترِ تصمیمِ بیشتر از چرخه‌ی مستقر)
   python tools/paper_frequency_replay.py --timeframe $tf --symbols 30 --from 2026-05-01 --to 2026-08-01 --out state/quant/results/freq_$tf
 done
+for tf in 4h 1h 15m; do   # تیکِ 3 ساعته = ساعتِ واقعیِ چرخه‌ی مستقر (15m هر 12 میله، 1h هر 3، 4h هر میله)
+  python tools/paper_frequency_replay.py --timeframe $tf --symbols 30 --from 2026-05-01 --to 2026-08-01 --cadence production --out state/quant/results/freqprod_$tf
+done
+# برشِ دومِ همان پروتکل (تکرارِ سنجش، پنجره‌ی مستقلِ سوم نیست)
+for tf in 4h 1h; do
+  python tools/paper_frequency_replay.py --timeframe $tf --symbols 30 --from 2026-06-01 --to 2026-08-31 --out state/quant/results/freq_${tf}_window2
+done
+# عددِ داوریِ هر اجرا در summary.single_account_schedule (یک حساب، یک موقعیت، سقفِ روزانه، cooldown)
 # window_bars زیر ۳۰۰ را ابزار رد می‌کند (F-020)؛ نگاشتِ نامِ نماد به allowlist با تست قفل شده (F-022)
 # خروجی‌های معیوبِ نخست: state/quant/results/freq_4h_symbolbug_superseded و freq_1h_symbolbug_superseded
 ```

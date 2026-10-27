@@ -1,36 +1,34 @@
 {
-  "generated_at": "2026-10-27T20:12:16+00:00",
+  "generated_at": "2026-10-27T20:39:59+00:00",
   "code_version": {
-    "head": "7ce885a",
-    "committed_at": "2026-10-27T23:22:28+03:30",
-    "subject": "read the loop's own rejection reasons from the decisions table, not the research counters",
+    "head": "a44a8c8",
+    "committed_at": "2026-10-27T23:42:29+03:30",
+    "subject": "count closed trades per day instead of trending-up bars, and hand the owner the number",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
       "EXPERIMENT_LOG.md",
-      "FAILURES.md",
       "NEXT_ACTION.md",
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
       "src/cat/backtest.py",
       "tests/test_backtest_evidence.py",
-      "FULL_REPORT_2026-10-27.md",
       "tests/test_paper_frequency_replay.py",
       "tools/paper_frequency_replay.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-27T20:12:15+00:00",
+      "at": "2026-10-27T20:39:58+00:00",
       "command": "python -m pytest -q",
-      "passed": 428,
+      "passed": 438,
       "exit_code": 0,
-      "seconds": 55.33,
+      "seconds": 40.48,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "428 passed, 1 warning in 53.97s"
+        "438 passed, 1 warning in 38.44s"
       ]
     }
   },
@@ -1841,7 +1839,7 @@
         "top_decision_reason": "regime_filter",
         "top_decision_reason_pct": 93.15,
         "executed_decisions": 1,
-        "evaluated_at": "2026-10-27T19:43:13+00:00",
+        "evaluated_at": "2026-10-27T20:31:46+00:00",
         "database": "state\\reports\\server_platform_snapshot.sqlite3",
         "source_file": "state/reports/gate_b_evidence_server.json"
       },
