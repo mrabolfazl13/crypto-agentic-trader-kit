@@ -94,3 +94,7 @@ done
 python tools/quant_daily_crosscheck.py --symbol BTCUSDT --month 2026-10 --days 26
 # خروجی‌های معیوبِ نخست: state/quant/results/freq_4h_symbolbug_superseded و freq_1h_symbolbug_superseded
 ```
+
+### D-023 — منحنیِ cadence-هم‌زمانی (K∈{1,2,3,5} روی همان بازپخشِ D-022)
+
+بازتولیدِ K=1 در هر شش سلول: `reproduces_recorded_k1 = true` (0.1848/0.8696/1.0109 برای w1 و 0.0769/1.0385/1.5769 برای w3). کمترین K با عبورِ هر دو پنجره: 1h=2، 15m=2، 4h=∞. در همان K=2 هیچ PF≥1 نیست (0.721/0.272 و 0.811/0.439) و تخصیص لازم دو برابر است. جدولِ کامل در DECISIONS و `state/quant/results/concurrency_sweep_100/concurrency_curve.json`.

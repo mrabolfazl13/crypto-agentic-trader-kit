@@ -166,52 +166,77 @@ def replay_symbol(config, settings, symbol: str, *, timeframe: str, params,
 
 
 def serial_account_schedule(timelines: list[list[dict[str, Any]]], *, window_days: float,
-                            max_trades_per_day: int, cooldown_minutes_after_loss: int) -> dict[str, Any]:
-    """One account, one position at a time: the schedule the deployed caps actually allow.
+                            max_trades_per_day: int, cooldown_minutes_after_loss: int,
+                            max_concurrent: int = 1) -> dict[str, Any]:
+    """One account and at most `max_concurrent` positions open at once: the schedule the caps allow.
 
     Trades from every per-symbol replay are merged and taken greedily by entry time;
-    an entry is skipped when it overlaps the open position, when it would break
+    an entry is skipped when it would exceed the open-position budget, when it would break
     `max_trades_per_day`, or when it falls inside the post-loss cooldown. This is the
     number Gate B is judged on — the pooled per-symbol rate is not.
+
+    `max_concurrent = 1` is the deployed behaviour (the allocation cap sizes every later
+    entry to zero while a position is open) and must reproduce it exactly. The cooldown
+    runs from the most recent *closed* losing position; with one slot that is the same
+    trade the D-020 schedule used.
     """
+    if max_concurrent < 1:
+        raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
     trades = sorted((row for timeline in timelines for row in timeline), key=lambda row: row["entry_time"])
     taken: list[dict[str, Any]] = []
-    free_at = 0
+    open_positions: list[tuple[int, float]] = []
     per_day: dict[int, int] = {}
+    peak_concurrent = 0
     skipped_overlap = skipped_cap = skipped_cooldown = 0
+    last_loss_exit: int | None = None
     for trade in trades:
-        if trade["entry_time"] < free_at:
+        still_open: list[tuple[int, float]] = []
+        for exit_time, pnl in open_positions:
+            if exit_time > trade["entry_time"]:
+                still_open.append((exit_time, pnl))
+            elif pnl <= 0:
+                last_loss_exit = exit_time if last_loss_exit is None else max(last_loss_exit, exit_time)
+        open_positions = still_open
+        if len(open_positions) >= max_concurrent:
             skipped_overlap += 1
             continue
         day = trade["entry_time"] // 86400
         if per_day.get(day, 0) >= max_trades_per_day:
             skipped_cap += 1
             continue
-        if taken:
-            last = taken[-1]
-            if last["pnl"] <= 0 and trade["entry_time"] < last["exit_time"] + cooldown_minutes_after_loss * 60:
-                skipped_cooldown += 1
-                continue
+        if last_loss_exit is not None and trade["entry_time"] < last_loss_exit + cooldown_minutes_after_loss * 60:
+            skipped_cooldown += 1
+            continue
         taken.append(trade)
         per_day[day] = per_day.get(day, 0) + 1
-        free_at = trade["exit_time"]
+        open_positions.append((trade["exit_time"], trade["pnl"]))
+        peak_concurrent = max(peak_concurrent, len(open_positions))
     wins = [row for row in taken if row["pnl"] > 0]
     losses = [row for row in taken if row["pnl"] <= 0]
     gross_win = sum(row["pnl"] for row in wins)
     gross_loss = abs(sum(row["pnl"] for row in losses))
     days = max(window_days, 0.001)
+    equity = peak = high_water = 0.0
+    for row in sorted(taken, key=lambda trade: trade["exit_time"]):
+        equity += row["pnl"]
+        high_water = max(high_water, equity)
+        peak = min(peak, equity - high_water)
     return {
+        "max_concurrent": max_concurrent,
         "taken": len(taken),
         "skipped": {"overlapping_position": skipped_overlap, "max_trades_per_day": skipped_cap,
                     "cooldown_after_loss": skipped_cooldown},
+        "peak_concurrent_positions": peak_concurrent,
         "trades_per_day": round(len(taken) / days, 4),
         "win_rate_pct": round(len(wins) / len(taken) * 100.0, 2) if taken else None,
         "profit_factor": round(gross_win / gross_loss, 3) if gross_loss > 0 else None,
         "net_pnl_per_1000": round(sum(row["pnl"] for row in taken), 4),
+        "max_drawdown_per_1000": round(peak, 4),
         "fees": round(sum(row["fees"] for row in taken), 4),
         "days_to_30_trades": round(30.0 / (len(taken) / days), 2) if taken else None,
-        "note": ("greedy schedule over the same per-symbol trades: one account, one position, "
-                 "the deployed per-day cap and loss cooldown applied"),
+        "note": (f"greedy schedule over the same per-symbol trades: one account, at most "
+                 f"{max_concurrent} position(s) open, the deployed per-day cap and loss "
+                 f"cooldown applied"),
     }
 
 
@@ -333,9 +358,10 @@ def main() -> int:
                                     if row["profit_factor"] is not None},
         "net_vs_buy_hold_pct_by_symbol": {row["symbol"]: [row["net_return_pct"], row["buy_hold_pct"]]
                                           for row in measured if row["net_return_pct"] is not None},
+        "lake_version_read": lake_version,
         "single_account_schedule": schedule,
         "rejections_pooled": dict(sorted(pooled_rejections.items(), key=lambda kv: -kv[1])),
-        "data_version": current_data_version(settings),
+        "data_version": current_data_version(settings),  # monthly digest; see lake_version_read
         "elapsed_seconds": round(time.monotonic() - started, 1),
         "note": ("read-only replay of the deployed propose/risk/backtest path; each symbol gets its own "
                  "allocated-capital account so the pooled rate is an upper bound; no order placed, no "

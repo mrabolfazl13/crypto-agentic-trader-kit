@@ -131,3 +131,88 @@ def test_production_cadence_uses_the_deployed_cycle_clock():
 def test_the_replay_cadence_default_decides_every_bar():
     for timeframe in ("15m", "1h", "4h"):
         assert decision_every_bars(3.0, timeframe, cadence="replay") == 1
+
+
+def _serial_reference(timelines, *, window_days, max_trades_per_day, cooldown_minutes_after_loss):
+    """The D-020/D-022 schedule, copied verbatim so `max_concurrent=1` has something to be checked against."""
+    trades = sorted((row for timeline in timelines for row in timeline), key=lambda row: row["entry_time"])
+    taken, per_day, free_at = [], {}, 0
+    overlap = cap = cooldown = 0
+    for trade in trades:
+        if trade["entry_time"] < free_at:
+            overlap += 1
+            continue
+        day = trade["entry_time"] // 86400
+        if per_day.get(day, 0) >= max_trades_per_day:
+            cap += 1
+            continue
+        if taken:
+            last = taken[-1]
+            if last["pnl"] <= 0 and trade["entry_time"] < last["exit_time"] + cooldown_minutes_after_loss * 60:
+                cooldown += 1
+                continue
+        taken.append(trade)
+        per_day[day] = per_day.get(day, 0) + 1
+        free_at = trade["exit_time"]
+    wins = [row for row in taken if row["pnl"] > 0]
+    gross_loss = abs(sum(row["pnl"] for row in taken if row["pnl"] <= 0))
+    days = max(window_days, 0.001)
+    return {"taken": len(taken),
+            "skipped": {"overlapping_position": overlap, "max_trades_per_day": cap,
+                        "cooldown_after_loss": cooldown},
+            "trades_per_day": round(len(taken) / days, 4),
+            "win_rate_pct": round(len(wins) / len(taken) * 100.0, 2) if taken else None,
+            "profit_factor": round(sum(row["pnl"] for row in wins) / gross_loss, 3) if gross_loss > 0 else None,
+            "net_pnl_per_1000": round(sum(row["pnl"] for row in taken), 4),
+            "fees": round(sum(row["fees"] for row in taken), 4),
+            "days_to_30_trades": round(30.0 / (len(taken) / days), 2) if taken else None}
+
+
+@pytest.mark.parametrize("cap,cooldown", [(4, 0), (1, 0), (4, 60), (2, 240)])
+def test_k_one_reproduces_the_recorded_serial_schedule_exactly(cap: int, cooldown: int):
+    """D-023 was pre-registered on this: widening the budget must not move the K=1 numbers."""
+    timelines = [[_trade(index * 3600, index * 3600 + 11 * 3600, 1.0 if index % 3 else -1.0)
+                  for index in range(20)],
+                 [_trade(index * 5400, index * 5400 + 900, 0.5) for index in range(15)],
+                 [_trade(0, 4 * 3600, -1.0), _trade(4 * 3600, 5 * 3600, 2.0),
+                  _trade(4 * 3600 + 1800, 9 * 3600, 3.0)]]
+    kwargs = dict(window_days=5.0, max_trades_per_day=cap, cooldown_minutes_after_loss=cooldown)
+    got = serial_account_schedule(timelines, **kwargs)
+    want = _serial_reference(timelines, **kwargs)
+    assert {key: got[key] for key in want} == want
+    assert got["max_concurrent"] == 1
+    assert got["peak_concurrent_positions"] == (1 if got["taken"] else 0)
+
+
+def test_a_wider_position_budget_never_takes_fewer_trades_and_respects_its_cap():
+    timelines = [[_trade(index * 3600, index * 3600 + 6 * 3600, 1.0 if index % 3 else -1.0)
+                  for index in range(30)]]
+    previous = 0
+    for k in (1, 2, 3, 5):
+        schedule = serial_account_schedule(timelines, window_days=5.0, max_trades_per_day=40,
+                                           cooldown_minutes_after_loss=0, max_concurrent=k)
+        assert schedule["max_concurrent"] == k
+        assert schedule["peak_concurrent_positions"] <= k
+        assert schedule["taken"] >= previous
+        previous = schedule["taken"]
+    serial = serial_account_schedule(timelines, window_days=5.0, max_trades_per_day=40,
+                                     cooldown_minutes_after_loss=0)
+    wide = serial_account_schedule(timelines, window_days=5.0, max_trades_per_day=40,
+                                   cooldown_minutes_after_loss=0, max_concurrent=3)
+    assert wide["taken"] > serial["taken"]
+    assert wide["skipped"]["overlapping_position"] < serial["skipped"]["overlapping_position"]
+
+
+def test_the_per_day_cap_still_binds_when_positions_may_overlap():
+    """Concurrency is a position budget, not a licence to break max_trades_per_day."""
+    timelines = [[_trade(index * 3600, index * 3600 + 12 * 3600, 1.0) for index in range(20)]]
+    schedule = serial_account_schedule(timelines, window_days=1.0, max_trades_per_day=4,
+                                       cooldown_minutes_after_loss=0, max_concurrent=5)
+    assert schedule["taken"] == 4
+    assert schedule["skipped"]["max_trades_per_day"] == 16
+
+
+def test_the_concurrency_budget_must_be_at_least_one_position():
+    with pytest.raises(ValueError):
+        serial_account_schedule([[]], window_days=1.0, max_trades_per_day=4,
+                                cooldown_minutes_after_loss=0, max_concurrent=0)

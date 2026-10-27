@@ -1,47 +1,52 @@
 {
-  "generated_at": "2026-10-27T21:54:00+00:00",
+  "generated_at": "2026-10-27T22:15:36+00:00",
   "code_version": {
-    "head": "7c24c79",
-    "committed_at": "2026-10-28T00:51:59+03:30",
-    "subject": "open the third independent window through daily archives, without touching the monthly lake",
+    "head": "a67a015",
+    "committed_at": "2026-10-28T01:24:12+03:30",
+    "subject": "widen the cadence replay to the deployed 100-symbol universe: the D-020 generalization breaks",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
+      "EXPERIMENT_LOG.csv",
+      "EXPERIMENT_LOG.md",
+      "FAILURES.md",
       "NEXT_ACTION.md",
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "tests/test_quant_chain_e2e.py",
-      "tools/quant_nested_walk_forward.py"
+      "tests/test_paper_frequency_replay.py",
+      "tools/paper_frequency_replay.py",
+      "tests/test_paper_concurrency_sweep.py",
+      "tools/paper_concurrency_sweep.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-27T21:54:00+00:00",
+      "at": "2026-10-27T22:15:36+00:00",
       "command": "python -m pytest -q",
-      "passed": 457,
+      "passed": 469,
       "exit_code": 0,
-      "seconds": 39.66,
+      "seconds": 41.21,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "457 passed, 1 warning in 38.31s"
+        "469 passed, 1 warning in 39.95s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 109,
+      "csv_rows": 121,
       "last_row": {
-        "run_id": "gate-ab-w3_4h_gateon",
+        "run_id": "conc-w3-15m-k2",
         "strategy": "trend_pullback",
-        "timeframe": "4h",
+        "timeframe": "15m",
         "slice": "independent_window3",
-        "net_return_pct": "-2.118",
-        "excess_return_pct": "13.0066",
-        "status": "completed; decision=diagnostic-no-acceptance; symbols=30; regime_gate=on; data=daily-sourced-2026-10; final_test_read=false"
+        "net_return_pct": "-25.3549",
+        "excess_return_pct": "",
+        "status": "completed; decision=diagnostic-no-acceptance; schedule=single-account; max_concurrent=2; peak=2; trades_per_day=2.0385; symbols=100; cadence=production; lake=monthly+daily-2026-10; config_unchanged=true"
       },
-      "runs_with_window": 109
+      "runs_with_window": 121
     },
     "nested_walk_forwards": [
       {
@@ -1844,21 +1849,21 @@
     "B_paper": {
       "server": {
         "status": "INCOMPLETE",
-        "span_days": 1.504,
+        "span_days": 1.629,
         "min_days": 28.0,
         "on_time_fraction": 1.0,
-        "cycles_observed": 13,
+        "cycles_observed": 14,
         "downtime_gaps": 0,
-        "days_remaining": 26.496,
+        "days_remaining": 26.371,
         "milestone_at": "2026-11-23T06:27:57+00:00",
         "closed_trades": 0,
         "trade_cadence_state": "stalled",
-        "required_trades_per_day": 1.1322,
-        "decision_symbol_cycles": 1300,
+        "required_trades_per_day": 1.1376,
+        "decision_symbol_cycles": 1400,
         "top_decision_reason": "regime_filter",
-        "top_decision_reason_pct": 93.15,
+        "top_decision_reason_pct": 93.0,
         "executed_decisions": 1,
-        "evaluated_at": "2026-10-27T21:33:55+00:00",
+        "evaluated_at": "2026-10-27T22:14:42+00:00",
         "database": "state\\reports\\server_platform_snapshot.sqlite3",
         "source_file": "state/reports/gate_b_evidence_server.json"
       },
@@ -1887,12 +1892,12 @@
   "server_snapshot": {
     "file": "state\\reports\\server_platform_snapshot.sqlite3",
     "exists": true,
-    "bytes": 2580480,
+    "bytes": 2613248,
     "tables": {
       "datasets": 11,
-      "decisions": 1300,
-      "portfolio_snapshots": 13,
-      "logs": 50
+      "decisions": 1400,
+      "portfolio_snapshots": 14,
+      "logs": 51
     }
   }
 }
