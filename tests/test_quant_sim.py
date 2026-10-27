@@ -248,6 +248,41 @@ def test_gate_funnel_explains_a_zero_trade_market_instead_of_hiding_it():
     assert funnel["trend"] == 0 and funnel["momentum_above_threshold"] == 0
 
 
+@pytest.fixture()
+def D015_counter_trend_scenario():
+    """Slow decline, a crash under the lagging EMA, then one up-close: RSI < 35 and rising."""
+    bucket_closes = [200.0 - 3.0 * index for index in range(16)] + [101.0, 101.0, 104.0]
+    closes = [close for close in bucket_closes for _ in range(15)]
+    frame = bars_1m(closes)
+    params = QuantParams(ema_fast=3, ema_slow=12, rsi_period=3, atr_period=3, slope_lookback=3,
+                         rsi_pullback_low=35, rsi_pullback_high=55)
+    signals = signal_frame(resample(frame, "15m"), "mean_reversion", params)
+    return signals, params
+
+
+def test_mean_reversion_keeps_the_ema_conjunct_after_d015_revert(D015_counter_trend_scenario):
+    """D-015 measured the counter-trend variant on two windows, both rejected.
+
+    The conjunct therefore stays: this scenario is oversold and rising *below* the
+    slow EMA, so the shipped rule must refuse it. If the variant were reinstated
+    without a new pre-registration, this test fails.
+    """
+    signals, params = D015_counter_trend_scenario
+    last = signals.iloc[-1]
+    assert bool(last["close"] < last["ema_slow"]), "scenario must be below the slow EMA"
+    assert last["rsi"] < params.rsi_pullback_low
+    assert last["rsi"] > signals["rsi"].iloc[-2], "and RSI must be turning up"
+    assert not bool(last["entry"]), "the rejected variant must not be in the shipped rule"
+
+
+def test_mean_reversion_funnel_still_carries_the_ema_gate(D015_counter_trend_scenario):
+    signals, params = D015_counter_trend_scenario
+    gates = gate_funnel(signals, "mean_reversion", params)
+    names = [step["gate"] for step in gates["funnel"]]
+    assert names == ["ready", "rsi_below_low", "close_above_ema_slow", "rsi_rising"]
+    assert gates["entry_signals"] == 0, "the structural cause of the zero-trade family"
+
+
 # ------------------------------------------------- cost-aware and risk-based entries
 
 def test_round_trip_cost_covers_both_legs_and_both_frictions():

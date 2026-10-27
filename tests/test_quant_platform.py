@@ -24,7 +24,7 @@ pytest.importorskip("optuna", reason="quant research stack missing: pip install 
 import cat.api as api_module  # noqa: E402  (must follow the importorskip guard)
 from cat.quant import service as quant_service
 from cat.quant.engine import Window, walk_forward_windows
-from cat.quant.loop import acceptance, analyze_weakness
+from cat.quant.loop import LOOP_PLAN, acceptance, analyze_weakness
 from cat.quant.settings import LoopSettings, QuantSettings, StorageBudget
 from cat.quant.storage import StorageBudgetExceeded, StorageError, storage_report
 from cat.quant.store import ResearchStore
@@ -127,6 +127,17 @@ def test_reserved_bytes_are_released_when_the_write_ends(tmp_path: Path, plenty_
 
 
 # ---------------------------------------------------------- walk-forward plan
+
+def test_retired_families_stay_out_of_the_research_plan():
+    """F-015: mean_reversion·1h is retired — untestable as specified, variant rejected twice.
+
+    A retired family must not be re-optimized silently; re-adding it needs a new
+    pre-registered hypothesis in DECISIONS.md first.
+    """
+    keys = {item["key"] for item in LOOP_PLAN}
+    assert "mean_reversion_1h" not in keys
+    assert all(item["strategy"] != "mean_reversion" for item in LOOP_PLAN)
+
 
 def test_walk_forward_folds_are_contiguous_and_never_share_bars():
     window = Window(0, 40 * 86400)

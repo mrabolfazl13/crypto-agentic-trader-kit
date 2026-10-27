@@ -177,6 +177,10 @@ def _signal_parts(df: pd.DataFrame, strategy: str, params: QuantParams) -> dict[
         funnel = [("ready", ready), ("momentum_above_threshold", ready & momentum_up),
                   ("close_above_ema_slow", ready & momentum_up & close_above)]
     elif strategy == "mean_reversion":
+        # F-015: this family is retired from the research plan. The oversold conjunct
+        # below the slow EMA is nearly unsatisfiable (7/1768 bars per fold), and the
+        # counter-trend variant measured under D-015 failed acceptance on both
+        # windows. Kept unchanged so every stored result still reproduces.
         entry = (df["rsi"] < params.rsi_pullback_low) & close_above & rsi_rising
         exit_ = df["rsi"] > params.rsi_pullback_high
         funnel = [("ready", ready),

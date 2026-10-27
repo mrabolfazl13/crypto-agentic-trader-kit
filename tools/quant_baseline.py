@@ -42,6 +42,8 @@ from cat.quant.storage import current_data_version, universe_symbols  # noqa: E4
 DEFAULT_CONFIGS = (
     ("ema_trend", "1h"), ("ema_trend", "4h"),
     ("trend_pullback", "1h"), ("trend_pullback", "15m"),
+    # mean_reversion·1h stays here because the baseline is the pre-registered floor over
+    # every family, but it is retired from the active research plan (F-015 / LOOP_PLAN).
     ("momentum", "4h"), ("mean_reversion", "1h"),
     ("breakout", "4h"), ("breakout", "1h"),
 )

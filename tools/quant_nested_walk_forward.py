@@ -115,6 +115,9 @@ def main() -> int:
                              "while this symbol is above its own EMA on the same timeframe")
     parser.add_argument("--regime-ema", type=int, default=200,
                         help="EMA period for --regime-symbol (default 200)")
+    parser.add_argument("--no-regime", action="store_true",
+                        help="clear the regime gate even if config enables it, so results recorded "
+                             "before the gate became the default stay reproducible")
     parser.add_argument("--end", default="",
                         help="cap the data window end (ISO date, e.g. 2026-06-01) so a run can "
                              "replicate on an earlier regime slice; the cap is never extended "
@@ -128,7 +131,11 @@ def main() -> int:
 
     settings = load_quant_settings(load_config(root=ROOT))
     sim = simulate_settings(settings)
-    if args.regime_symbol:
+    if args.no_regime and args.regime_symbol:
+        raise SystemExit("--no-regime and --regime-symbol contradict each other")
+    if args.no_regime:
+        sim = simulate_settings(settings, regime_symbol="")
+    elif args.regime_symbol:
         sim = simulate_settings(settings, regime_symbol=args.regime_symbol,
                                 regime_ema=int(args.regime_ema))
     symbols = universe_symbols(settings)

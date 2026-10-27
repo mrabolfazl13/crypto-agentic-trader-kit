@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-27T04:30:41+00:00",
+  "generated_at": "2026-10-27T17:33:06+00:00",
   "code_version": {
-    "head": "106ba17",
-    "committed_at": "2026-10-27T07:49:30+03:30",
-    "subject": "stop charging network latency to the clock: measure the round trip and halve it",
+    "head": "eaab551",
+    "committed_at": "2026-10-27T08:00:48+03:30",
+    "subject": "keep the BTC-regime gate: better net and lower drawdown on two independent windows",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
@@ -12,36 +12,41 @@
       "NEXT_ACTION.md",
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
-      "config.yaml"
+      "src/cat/quant/features.py",
+      "src/cat/quant/loop.py",
+      "tests/test_quant_platform.py",
+      "tests/test_quant_sim.py",
+      "tools/quant_baseline.py",
+      "tools/quant_nested_walk_forward.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-27T04:30:41+00:00",
+      "at": "2026-10-27T17:33:05+00:00",
       "command": "python -m pytest -q",
-      "passed": 379,
+      "passed": 382,
       "exit_code": 0,
-      "seconds": 48.55,
+      "seconds": 47.27,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "379 passed, 1 warning in 47.00s"
+        "382 passed, 1 warning in 45.42s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 88,
+      "csv_rows": 91,
       "last_row": {
-        "run_id": "nested-wf-breakout-1h",
-        "strategy": "breakout",
+        "run_id": "nested-wf-mean_reversion-1h",
+        "strategy": "mean_reversion",
         "timeframe": "1h",
         "slice": "nested_walk_forward",
-        "net_return_pct": "-0.3123",
-        "excess_return_pct": "-1.8216",
-        "status": "completed; decision=rejected; positive_folds_pct=25.0; folds=4; final_test_read=false; regime=BTCUSDT/ema200"
+        "net_return_pct": "0.0758",
+        "excess_return_pct": "-1.4335",
+        "status": "completed; decision=rejected; positive_folds_pct=25.0; folds=4; final_test_read=false; regime=off"
       },
-      "runs_with_window": 88
+      "runs_with_window": 91
     },
     "nested_walk_forwards": [
       {
@@ -1407,6 +1412,74 @@
           "missing_execution_bar": 8,
           "no_entry_signal": 1715,
           "overlapping_position": 318
+        }
+      },
+      {
+        "id": "nested-wf-mean_reversion-1h",
+        "dir": "nested_wf_mean_reversion_v2",
+        "code_version": "eaab551+quant:519e348fc148",
+        "window": "2026-03-01T00:00:00+00:00",
+        "window_end": "2026-08-08T12:00:00+00:00",
+        "final_test_read": false,
+        "decision": "rejected",
+        "reason": "failed: profit_factor (need 1.1, got 0.6958); positive_folds_pct (need 60.0, got 0.0); positive_validation_net (need > 0, got -3.7432)",
+        "trades": 215,
+        "net_sum_pct": -3.7432,
+        "benchmark_sum_pct": -7.8577,
+        "excess_pp": 4.1145,
+        "positive_fold_pct": 0.0,
+        "profit_factor": 0.6958,
+        "max_drawdown_pct": 2.536,
+        "rejections": {
+          "max_open_positions": 64,
+          "no_entry_signal": 21980,
+          "overlapping_position": 292,
+          "regime_off": 993
+        }
+      },
+      {
+        "id": "nested-wf-mean_reversion-1h",
+        "dir": "nested_wf_mean_reversion_v2_march",
+        "code_version": "eaab551+quant:519e348fc148",
+        "window": "2026-03-01T00:00:00+00:00",
+        "window_end": "2026-04-21T18:00:00+00:00",
+        "final_test_read": false,
+        "decision": "rejected",
+        "reason": "failed: profit_factor (need 1.1, got 0.6431); positive_folds_pct (need 60.0, got 25.0); positive_validation_net (need > 0, got -2.2838); beats_validation_benchmark (need >= buy & hold + 0.05pp, got -3.7931); beats_fold_b",
+        "trades": 128,
+        "net_sum_pct": -2.2838,
+        "benchmark_sum_pct": 1.5093,
+        "excess_pp": -3.7931,
+        "positive_fold_pct": 25.0,
+        "profit_factor": 0.6431,
+        "max_drawdown_pct": 3.644,
+        "rejections": {
+          "max_open_positions": 139,
+          "no_entry_signal": 31440,
+          "overlapping_position": 391,
+          "regime_off": 1590,
+          "target_inside_cost_band": 1
+        }
+      },
+      {
+        "id": "nested-wf-mean_reversion-1h",
+        "dir": "nested_wf_mr_retired_repro",
+        "code_version": "eaab551+quant:1792a09c1763",
+        "window": "2026-03-01T00:00:00+00:00",
+        "window_end": "2026-04-21T18:00:00+00:00",
+        "final_test_read": false,
+        "decision": "rejected",
+        "reason": "failed: min_trades (need 30, got 5); positive_folds_pct (need 60.0, got 25.0); beats_validation_benchmark (need >= buy & hold + 0.05pp, got -1.4335); beats_fold_benchmark (need >= buy & hold + 0.05pp, got -1.4335)",
+        "trades": 5,
+        "net_sum_pct": 0.0758,
+        "benchmark_sum_pct": 1.5093,
+        "excess_pp": -1.4335,
+        "positive_fold_pct": 25.0,
+        "profit_factor": 1.6583,
+        "max_drawdown_pct": 0.367,
+        "rejections": {
+          "no_entry_signal": 101955,
+          "overlapping_position": 1
         }
       },
       {

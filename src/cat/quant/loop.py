@@ -39,8 +39,8 @@ LOOP_PLAN: tuple[dict[str, str], ...] = (
      "hypothesis": "A slower timeframe cuts fee churn and should raise net return per trade."},
     {"key": "momentum_4h", "strategy": "momentum", "timeframe": "4h",
      "hypothesis": "Medium-term momentum with a 4h cadence should survive realistic costs."},
-    {"key": "mean_reversion_1h", "strategy": "mean_reversion", "timeframe": "1h",
-     "hypothesis": "Oversold pullbacks above the slow EMA can mean-revert faster than the fee drag."},
+    # mean_reversion_1h retired (F-015): untestable as specified (D-011 funnel) and the
+    # D-015 counter-trend variant failed acceptance on both independent windows.
     {"key": "breakout_4h", "strategy": "breakout", "timeframe": "4h",
      "hypothesis": "Range breakouts with volume confirmation should produce fewer, larger winners."},
     {"key": "trend_pullback_15m", "strategy": "trend_pullback", "timeframe": "15m",
