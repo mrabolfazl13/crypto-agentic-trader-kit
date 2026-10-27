@@ -49,10 +49,16 @@ from cat.data import SymbolFilter  # noqa: E402
 from cat.quant.engine import load_bars  # noqa: E402
 from cat.quant.features import TIMEFRAME_SECONDS, resample  # noqa: E402
 from cat.quant.settings import load_quant_settings  # noqa: E402
-from cat.quant.storage import current_data_version, universe_symbols  # noqa: E402
+from cat.quant.storage import current_data_version, daily_data_version, universe_symbols  # noqa: E402
 from cat.strategies import default_params, params_from_dict  # noqa: E402
 
-from paper_signal_census import DAY_SECONDS, _daily_frame, _epoch, _klines  # noqa: E402
+from paper_signal_census import (  # noqa: E402
+    DAY_SECONDS,
+    _daily_frame,
+    _epoch,
+    _klines,
+    months_with_extra,
+)
 
 # Same protocol as the deployed cycle and as the census (F-020): the classifier gets
 # a fixed trailing window of this many bars, never an unbounded history.
@@ -99,8 +105,9 @@ def _permissive_filter(symbol: str) -> SymbolFilter:
 
 def replay_symbol(config, settings, symbol: str, *, timeframe: str, params,
                   window_bars: int, decision_every: int,
-                  count_from: int | None, count_to: int | None) -> dict[str, Any]:
-    minutes = load_bars(settings, symbol)
+                  count_from: int | None, count_to: int | None,
+                  months: list[str] | None = None) -> dict[str, Any]:
+    minutes = load_bars(settings, symbol, months=months)
     frame = resample(minutes, timeframe)
     frame = frame[frame["complete"]]
     step = TIMEFRAME_SECONDS[timeframe]
@@ -224,6 +231,9 @@ def main() -> int:
                         help="replay = decide every bar (D-020 protocol); production = one "
                              "decision per automation.paper_cycle_hours, as the deployed clock does")
     parser.add_argument("--params", help="optional StrategyParams JSON to replay instead of shipped")
+    parser.add_argument("--extra-months", default="",
+                        help="comma separated YYYY-MM stored outside quant.months (a daily-sourced month); "
+                             "off by default so an earlier window keeps reading only monthly files")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
@@ -242,6 +252,9 @@ def main() -> int:
         params = params_from_dict(json.loads(Path(args.params).read_text(encoding="utf-8")), base=params)
 
     symbols = universe_symbols(settings, limit=args.symbols)
+    months = months_with_extra(settings, args.extra_months)
+    lake_version = (daily_data_version(settings) if months != list(settings.months)
+                    else current_data_version(settings))
     count_from = _epoch(args.count_from) if args.count_from else None
     count_to = _epoch(args.count_to) if args.count_to else None
     limits = config.limits
@@ -250,6 +263,8 @@ def main() -> int:
           f"{args.count_from}..{args.count_to}, classifier {params.label()}, "
           f"warm-up={args.window_bars} bars, {args.cadence} cadence = 1 decision every {decide_every} bar(s) "
           f"({config.auto_cycle_hours}h cycle)")
+    if months != list(settings.months):
+        print(f"months read (includes a daily-sourced month): {months}")
     print(f"account caps in force: allocation {limits.max_account_allocation_pct}% of "
           f"{config.allocated_capital} capital, {limits.max_trades_per_day} trades/day, "
           f"cooldown {limits.cooldown_minutes_after_loss} min after a loss")
@@ -260,7 +275,7 @@ def main() -> int:
         try:
             row = replay_symbol(config, settings, symbol, timeframe=args.timeframe, params=params,
                                 window_bars=args.window_bars, decision_every=decide_every,
-                                count_from=count_from, count_to=count_to)
+                                count_from=count_from, count_to=count_to, months=months)
         except Exception as exc:  # one bad symbol must not end the replay
             row = {"symbol": symbol, "error": f"{type(exc).__name__}: {exc}"}
         rows.append(row)
@@ -295,6 +310,7 @@ def main() -> int:
         "decide_every_bars": decide_every,
         "decision_bars_total": sum(row.get("decision_ticks", 0) for row in measured),
         "production_cycle_hours": config.auto_cycle_hours,
+        "months_read": months,
         "classifier": params.as_dict(),
         "symbols_replayed": len(measured),
         "symbols_skipped": [row["symbol"] for row in rows if "closed_trades" not in row],

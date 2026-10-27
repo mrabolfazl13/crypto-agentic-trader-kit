@@ -259,8 +259,9 @@ def empty_manifest(settings: QuantSettings) -> dict[str, Any]:
     }
 
 
-def load_manifest(settings: QuantSettings) -> dict[str, Any]:
-    path = settings.manifest_path
+def load_manifest(settings: QuantSettings, path: Path | None = None) -> dict[str, Any]:
+    """Read a manifest. ``path`` lets the daily-sourced lake keep its own record."""
+    path = path or settings.manifest_path
     if not path.exists():
         return empty_manifest(settings)
     try:
@@ -275,7 +276,7 @@ def load_manifest(settings: QuantSettings) -> dict[str, Any]:
     return payload
 
 
-def save_manifest(settings: QuantSettings, manifest: dict[str, Any]) -> None:
+def save_manifest(settings: QuantSettings, manifest: dict[str, Any], path: Path | None = None) -> None:
     symbols = manifest.setdefault("symbols", {})
     totals = {"symbols": 0, "months": 0, "rows": 0, "bytes": 0, "missing_minutes": 0, "gaps": 0}
     for record in symbols.values():
@@ -291,7 +292,7 @@ def save_manifest(settings: QuantSettings, manifest: dict[str, Any]) -> None:
     manifest["totals"] = totals
     manifest["generated_at"] = utc_now()
     manifest["digest"] = manifest_digest(manifest)
-    write_json_atomic(settings.manifest_path, manifest)
+    write_json_atomic(path or settings.manifest_path, manifest)
 
 
 def manifest_digest(manifest: dict[str, Any]) -> str:
@@ -325,6 +326,34 @@ def current_data_version(settings: QuantSettings) -> dict[str, Any]:
     }
 
 
+def daily_months(settings: QuantSettings) -> list[str]:
+    """Months assembled from daily archives, as recorded in the separate daily manifest."""
+    daily = load_manifest(settings, settings.manifest_daily_path)
+    return sorted({month for record in daily.get("symbols", {}).values()
+                   for month in (record.get("months") or {})})
+
+
+def daily_data_version(settings: QuantSettings) -> dict[str, Any]:
+    """Provenance for a run that also read a daily-sourced month.
+
+    ``current_data_version`` deliberately stays the number every earlier record was
+    written against: a daily month is an extra file with its own manifest, so adding
+    one cannot silently re-label the windows already in DECISIONS.md.
+    """
+    version = current_data_version(settings)
+    daily = load_manifest(settings, settings.manifest_daily_path)
+    extra = daily_months(settings)
+    return {
+        **version,
+        "months": sorted(set(version["months"]) | set(extra)),
+        "daily_manifest": daily.get("digest") or manifest_digest(daily),
+        "daily_months": extra,
+        "daily_rows": int(daily.get("totals", {}).get("rows") or 0),
+        "daily_symbols": int(daily.get("totals", {}).get("symbols") or 0),
+        "sources": {"monthly": "binance_vision_1m_monthly", "daily": "binance_vision_1m_daily"},
+    }
+
+
 def symbol_months(manifest: dict[str, Any], symbol: str) -> dict[str, Any]:
     record = manifest.get("symbols", {}).get(symbol.upper())
     if not isinstance(record, dict):
@@ -338,6 +367,31 @@ def symbol_months(manifest: dict[str, Any], symbol: str) -> dict[str, Any]:
 
 def month_path(settings: QuantSettings, symbol: str, month: str) -> Path:
     return settings.raw_dir / symbol.upper() / f"{symbol.upper()}-1m-{month}.parquet"
+
+
+def day_path(settings: QuantSettings, symbol: str, date: str) -> Path:
+    """Daily-sourced bars live beside the monthly files, never inside them.
+
+    Keeping them in their own subdirectory is what lets the monthly lake and its
+    manifest digest stay exactly as every prior record described them.
+    """
+    return settings.raw_dir / symbol.upper() / "daily" / f"{symbol.upper()}-1m-{date}.parquet"
+
+
+def read_parquet_frame(path: Path, columns: Iterable[str] | None = None) -> pd.DataFrame:
+    """Read one stored 1m frame and refuse a silently corrupt or partial file."""
+    if not path.exists():
+        raise StorageError(f"missing parquet file: {path}")
+    frame = pd.read_parquet(path, engine="pyarrow", columns=list(columns) if columns else None)
+    expected = [column for column in (columns or BAR_COLUMNS) if column in frame.columns]
+    missing = [column for column in (columns or BAR_COLUMNS) if column not in frame.columns]
+    if missing:
+        raise StorageError(f"{path.name} is missing columns: {missing}")
+    frame = frame[expected]
+    for column in expected:
+        if frame[column].dtype == object:
+            raise StorageError(f"{path.name} has a non-numeric column {column}")
+    return frame
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -370,19 +424,11 @@ def write_parquet_atomic(frame: pd.DataFrame, path: Path, budget: StorageBudget,
 
 
 def read_month(settings: QuantSettings, symbol: str, month: str, columns: Iterable[str] | None = None) -> pd.DataFrame:
-    path = month_path(settings, symbol, month)
-    if not path.exists():
-        raise StorageError(f"missing parquet file: {path}")
-    frame = pd.read_parquet(path, engine="pyarrow", columns=list(columns) if columns else None)
-    expected = [column for column in (columns or BAR_COLUMNS) if column in frame.columns]
-    missing = [column for column in (columns or BAR_COLUMNS) if column not in frame.columns]
-    if missing:
-        raise StorageError(f"{path.name} is missing columns: {missing}")
-    frame = frame[expected]
-    for column in expected:
-        if frame[column].dtype == object:
-            raise StorageError(f"{path.name} has a non-numeric column {column}")
-    return frame
+    return read_parquet_frame(month_path(settings, symbol, month), columns)
+
+
+def read_day(settings: QuantSettings, symbol: str, date: str, columns: Iterable[str] | None = None) -> pd.DataFrame:
+    return read_parquet_frame(day_path(settings, symbol, date), columns)
 
 
 def read_symbol(settings: QuantSettings, symbol: str, months: Iterable[str] | None = None,

@@ -73,5 +73,24 @@ for tf in 4h 1h; do
 done
 # عددِ داوریِ هر اجرا در summary.single_account_schedule (یک حساب، یک موقعیت، سقفِ روزانه، cooldown)
 # window_bars زیر ۳۰۰ را ابزار رد می‌کند (F-020)؛ نگاشتِ نامِ نماد به allowlist با تست قفل شده (F-022)
+
+
+# پنجره‌ی مستقلِ سوم (D-021): آرشیوِ روزانه، جدا از دریاچه‌ی ماهیانه
+python tools/quant_ingest_daily.py --from 2026-10-01 --to 2026-10-26 --no-proxy     --out state/quant/results/daily_ingest_30.json
+# --no-proxy لازم است چون 127.0.0.1:1080 در config پاسخ نمی‌دهد؛ مستقیم کار می‌کند
+python tools/quant_daily_crosscheck.py --symbol BTCUSDT --month 2026-09 --days 3     --out state/quant/results/daily_crosscheck.json   # verdict باید identical باشد
+# بازتولیدِ بی‌خطرِ manifest: اجرایِ دومِ همان ingest کاملاً resume است (۴ ثانیه، بدون دانلود)
+for tf in 4h 1h 15m; do
+  python tools/paper_signal_census.py --timeframe $tf --symbols 30 --count-from 2026-10-01       --count-to 2026-10-27 --extra-months 2026-10 --out state/quant/results/census_w3_$tf
+  python tools/paper_frequency_replay.py --timeframe $tf --symbols 30 --from 2026-10-01       --to 2026-10-27 --extra-months 2026-10 --cadence production --out state/quant/results/freqprod_w3_$tf
+done
+# A/B گیت رژیم روی هر دو پنجره (--regime-symbol= فقط در حافظه گیت را خاموش می‌کند)
+for tf in 4h 1h; do
+  for w in "2026-10-01 2026-10-27 --extra-months 2026-10" "2026-05-01 2026-08-01"; do
+    python tools/quant_backtest.py --strategy trend_pullback --timeframe $tf --limit 30 $w         --json state/quant/results/gate_ab/<tag>.json
+  done
+done
+# بازبینیِ مشروطِ زمان: پس از انتشارِ zip ماهیانه‌ی 2026-10 (≈ ۱ نوامبر)
+python tools/quant_daily_crosscheck.py --symbol BTCUSDT --month 2026-10 --days 26
 # خروجی‌های معیوبِ نخست: state/quant/results/freq_4h_symbolbug_superseded و freq_1h_symbolbug_superseded
 ```

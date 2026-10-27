@@ -1,50 +1,60 @@
 {
-  "generated_at": "2026-10-27T20:39:59+00:00",
+  "generated_at": "2026-10-27T21:21:36+00:00",
   "code_version": {
-    "head": "a44a8c8",
-    "committed_at": "2026-10-27T23:42:29+03:30",
-    "subject": "count closed trades per day instead of trending-up bars, and hand the owner the number",
+    "head": "ae5144e",
+    "committed_at": "2026-10-28T00:12:39+03:30",
+    "subject": "decide on the deployed clock instead of every bar, and find no timeframe clears Gate B",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
+      "EXPERIMENT_LOG.csv",
       "EXPERIMENT_LOG.md",
+      "FAILURES.md",
       "NEXT_ACTION.md",
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "src/cat/backtest.py",
-      "tests/test_backtest_evidence.py",
-      "tests/test_paper_frequency_replay.py",
-      "tools/paper_frequency_replay.py"
+      "progress.json",
+      "src/cat/quant/engine.py",
+      "src/cat/quant/ingest.py",
+      "src/cat/quant/settings.py",
+      "src/cat/quant/storage.py",
+      "tools/paper_frequency_replay.py",
+      "tools/paper_signal_census.py",
+      "tools/quant_backtest.py",
+      "src/cat/quant/ingest_daily.py",
+      "tests/test_quant_daily_ingest.py",
+      "tools/quant_daily_crosscheck.py",
+      "tools/quant_ingest_daily.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-27T20:39:58+00:00",
+      "at": "2026-10-27T21:21:36+00:00",
       "command": "python -m pytest -q",
-      "passed": 438,
+      "passed": 456,
       "exit_code": 0,
-      "seconds": 40.48,
+      "seconds": 39.4,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "438 passed, 1 warning in 38.44s"
+        "456 passed, 1 warning in 37.67s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 101,
+      "csv_rows": 109,
       "last_row": {
-        "run_id": "nested-wf-ema_trend-4h",
-        "strategy": "ema_trend",
+        "run_id": "gate-ab-w3_4h_gateon",
+        "strategy": "trend_pullback",
         "timeframe": "4h",
-        "slice": "nested_walk_forward",
-        "net_return_pct": "-11.0537",
-        "excess_return_pct": "-3.196",
-        "status": "completed; decision=rejected; positive_folds_pct=0.0; folds=4; final_test_read=false; regime=BTCUSDT/ema200"
+        "slice": "independent_window3",
+        "net_return_pct": "-2.118",
+        "excess_return_pct": "13.0066",
+        "status": "completed; decision=diagnostic-no-acceptance; symbols=30; regime_gate=on; data=daily-sourced-2026-10; final_test_read=false"
       },
-      "runs_with_window": 101
+      "runs_with_window": 109
     },
     "nested_walk_forwards": [
       {
@@ -1806,9 +1816,9 @@
     }
   },
   "data_lake": {
-    "parquet_files": 700,
-    "bytes": 413448883,
-    "gb": 0.413,
+    "parquet_files": 1510,
+    "bytes": 453850290,
+    "gb": 0.454,
     "audit": {
       "months": [
         "2026-03",
@@ -1839,7 +1849,7 @@
         "top_decision_reason": "regime_filter",
         "top_decision_reason_pct": 93.15,
         "executed_decisions": 1,
-        "evaluated_at": "2026-10-27T20:31:46+00:00",
+        "evaluated_at": "2026-10-27T20:43:24+00:00",
         "database": "state\\reports\\server_platform_snapshot.sqlite3",
         "source_file": "state/reports/gate_b_evidence_server.json"
       },

@@ -44,6 +44,7 @@ from .storage import (
 )
 
 BASE_URL = "https://data.binance.vision/data/spot/monthly/klines/{symbol}/1m/{symbol}-1m-{month}.zip"
+DAILY_URL = "https://data.binance.vision/data/spot/daily/klines/{symbol}/1m/{symbol}-1m-{date}.zip"
 USER_AGENT = "cat-quant-research/1.0 (local paper research)"
 MAX_ARCHIVE_BYTES = 300 * 1024 * 1024
 
@@ -83,20 +84,26 @@ def source_url(symbol: str, month: str) -> str:
     return BASE_URL.format(symbol=symbol.upper(), month=month)
 
 
-def _timestamp_seconds(values: pd.Series) -> pd.Series:
-    """Binance archives switched to microseconds; older files are milliseconds."""
-    first = int(values.iloc[0])
-    if first >= 1_000_000_000_000_000:  # microseconds
-        seconds = values // 1_000_000
-    elif first >= 1_000_000_000_000:  # milliseconds
-        seconds = values // 1_000
-    else:
-        seconds = values
-    return seconds.astype("int64")
+def day_window(date: str) -> MonthWindow:
+    """One UTC calendar day, in the same window shape the monthly path validates against.
+
+    The monthly archive for the current month is not published yet, so a third
+    forward window can only be assembled from daily files; reusing ``MonthWindow``
+    keeps one validator for both sources instead of a second, drifting copy.
+    """
+    try:
+        start = int(datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+    except (ValueError, TypeError) as exc:
+        raise IngestError(f"invalid date {date!r}, expected YYYY-MM-DD") from exc
+    return MonthWindow(month=date, start_ts=start, end_ts=start + 86400, expected_minutes=1440)
 
 
-def parse_month_archive(raw: bytes, symbol: str, month: str) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Parse one Binance Vision zip entirely in memory.
+def daily_source_url(symbol: str, date: str) -> str:
+    return DAILY_URL.format(symbol=symbol.upper(), date=date)
+
+
+def _read_csv_archive(raw: bytes, label: str) -> tuple[pd.DataFrame, int]:
+    """Unzip and parse one Binance kline archive; returns the frame and its row count.
 
     The CSV has no header and twelve columns: open_time, OHLC, volume,
     close_time, quote_volume, trade_count, taker volumes, ignore.
@@ -105,25 +112,29 @@ def parse_month_archive(raw: bytes, symbol: str, month: str) -> tuple[pd.DataFra
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             names = [name for name in archive.namelist() if name.lower().endswith(".csv")]
             if len(names) != 1:
-                raise IngestError(f"{symbol} {month}: expected one CSV in the archive, got {names}")
+                raise IngestError(f"{label}: expected one CSV in the archive, got {names}")
             csv_bytes = archive.read(names[0])
     except zipfile.BadZipFile as exc:
-        raise IngestError(f"{symbol} {month}: archive is not a valid zip") from exc
+        raise IngestError(f"{label}: archive is not a valid zip") from exc
 
     try:
         frame = pd.read_csv(
             io.BytesIO(csv_bytes), header=None, usecols=[0, 1, 2, 3, 4, 5],
             names=["raw_ts", "open", "high", "low", "close", "volume"],
             dtype={"raw_ts": "int64", "open": "float64", "high": "float64", "low": "float64",
-                   "close": "float64", "volume": "float64"},
+                   "volume": "float64"},
             engine="c",
         )
     except Exception as exc:
-        raise IngestError(f"{symbol} {month}: CSV could not be parsed ({type(exc).__name__}: {exc})") from exc
+        raise IngestError(f"{label}: CSV could not be parsed ({type(exc).__name__}: {exc})") from exc
     if frame.empty:
-        raise IngestError(f"{symbol} {month}: archive CSV is empty")
+        raise IngestError(f"{label}: archive CSV is empty")
+    return frame, int(len(frame))
 
-    window = month_window(month)
+
+def _validate_rows(frame: pd.DataFrame, window: MonthWindow, label: str) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Drop every row that cannot be trusted; the gap it leaves stays a gap."""
+    frame = frame.copy()
     total_rows = int(len(frame))
     frame["ts"] = _timestamp_seconds(frame["raw_ts"])
     off_grid = (frame["ts"] % 60) != 0
@@ -143,14 +154,23 @@ def parse_month_archive(raw: bytes, symbol: str, month: str) -> tuple[pd.DataFra
              .drop_duplicates(subset="ts", keep="last")
              .reset_index(drop=True))
     if clean.empty:
-        raise IngestError(f"{symbol} {month}: no valid 1m rows survived validation")
+        raise IngestError(f"{label}: no valid 1m rows survived validation")
+    stats = {"rows_read": total_rows, "duplicates": duplicates, "invalid_rows": invalid_rows}
+    return clean, stats
+
+
+def parse_month_archive(raw: bytes, symbol: str, month: str) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Parse one Binance Vision monthly zip entirely in memory."""
+    window = month_window(month)
+    frame, total_rows = _read_csv_archive(raw, f"{symbol} {month}")
+    clean, stats = _validate_rows(frame, window, f"{symbol} {month}")
 
     coverage = validate_coverage(clean, month)
     record = {
         **coverage,
         "expected_minutes": window.expected_minutes,
-        "duplicates": duplicates,
-        "invalid_rows": invalid_rows,
+        "duplicates": stats["duplicates"],
+        "invalid_rows": stats["invalid_rows"],
         "rows_read": total_rows,
         "source_url": source_url(symbol, month),
         "source_bytes": len(raw),
@@ -159,6 +179,44 @@ def parse_month_archive(raw: bytes, symbol: str, month: str) -> tuple[pd.DataFra
         "status": "ok" if coverage["coverage_pct"] >= 99.0 else "partial",
     }
     return clean, record
+
+
+def parse_day_archive(raw: bytes, symbol: str, date: str) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Parse one Binance Vision daily zip; same validation, one calendar day."""
+    window = day_window(date)
+    frame, total_rows = _read_csv_archive(raw, f"{symbol} {date}")
+    clean, stats = _validate_rows(frame, window, f"{symbol} {date}")
+
+    coverage = validate_coverage(clean, date)
+    coverage["month"] = date[:7]
+    record = {
+        **coverage,
+        "day": date,
+        "expected_minutes": window.expected_minutes,
+        "duplicates": stats["duplicates"],
+        "invalid_rows": stats["invalid_rows"],
+        "rows_read": total_rows,
+        "source_url": daily_source_url(symbol, date),
+        "source_bytes": len(raw),
+        "source_sha256": hashlib.sha256(raw).hexdigest(),
+        "stored_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "status": "ok" if coverage["coverage_pct"] >= 99.0 else "partial",
+    }
+    return clean, record
+
+
+def _timestamp_seconds(values: pd.Series) -> pd.Series:
+    """Binance archives switched to microseconds; older files are milliseconds."""
+    first = int(values.iloc[0])
+    if first >= 1_000_000_000_000_000:  # microseconds
+        seconds = values // 1_000_000
+    elif first >= 1_000_000_000_000:  # milliseconds
+        seconds = values // 1_000
+    else:
+        seconds = values
+    return seconds.astype("int64")
+
+
 
 
 def _request_bytes(url: str, *, proxy: str | None, timeout: int, retries: int,

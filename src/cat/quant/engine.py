@@ -73,9 +73,22 @@ def months_for_window(settings: QuantSettings, start_ts: int | None,
 
 
 def load_bars(settings: QuantSettings, symbol: str, *, start_ts: int | None = None,
-              end_ts: int | None = None) -> pd.DataFrame:
-    """Read one symbol's 1m bars, keeping gaps visible (no reindex, no fill)."""
-    frame = read_symbol(settings, symbol, months=months_for_window(settings, start_ts, end_ts))
+              end_ts: int | None = None, months: list[str] | None = None) -> pd.DataFrame:
+    """Read one symbol's 1m bars, keeping gaps visible (no reindex, no fill).
+
+    ``months`` overrides the configured month list. It exists for a daily-sourced
+    month, which lives in the lake beside the monthly files but is deliberately kept
+    out of ``quant.months`` so every earlier window keeps reading exactly what it
+    read before. Without it, behaviour is unchanged.
+    """
+    if months is not None:
+        for month in months:
+            if len(month) != 7 or month[4] != "-":
+                raise StorageError(f"{symbol}: month entry {month!r} must look like '2026-10'")
+        selected = list(months)
+    else:
+        selected = months_for_window(settings, start_ts, end_ts)
+    frame = read_symbol(settings, symbol, months=selected)
     if frame.empty:
         raise StorageError(f"{symbol}: stored dataset is empty")
     for column in BAR_COLUMNS:

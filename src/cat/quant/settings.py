@@ -135,6 +135,10 @@ class QuantSettings:
         return self.data_dir / "manifest.json"
 
     @property
+    def manifest_daily_path(self) -> Path:
+        return self.data_dir / "manifest_daily.json"
+
+    @property
     def database_path(self) -> Path:
         return self.data_dir / "research.sqlite3"
 

@@ -47,7 +47,7 @@ from cat.data import DataQuality, Kline, MarketSnapshot, Quote, SymbolFilter  # 
 from cat.quant.engine import load_bars  # noqa: E402
 from cat.quant.features import TIMEFRAME_SECONDS, resample  # noqa: E402
 from cat.quant.settings import load_quant_settings  # noqa: E402
-from cat.quant.storage import current_data_version, universe_symbols  # noqa: E402
+from cat.quant.storage import current_data_version, daily_data_version, universe_symbols  # noqa: E402
 from cat.strategies import StrategyParams, default_params, params_from_dict  # noqa: E402
 from cat.strategy import analyze  # noqa: E402
 
@@ -163,9 +163,24 @@ def predicates(analysis, params: StrategyParams) -> dict[str, bool]:
     }
 
 
+def months_with_extra(settings, extra: str) -> list[str]:
+    """The configured months plus a month named on the command line.
+
+    ``quant.months`` is not edited for a daily-sourced month: a run only sees October
+    when it asks for it, so every earlier window keeps reading exactly what it read
+    when its record was written.
+    """
+    months = list(settings.months)
+    for month in (part.strip() for part in extra.split(",")):
+        if month and month not in months:
+            months.append(month)
+    return sorted(months)
+
+
 def census_symbol(settings, symbol: str, *, timeframe: str, params: StrategyParams,
-                  window: int, count_from: int | None, count_to: int | None) -> dict[str, Any]:
-    minutes = load_bars(settings, symbol)
+                  window: int, count_from: int | None, count_to: int | None,
+                  months: list[str] | None = None) -> dict[str, Any]:
+    minutes = load_bars(settings, symbol, months=months)
     frame = resample(minutes, timeframe)
     frame = frame[frame["complete"]]
     bars = _klines(frame, step=TIMEFRAME_SECONDS[timeframe])
@@ -249,9 +264,17 @@ def main() -> int:
                         help="diagnostic: rescale vol/atr_pct by sqrt(bar/ref) and slope by bar/ref to this "
                              "reference timeframe (e.g. 4h); off by default")
     parser.add_argument("--out", default="state/quant/results/paper_signal_census")
+    parser.add_argument("--extra-months", default="",
+                        help="comma separated YYYY-MM stored outside quant.months (a daily-sourced month); "
+                             "off by default so earlier windows keep reading only monthly files")
     args = parser.parse_args()
 
     settings = load_quant_settings(load_config(root=ROOT))
+    months = months_with_extra(settings, args.extra_months)
+    # Name the files the run actually read: a daily-sourced month has its own manifest,
+    # so current_data_version() alone would not describe it.
+    lake_version = (daily_data_version(settings) if months != list(settings.months)
+                    else current_data_version(settings))
     count_from = _epoch(args.count_from) if args.count_from else None
     count_to = _epoch(args.count_to) if args.count_to else None
     params = default_params()
@@ -275,7 +298,8 @@ def main() -> int:
     for index, symbol in enumerate(symbols, start=1):
         try:
             row = census_symbol(settings, symbol, timeframe=args.timeframe, params=params,
-                               window=args.window_bars, count_from=count_from, count_to=count_to)
+                               window=args.window_bars, count_from=count_from, count_to=count_to,
+                               months=months)
         except Exception as exc:  # a gap in one symbol must not end the census
             row = {"symbol": symbol, "error": f"{type(exc).__name__}: {exc}"}
         rows.append(row)
@@ -317,7 +341,8 @@ def main() -> int:
         "mean_predicate_shares_pct": {key: round(sum(row["shares_pct"][key] for row in measured)
                                                  / max(1, len(measured)), 3)
                                       for key in ("vol_ok", "atr_ok", "slope_up", "bullish", "trend_up")},
-        "data_version": current_data_version(settings),
+        "months_read": months,
+        "data_version": lake_version,
         "threshold_normalization": normalization,
         "elapsed_seconds": round(time.monotonic() - started, 1),
         "note": ("replay of the shipped classifier on stored candles; no order was placed and no "
