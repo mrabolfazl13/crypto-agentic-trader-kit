@@ -46,4 +46,11 @@ python tools/quant_nested_walk_forward.py --out-dir state/quant/results/nested_w
 
 # بازسازی خلاصه‌ی ماشین‌خوان از فایل‌های واقعی
 python tools/progress_snapshot.py
+
+# شمارشِ گیتِ موتورِ مستقر (D-018/D-019؛ تشخیصی، فقط‌خواندنی، بدون نوشتن در CSV)
+for tf in 15m 1h 4h; do
+  python tools/paper_signal_census.py --timeframe $tf --symbols 30 --count-from 2026-05-01 --count-to 2026-08-01 --out state/quant/results/census_matched_$tf
+  python tools/paper_signal_census.py --timeframe $tf --normalize-to 4h --symbols 30 --count-from 2026-05-01 --count-to 2026-08-01 --out state/quant/results/census_norm4h_$tf
+done
+# warm-up باید ۳۰۰ بماند (پیش‌فرض ابزار = limit در GateProvider.klines؛ F-020)
 ```

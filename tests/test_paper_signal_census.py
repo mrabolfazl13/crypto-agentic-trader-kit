@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -88,3 +89,62 @@ def test_a_hot_market_is_blocked_on_volatility_before_slope_or_breadth():
     assert analysis.regime != "TRENDING_UP"
     assert not flags["vol_ok"]
     assert flags["slope_up"], "the series still trends; volatility alone is what blocks it"
+
+
+def test_normalizing_to_a_reference_timeframe_scales_the_bar_dependent_thresholds():
+    params = default_params()
+    scaled, record = census.normalize_params(params, "1h", "4h")
+    assert record["ratio"] == 0.25
+    assert record["factors"]["vol_threshold"] == 0.5
+    assert record["factors"]["slope_threshold"] == 0.25
+    assert record["effective"] == {"atr_pct_threshold": 0.75, "slope_threshold": 0.015,
+                                   "vol_threshold": 0.5}
+    assert record["shipped"]["vol_threshold"] == params.vol_threshold
+    # a rescaled run must never wear the shipped label
+    assert scaled.label() != params.label()
+    assert scaled.regime_gate == params.regime_gate
+
+
+def test_normalizing_an_unknown_timeframe_fails_instead_of_silently_rescaling():
+    with pytest.raises(ValueError):
+        census.normalize_params(default_params(), "7m", "4h")
+    with pytest.raises(ValueError):
+        census.normalize_params(default_params(), "4h", "7m")
+
+
+def test_the_same_bars_flip_regime_when_only_the_thresholds_reference_changes():
+    """The mechanism behind F-018's 3x gap, isolated: one series, two threshold sets.
+
+    A series trending at 0.25%/bar with a 0.5% swing sits just above the shipped
+    1%-per-bar realized-vol ceiling on 4h bars, so the conjunction rejects it as
+    HIGH_VOLATILITY.  Rescaling the ceiling to a 1h reference doubles it while the
+    bars stay identical, and the same bar becomes TRENDING_UP.
+    """
+    bars = census._klines(_frame(_series(bars=320, drift=0.0025, wiggle=0.005), step=STEP), step=STEP)
+    daily = census._klines(_frame(_series(bars=60, drift=0.0025, wiggle=0.005), step=DAY), step=DAY)
+    ends = [bar.open_time + DAY for bar in daily]
+    snap = census._snapshot("AAAUSDT", "4h", bars, daily, ends, 319, window=300)
+
+    shipped = default_params()
+    shipped_analysis = analyze(snap, shipped)
+    assert shipped_analysis.regime == "HIGH_VOLATILITY"
+    assert shipped_analysis.indicators["realized_vol_pct_per_bar"] > shipped.vol_threshold
+
+    wider, record = census.normalize_params(shipped, "4h", "1h")
+    assert record["factors"]["vol_threshold"] == 2.0
+    rescaled = analyze(snap, wider)
+    assert rescaled.regime == "TRENDING_UP", rescaled.indicators
+    assert all(census.predicates(rescaled, wider).values())
+
+
+def test_the_census_window_is_the_window_the_deployed_engine_hands_the_classifier():
+    """A census that speaks for the live gate has to use the live warm-up.
+
+    The first matched 4h-vs-1h comparison was re-run with a 240-bar window while
+    the deployed cycle fetches 300, and two borderline bars changed verdict.  The
+    window is an input to the classifier, not a knob.
+    """
+    from inspect import signature
+
+    from cat.data import GateProvider
+    assert census.MIN_WINDOW_BARS == signature(GateProvider.klines).parameters["limit"].default

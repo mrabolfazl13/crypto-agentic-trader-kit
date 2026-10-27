@@ -1,41 +1,33 @@
 {
-  "generated_at": "2026-10-27T18:50:23+00:00",
+  "generated_at": "2026-10-27T19:29:24+00:00",
   "code_version": {
-    "head": "ce04762",
-    "committed_at": "2026-10-27T21:16:40+03:30",
-    "subject": "prove the research chain end to end, and measure how thin its per-symbol evidence is",
+    "head": "94825de",
+    "committed_at": "2026-10-27T22:21:05+03:30",
+    "subject": "count how often the shipped regime gate opens, project the trade cadence, and record the first paper fill",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
-      "EXPERIMENT_LOG.csv",
+      "EXPERIMENT_LOG.md",
       "FAILURES.md",
       "NEXT_ACTION.md",
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "progress.json",
-      "src/cat/paper_evidence.py",
-      "tests/test_paper_evidence.py",
-      "tests/test_quant_chain_e2e.py",
-      "tools/paper_gate_b.py",
-      "tools/progress_snapshot.py",
-      "tools/quant_nested_walk_forward.py",
       "tests/test_paper_signal_census.py",
-      "tests/test_progress_snapshot.py",
       "tools/paper_signal_census.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-27T18:50:23+00:00",
+      "at": "2026-10-27T19:29:24+00:00",
       "command": "python -m pytest -q",
-      "passed": 402,
+      "passed": 406,
       "exit_code": 0,
-      "seconds": 40.4,
+      "seconds": 37.27,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "402 passed, 1 warning in 39.08s"
+        "406 passed, 1 warning in 36.04s"
       ]
     }
   },

@@ -12,12 +12,15 @@ cannot tell two very different situations apart:
 This tool measures which of the two it is. It replays the shipped classifier
 (``cat.strategy.analyze`` with ``default_params()``) over stored candles, bar by
 bar, using only information available at that bar, and reports the regime mix plus
-which individual predicate blocks. It places no order, writes no config and
-changes no threshold.
+which individual predicate blocks. It places no order and writes no config; the only
+thing that can move a threshold here is ``--normalize-to``, which rescales it in memory
+for a diagnostic run and never reaches config or the deployed engine.
 
 Usage:
-    python tools/paper_signal_census.py --symbols 30 --months 2026-03:2026-08
+    python tools/paper_signal_census.py --symbols 30 --timeframe 4h \
+        --count-from 2026-05-01 --count-to 2026-08-01
     python tools/paper_signal_census.py --timeframe 1h --params state/quant/results/params.json
+    python tools/paper_signal_census.py --timeframe 15m --normalize-to 4h   # diagnostic rescale
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import time
 from bisect import bisect_right
 from collections import Counter
 from datetime import datetime, timezone
+from math import sqrt
 from pathlib import Path
 from typing import Any
 
@@ -48,12 +52,48 @@ from cat.strategies import StrategyParams, default_params, params_from_dict  # n
 from cat.strategy import analyze  # noqa: E402
 
 # The classifier reads the last N of several series; the window has to cover the
-# widest of them plus EMA warm-up, or every bar would come back UNKNOWN.
-MIN_WINDOW_BARS = 240
+# widest of them plus EMA warm-up, or every bar would come back UNKNOWN.  The
+# deployed cycle hands the classifier 300 bars (cat/engine.py fetches
+# limit=300, the same default as GateProvider.klines), so a census that wants to
+# speak for that engine has to use that window - a 240-bar warm-up moved the
+# borderline bars and made a matched run non-reproducible.
+MIN_WINDOW_BARS = 300
 # Only a nominal spread is needed: the quote feeds spread reporting, never the
 # regime label itself.
 ASSUMED_SPREAD_PCT = 0.05
 DAY_SECONDS = 86400
+
+# The three bar-length-dependent thresholds and how each is expected to scale with
+# the bar.  One-step dispersion (realized vol, ATR) grows with the square root of
+# elapsed time; a slope quoted in percent-per-bar grows with the bar itself.
+SQRT_SCALERS = ("vol_threshold", "atr_pct_threshold")
+LINEAR_SCALERS = ("slope_threshold",)
+
+
+def normalize_params(params: StrategyParams, timeframe: str, reference: str) -> tuple[StrategyParams, dict[str, Any]]:
+    """Rescale the bar-dependent thresholds to a reference timeframe (diagnostic only).
+
+    Returns the replaced params plus the factors used, so a run records exactly which
+    numbers were in play.  ``label()`` comes from the tuning dict, so a normalized run
+    can never be mistaken for the shipped classifier's label.
+    """
+    if timeframe not in TIMEFRAME_SECONDS or reference not in TIMEFRAME_SECONDS:
+        raise ValueError(f"unknown timeframe: {timeframe if timeframe not in TIMEFRAME_SECONDS else reference}")
+    ratio = TIMEFRAME_SECONDS[timeframe] / TIMEFRAME_SECONDS[reference]
+    factors = {key: sqrt(ratio) for key in SQRT_SCALERS}
+    factors.update({key: ratio for key in LINEAR_SCALERS})
+    changes = {key: getattr(params, key) * factor for key, factor in factors.items()}
+    scaled = params.replace(**changes, note=f"{params.note} | thresholds rescaled to {reference}")
+    record = {
+        "reference": reference,
+        "bar_seconds": TIMEFRAME_SECONDS[timeframe],
+        "reference_bar_seconds": TIMEFRAME_SECONDS[reference],
+        "ratio": round(ratio, 6),
+        "factors": {key: round(value, 6) for key, value in sorted(factors.items())},
+        "shipped": {key: getattr(params, key) for key in sorted(factors)},
+        "effective": {key: round(value, 6) for key, value in sorted(changes.items())},
+    }
+    return scaled, record
 
 
 def _daily_frame(minutes):
@@ -205,6 +245,9 @@ def main() -> int:
     parser.add_argument("--count-to", default="", help="last counted bar, exclusive (ISO date)")
     parser.add_argument("--window-bars", type=int, default=MIN_WINDOW_BARS)
     parser.add_argument("--params", default="", help="JSON tuning dict (defaults to the shipped v1)")
+    parser.add_argument("--normalize-to", default="",
+                        help="diagnostic: rescale vol/atr_pct by sqrt(bar/ref) and slope by bar/ref to this "
+                             "reference timeframe (e.g. 4h); off by default")
     parser.add_argument("--out", default="state/quant/results/paper_signal_census")
     args = parser.parse_args()
 
@@ -214,6 +257,9 @@ def main() -> int:
     params = default_params()
     if args.params:
         params = params_from_dict(json.loads(Path(args.params).read_text(encoding="utf-8")), base=params)
+    normalization = None
+    if args.normalize_to:
+        params, normalization = normalize_params(params, args.timeframe, args.normalize_to)
 
     symbols = universe_symbols(settings, limit=args.symbols)
     out_dir = Path(args.out)
@@ -221,6 +267,9 @@ def main() -> int:
     span = f"{args.count_from or 'first stored bar'}..{args.count_to or 'last stored bar'}"
     print(f"census: {len(symbols)} symbols x {args.timeframe} counted {span}, classifier {params.label()}, "
           f"warm-up={args.window_bars} bars, gate={params.regime_gate}")
+    if normalization:
+        print(f"normalized thresholds -> {normalization['effective']} "
+              f"(factors {normalization['factors']}, ref {normalization['reference']})")
     rows: list[dict[str, Any]] = []
     started = time.monotonic()
     for index, symbol in enumerate(symbols, start=1):
@@ -269,12 +318,16 @@ def main() -> int:
                                                  / max(1, len(measured)), 3)
                                       for key in ("vol_ok", "atr_ok", "slope_up", "bullish", "trend_up")},
         "data_version": current_data_version(settings),
+        "threshold_normalization": normalization,
         "elapsed_seconds": round(time.monotonic() - started, 1),
-        "note": "replay of the shipped classifier on stored candles; no order was placed and no threshold changed",
+        "note": ("replay of the shipped classifier on stored candles; no order was placed and no "
+                 "threshold in config was changed"
+                 + ("" if normalization is None else " (this run rescaled thresholds in memory only)")),
     }
-    path = out_dir / f"census-{args.timeframe}.json"
-    (out_dir / f"census-{args.timeframe}.json").write_text(
-        json.dumps({"summary": summary, "per_symbol": rows}, indent=2, ensure_ascii=False), encoding="utf-8")
+    suffix = f"-normalized-{args.normalize_to}" if normalization else ""
+    path = out_dir / f"census-{args.timeframe}{suffix}.json"
+    path.write_text(json.dumps({"summary": summary, "per_symbol": rows},
+                               indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\npooled regime mix: {summary['regime_mix_pct']}")
     print(f"blocking predicate: {summary['blocking_predicate_pct']}")
     means = summary["mean_predicate_shares_pct"]
