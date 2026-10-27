@@ -113,6 +113,28 @@ def test_chain_backtest_produces_priced_trades_and_diagnostics(lake):
     assert result["data_version"]["rows"] == MINUTES * len(SYMBOLS)
 
 
+def test_chain_window_start_blocks_entries_although_warmup_runs_before_it(lake):
+    """``--start`` must never let a warm-up bar open a trade.
+
+    The third-window measurements pass a start date into a lake that begins weeks
+    earlier, so the warm-up region is loaded on purpose; an entry inside it would be
+    a look-ahead that flatters every number in D-021.
+    """
+    settings, _ = lake
+    sim = engine.simulate_settings(settings)
+    mid = MONTH_START + (MINUTES // 2) * 60
+    kwargs = dict(strategy="ema_trend", timeframe="1h", params=QuantParams(), sim=sim)
+    full = engine.run_backtest(settings, list(SYMBOLS), end_ts=MONTH_START + MINUTES * 60,
+                               start_ts=MONTH_START, **kwargs)
+    late = engine.run_backtest(settings, list(SYMBOLS), end_ts=MONTH_START + MINUTES * 60,
+                               start_ts=mid, **kwargs)
+    assert full["errors"] == {} and late["errors"] == {}
+    assert late["metrics"]["trades"] > 0, "a truncated rising tape must still enter"
+    assert late["metrics"]["trades"] < full["metrics"]["trades"]
+    assert all(trade["entry_ts"] >= mid for trade in late["trades"])
+    assert all(trade["entry_ts"] < MONTH_START + MINUTES * 60 for trade in late["trades"])
+
+
 def test_chain_walk_forward_folds_are_chronological_and_stop_before_the_holdout(lake):
     settings, _ = lake
     window = engine.data_window(settings, list(SYMBOLS))

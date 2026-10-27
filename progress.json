@@ -1,44 +1,31 @@
 {
-  "generated_at": "2026-10-27T21:21:36+00:00",
+  "generated_at": "2026-10-27T21:54:00+00:00",
   "code_version": {
-    "head": "ae5144e",
-    "committed_at": "2026-10-28T00:12:39+03:30",
-    "subject": "decide on the deployed clock instead of every bar, and find no timeframe clears Gate B",
+    "head": "7c24c79",
+    "committed_at": "2026-10-28T00:51:59+03:30",
+    "subject": "open the third independent window through daily archives, without touching the monthly lake",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
-      "EXPERIMENT_LOG.csv",
-      "EXPERIMENT_LOG.md",
-      "FAILURES.md",
       "NEXT_ACTION.md",
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "progress.json",
-      "src/cat/quant/engine.py",
-      "src/cat/quant/ingest.py",
-      "src/cat/quant/settings.py",
-      "src/cat/quant/storage.py",
-      "tools/paper_frequency_replay.py",
-      "tools/paper_signal_census.py",
-      "tools/quant_backtest.py",
-      "src/cat/quant/ingest_daily.py",
-      "tests/test_quant_daily_ingest.py",
-      "tools/quant_daily_crosscheck.py",
-      "tools/quant_ingest_daily.py"
+      "tests/test_quant_chain_e2e.py",
+      "tools/quant_nested_walk_forward.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-27T21:21:36+00:00",
+      "at": "2026-10-27T21:54:00+00:00",
       "command": "python -m pytest -q",
-      "passed": 456,
+      "passed": 457,
       "exit_code": 0,
-      "seconds": 39.4,
+      "seconds": 39.66,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "456 passed, 1 warning in 37.67s"
+        "457 passed, 1 warning in 38.31s"
       ]
     }
   },
@@ -1770,14 +1757,36 @@
           "overlapping_position": 118,
           "target_inside_cost_band": 4
         }
+      },
+      {
+        "id": "nested-wf-ema_trend-4h",
+        "dir": "wf_start_smoke",
+        "code_version": "7c24c79+quant:59d35f3153e5",
+        "window": "2026-06-01T00:00:00+00:00",
+        "window_end": "2026-08-31T12:00:00+00:00",
+        "final_test_read": false,
+        "decision": "rejected",
+        "reason": "failed: positive_folds_pct (need 60.0, got 25.0); beats_validation_benchmark (need >= buy & hold + 0.05pp, got -21.574); beats_fold_benchmark (need >= buy & hold + 0.05pp, got -21.574)",
+        "trades": 199,
+        "net_sum_pct": 6.2752,
+        "benchmark_sum_pct": 27.8492,
+        "excess_pp": -21.574,
+        "positive_fold_pct": 25.0,
+        "profit_factor": 1.36,
+        "max_drawdown_pct": 3.85,
+        "rejections": {
+          "no_entry_signal": 228,
+          "overlapping_position": 672,
+          "regime_off": 210
+        }
       }
     ],
     "acceptance": {
-      "runs_with_decision": 72,
-      "distinct_verdicts": 61,
+      "runs_with_decision": 73,
+      "distinct_verdicts": 62,
       "accepted_files": 3,
       "accepted_verdicts": 2,
-      "rejected_files": 69,
+      "rejected_files": 70,
       "accepted_detail": [
         {
           "run_ids": [
@@ -1816,9 +1825,9 @@
     }
   },
   "data_lake": {
-    "parquet_files": 1510,
-    "bytes": 453850290,
-    "gb": 0.454,
+    "parquet_files": 3400,
+    "bytes": 535404081,
+    "gb": 0.535,
     "audit": {
       "months": [
         "2026-03",
@@ -1849,7 +1858,7 @@
         "top_decision_reason": "regime_filter",
         "top_decision_reason_pct": 93.15,
         "executed_decisions": 1,
-        "evaluated_at": "2026-10-27T20:43:24+00:00",
+        "evaluated_at": "2026-10-27T21:33:55+00:00",
         "database": "state\\reports\\server_platform_snapshot.sqlite3",
         "source_file": "state/reports/gate_b_evidence_server.json"
       },

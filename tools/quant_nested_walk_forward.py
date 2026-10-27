@@ -176,6 +176,11 @@ def main() -> int:
                         help="cap the data window end (ISO date, e.g. 2026-06-01) so a run can "
                              "replicate on an earlier regime slice; the cap is never extended "
                              "and the final holdout still starts where the test slice starts")
+    parser.add_argument("--start", default="",
+                        help="raise the data window start (ISO date) so the rolling origin can be "
+                             "placed on a later slice; the window is never extended backwards. "
+                             "Note: the span comes from the monthly manifest, so a daily-sourced "
+                             "month is not reachable here, and 4 folds x 7 test days need 28 days.")
     parser.add_argument("--out-dir",
                         default=str(ROOT / "state" / "quant" / "results" / "nested_walk_forward"))
     parser.add_argument("--log", default=str(ROOT / "EXPERIMENT_LOG.csv"))
@@ -207,6 +212,15 @@ def main() -> int:
         if cap >= window.end_ts:
             raise SystemExit(f"--end {args.end} is beyond the data window end {window.iso()['end']}")
         window = Window(window.start_ts, cap)
+    if args.start:
+        floor = int(datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc).timestamp())
+        if floor < window.start_ts:
+            raise SystemExit(f"--start {args.start} is before the data window start "
+                             f"{window.iso()['start']}; the window is never extended backwards")
+        if floor >= window.end_ts:
+            raise SystemExit(f"--start {args.start} leaves no data before "
+                             f"{window.iso()['end']}")
+        window = Window(floor, window.end_ts)
     splits = chronological_splits(window, train=settings.walk_forward.train_fraction,
                                   validation=settings.walk_forward.validation_fraction)
     fold_window = Window(window.start_ts, splits["test"].start_ts)
