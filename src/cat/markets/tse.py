@@ -557,14 +557,18 @@ def _provider(client: HttpClient, config: Any) -> TseProvider:
 def _clock(client: HttpClient, config: Any) -> dict[str, Any]:
     """TSETMC has no time endpoint — the CDN's own HTTP Date header is the reference."""
     url = f"{BASE}{MARKET_OVERVIEW_PATH.format(flow=1)}"
-    server = client.date_header_epoch(url)
+    server, round_trip = client.date_header_epoch_rtt(url)
     local = datetime.now(timezone.utc).timestamp()
     if server is None:
         raise DataError("TSETMC returned no parseable Date header; cannot validate the clock")
-    skew = local - server
+    # Same latency correction as the crypto clock check: the header is stamped at
+    # the CDN before the body travels back, so half the round trip belongs to the
+    # network, not to the local clock.
+    skew = local - server - round_trip / 2.0
     return {
         "server_time": server,
         "local_time": local,
+        "round_trip_seconds": round(round_trip, 3),
         "skew_seconds": round(skew, 3),
         "acceptable": abs(skew) <= float(config.max_clock_skew_seconds),
         "source": "tsetmc:http-date-header",

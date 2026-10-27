@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
+import time
 
 import cat.http as http_module
 from cat.audit import AuditLog
@@ -321,3 +322,49 @@ def test_gate_pair_metadata_is_cached_per_process():
     second = gate.filters("BTC/USDT")
     assert first == second
     assert len(calls) == 1, "the static pair metadata should be fetched once per TTL"
+
+
+# ------------------------------------------------- clock skew vs network latency
+
+class _SlowTimeClient:
+    def __init__(self, server_ms: float, delay: float):
+        self.server_ms = server_ms
+        self.delay = delay
+
+    def get(self, url: str, params=None):
+        time.sleep(self.delay)
+        return {"server_time": self.server_ms}
+
+
+def test_clock_skew_excludes_the_network_round_trip():
+    """A 0.2s-latency proxy must not read as a 2s clock error (two lost paper cycles)."""
+    from cat.http import check_clock_skew
+
+    true_offset = 0.05
+    client = _SlowTimeClient((time.time() - true_offset) * 1000.0, delay=0.2)
+    result = check_clock_skew(client, "https://example.test/time", ("server_time",), 2.0)
+    assert result["round_trip_seconds"] > 0.0, "the latency must actually be measured"
+    assert abs(result["skew_seconds"] - true_offset) < 0.15, \
+        "the clock must not be blamed for the round trip"
+    assert result["acceptable"]
+
+
+def test_tse_clock_also_excludes_latency():
+    from cat.markets.tse import _clock
+
+    true_offset = 0.30
+    client = SimpleNamespace(date_header_epoch_rtt=lambda url: (time.time() - true_offset, 1.0))
+    config = SimpleNamespace(max_clock_skew_seconds=2.0)
+    result = _clock(client, config)
+    assert result["round_trip_seconds"] == 1.0
+    assert abs(result["skew_seconds"] - true_offset) <= 0.5, "1s header resolution plus latency"
+    assert result["acceptable"]
+
+
+def test_tse_clock_still_fails_closed_without_a_date_header():
+    from cat.http import DataError
+    from cat.markets.tse import _clock
+
+    client = SimpleNamespace(date_header_epoch_rtt=lambda url: (None, 0.4))
+    with pytest.raises(DataError):
+        _clock(client, SimpleNamespace(max_clock_skew_seconds=2.0))

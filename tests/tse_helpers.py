@@ -60,6 +60,9 @@ class FixtureClient:
     def date_header_epoch(self, url: str) -> float:
         return self.date_epoch
 
+    def date_header_epoch_rtt(self, url: str) -> tuple[float, float]:
+        return self.date_epoch, 0.0
+
 
 def marketwatch_rows() -> list[dict[str, Any]]:
     return load_fixture("tse_marketwatch_m1.json")["marketwatch"]

@@ -57,25 +57,32 @@ class HttpClient:
         raise DataError(f"request failed after {self.max_attempts} attempts: {url} ({last_error})")
 
     def date_header_epoch(self, url: str) -> float | None:
-        """Server clock from the HTTP ``Date`` header, for venues with no time endpoint.
+        epoch, _round_trip = self.date_header_epoch_rtt(url)
+        return epoch
 
-        Returns ``None`` instead of raising: the caller must fail closed (a clock
-        we cannot check is a clock we may not trust), and 1-second header
-        resolution is still a real measurement rather than an assumption.
+    def date_header_epoch_rtt(self, url: str) -> tuple[float | None, float]:
+        """Server clock from the HTTP ``Date`` header plus the measured round trip.
+
+        Returns ``(None, rtt)`` instead of raising: the caller must fail closed (a
+        clock we cannot check is a clock we may not trust), and 1-second header
+        resolution is still a real measurement rather than an assumption. The round
+        trip lets the caller take the network latency out of its skew figure.
         """
+        started = time.monotonic()
         try:
             response = requests.get(
                 url, proxies=self._proxies(), headers=self.headers, timeout=self.timeout, stream=True
             )
         except requests.RequestException:
-            return None
+            return None, time.monotonic() - started
+        round_trip = time.monotonic() - started
         try:
             raw = response.headers.get("Date")
             if not raw:
-                return None
-            return parsedate_to_datetime(raw).timestamp()
+                return None, round_trip
+            return parsedate_to_datetime(raw).timestamp(), round_trip
         except (TypeError, ValueError):
-            return None
+            return None, round_trip
         finally:
             response.close()
 
@@ -89,8 +96,18 @@ def to_utc(ts_seconds: float) -> datetime:
 
 
 def check_clock_skew(client: HttpClient, server_time_url: str, key_path: tuple[str, ...], max_skew: float) -> dict[str, Any]:
-    """Fail closed if the local clock cannot be trusted against the exchange."""
+    """Fail closed if the local clock cannot be trusted against the exchange.
+
+    The exchange stamps its time before the response travels back, so the raw
+    ``local - server`` figure also contains the network round trip: behind a slow
+    proxy a healthy clock read as +2.2s and tripped the 2s gate (two PAPER cycles
+    lost on 2026-10-26 while the true offset, checked over SSH against an NTP
+    host, was ~+0.5s). The round trip is therefore measured and its half
+    subtracted, NTP-style; the acceptable threshold itself is untouched.
+    """
+    started = time.monotonic()
     payload = client.get(server_time_url)
+    round_trip = time.monotonic() - started
     cursor: Any = payload
     for part in key_path:
         if not isinstance(cursor, dict) or part not in cursor:
@@ -100,10 +117,11 @@ def check_clock_skew(client: HttpClient, server_time_url: str, key_path: tuple[s
     if server_ms > 1e12:
         server_ms /= 1000.0
     local = datetime.now(timezone.utc).timestamp()
-    skew = local - server_ms
+    skew = local - server_ms - round_trip / 2.0
     return {
         "server_time": server_ms,
         "local_time": local,
+        "round_trip_seconds": round(round_trip, 3),
         "skew_seconds": round(skew, 3),
         "acceptable": abs(skew) <= max_skew,
     }
