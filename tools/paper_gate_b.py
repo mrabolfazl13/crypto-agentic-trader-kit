@@ -76,6 +76,11 @@ def _persian_lines(payload: dict) -> list[str]:
         f"(شکست تاریخی {restarts['historical_missed']}، در انتظار {restarts['pending']})",
         f"دفتر: سفارش {ledger['orders']}، پر شدن {ledger['fills']}، معامله‌ی بسته {ledger['trades']}، "
         f"یتم بدون سفارش {ledger['orphan_fills']}، سود خالص {show(ledger['net_pnl'])}",
+        f"شمارش معامله (تشخیصی، داوری را تغییر نمی‌دهد): {payload['cadence']['closed_trades']} بسته از "
+        f"{payload['cadence']['min_closed_trades']} لازم؛ نرخ ثبت‌شده "
+        f"{show(payload['cadence']['observed_trades_per_day'], ' معامله/روز')}، لازم "
+        f"{show(payload['cadence']['required_trades_per_day'], ' معامله/روز')}؛ پیش‌بینی تا پایان پنجره "
+        f"{show(payload['cadence']['projected_at_milestone'])} ⇒ {payload['cadence']['state']}",
         f"بررسی‌ها: یکپارچگی={'ok' if checks['integrity_ok'] else 'fail'}، "
         f"بازیابی={'ok' if checks['recovery_ok'] else 'fail'}، "
         f"طول={'ok' if checks['long_enough'] else 'کم'}، "
@@ -104,6 +109,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--interval-hours", type=float, default=None,
                         help="expected cycle cadence (default: config automation.paper_cycle_hours)")
     parser.add_argument("--min-days", type=float, default=28.0)
+    parser.add_argument("--min-closed-trades", type=int, default=30,
+                        help="gate-B trade count used for the cadence projection (verdict ignores it)")
     parser.add_argument("--now", default=None, help="evaluate as of this ISO timestamp (default: real UTC now)")
     parser.add_argument("--out", default=None,
                         help="JSON path (default: <root>/state/reports/gate_b_evidence.json)")
@@ -142,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         interval_hours=interval,
         now=now,
         min_days=args.min_days,
+        min_closed_trades=args.min_closed_trades,
     )
     payload["safety"] = safety
     payload["database"] = str(database)

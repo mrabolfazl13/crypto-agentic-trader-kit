@@ -38,7 +38,7 @@ from cat.config import load_config  # noqa: E402
 from cat.quant.engine import (Window, aggregate_folds, chronological_splits,  # noqa: E402
                               data_window, run_backtest, simulate_settings,
                               walk_forward_windows)
-from cat.quant.features import params_from_dict  # noqa: E402
+from cat.quant.features import QuantParams, params_from_dict  # noqa: E402
 from cat.quant.loop import acceptance, code_version  # noqa: E402
 from cat.quant.optimizer import optimize_windows  # noqa: E402
 from cat.quant.settings import load_quant_settings  # noqa: E402
@@ -58,22 +58,63 @@ def fold_protocol(train: Window, inner_selection_fraction: float) -> tuple[Windo
     return Window(train.start_ts, selection_start), Window(selection_start, train.end_ts)
 
 
+def breadth_ranking(settings, symbols: list[str], *, strategy: str, timeframe: str, sim,
+                   slice_window: Window, top_k: int, min_candidates: int) -> dict:
+    """Rank symbols on a strictly earlier slice, so a fold cannot select on its own test data.
+
+    The key is candidate trades that survived the cost/edge guards and the regime gate, not raw
+    bars: a basket of symbols that never fires makes the basket-wide ``min_trades`` gate meaningless.
+    """
+    started = time.monotonic()
+    probe = run_backtest(settings, symbols, strategy=strategy, timeframe=timeframe,
+                         params=QuantParams(), sim=sim,
+                         start_ts=slice_window.start_ts, end_ts=slice_window.end_ts)
+    ranked = sorted(((row["symbol"], int(row["candidates"]), int(row["entry_signals"]))
+                     for row in probe["per_symbol"]),
+                    key=lambda row: (-row[1], -row[2], row[0]))
+    keep = [symbol for symbol, candidates, _ in ranked
+            if candidates >= min_candidates][: max(1, top_k)]
+    return {"rule": "train_breadth", "selection_slice": slice_window.iso(),
+            "top_k": int(top_k), "min_candidates": int(min_candidates),
+            "requested": len(symbols), "kept": len(keep), "symbols": sorted(keep),
+            "counts": {symbol: candidates for symbol, candidates, _ in ranked[:top_k]},
+            "probe_errors": probe["errors"],
+            "elapsed_seconds": round(time.monotonic() - started, 2)}
+
+
 def evaluate_fold(settings, symbols_search: list[str], symbols: list[str], *, strategy: str,
                   timeframe: str, plan: dict[str, Window], trials: int, finalists: int,
                   inner_selection_fraction: float, seed: int,
-                  include_trades: bool = False, sim=None) -> dict:
+                  include_trades: bool = False, sim=None,
+                  symbol_selection: str = "universe", symbol_top_k: int = 25,
+                  symbol_min_candidates: int = 1) -> dict:
     search, selection = fold_protocol(plan["train"], inner_selection_fraction)
     test = plan["test"]
     if search.end_ts > plan["train"].end_ts or selection.end_ts > plan["train"].end_ts \
             or test.start_ts < plan["train"].end_ts:
         raise AssertionError("nested fold windows are not chronological inside the training slice")
     started = time.monotonic()
+    search_basket = list(symbols_search)
+    scored_basket = list(symbols)
+    subset = None
+    if symbol_selection == "train_breadth":
+        subset = breadth_ranking(settings, symbols, strategy=strategy, timeframe=timeframe,
+                                 sim=sim or simulate_settings(settings), slice_window=search,
+                                 top_k=symbol_top_k, min_candidates=symbol_min_candidates)
+        if subset["kept"] < 3:
+            # A basket this thin cannot carry a portfolio verdict. Fall back to the pre-registered
+            # protocol *exactly* — including the 30-symbol search slice — because widening the
+            # search basket is itself a protocol change and would silently move the goalposts.
+            subset["fell_back"] = f"only {subset['kept']} symbols cleared the floor"
+        else:
+            scored_basket = subset["symbols"]
+            search_basket = subset["symbols"]
     search_result = optimize_windows(
-        settings, symbols_search, strategy=strategy, timeframe=timeframe,
+        settings, search_basket, strategy=strategy, timeframe=timeframe,
         search_window=search, selection_window=selection, allowed_window=plan["train"],
         trials=trials, seed=seed, finalists=finalists)
     params = params_from_dict(overrides=search_result["best"]["params"])
-    scored = run_backtest(settings, symbols, strategy=strategy, timeframe=timeframe, params=params,
+    scored = run_backtest(settings, scored_basket, strategy=strategy, timeframe=timeframe, params=params,
                           sim=sim or simulate_settings(settings),
                           start_ts=test.start_ts, end_ts=test.end_ts)
     payload = {
@@ -90,9 +131,14 @@ def evaluate_fold(settings, symbols_search: list[str], symbols: list[str], *, st
         "metrics": scored["metrics"], "benchmark": scored["benchmark"],
         "trades": len(scored["trades"]),
         "symbols_evaluated": scored["symbols_evaluated"],
+        # The protocol record is written once for the run; the per-fold baskets can differ
+        # from it when breadth selection applies or falls back, so stamp what actually ran.
+        "search_basket": len(search_basket), "scored_basket": len(scored_basket),
         "errors": scored["errors"],
         "elapsed_seconds": round(time.monotonic() - started, 2),
     }
+    if subset is not None:
+        payload["symbol_subset"] = subset
     if include_trades:
         payload["trades_detail"] = scored["trades"]
     return payload
@@ -118,6 +164,14 @@ def main() -> int:
     parser.add_argument("--no-regime", action="store_true",
                         help="clear the regime gate even if config enables it, so results recorded "
                              "before the gate became the default stay reproducible")
+    parser.add_argument("--symbol-selection", choices=("universe", "train_breadth"), default="universe",
+                        help="how each fold picks its basket: the stored universe order (default, "
+                             "unchanged behaviour) or the symbols with the most guard-passing "
+                             "candidates on that fold's inner search slice only (D-016)")
+    parser.add_argument("--symbol-top-k", type=int, default=25,
+                        help="with --symbol-selection train_breadth, keep this many symbols per fold")
+    parser.add_argument("--symbol-min-candidates", type=int, default=1,
+                        help="floor for a symbol to count as having breadth on the search slice")
     parser.add_argument("--end", default="",
                         help="cap the data window end (ISO date, e.g. 2026-06-01) so a run can "
                              "replicate on an earlier regime slice; the cap is never extended "
@@ -166,13 +220,17 @@ def main() -> int:
     run_stamp = utc_stamp()
     print(f"nested walk-forward: {len(configs)} configs x {len(plans)} folds x {args.trials} trials; "
           f"{len(symbols_search)} search symbols, {len(symbols)} scored symbols; "
-          f"regime={sim.regime_symbol or 'off'}"
+          f"selection={args.symbol_selection}"
+          + (f" top_k={args.symbol_top_k}" if args.symbol_selection != "universe" else "")
+          + f"; regime={sim.regime_symbol or 'off'}"
           + (f"/ema{sim.regime_ema}" if sim.regime_symbol else "")
           + f"; rolling window ends {fold_window.iso()['end']} (final test starts "
           f"{splits['test'].iso()['start']}, never read)", flush=True)
 
     for strategy, timeframe in configs:
         run_id = f"nested-wf-{strategy}-{timeframe}"
+        if args.symbol_selection != "universe":
+            run_id += f"-{args.symbol_selection}"
         target = out_dir / f"{run_id}.json"
         if args.resume and target.exists():
             existing = json.loads(target.read_text(encoding="utf-8"))
@@ -189,7 +247,9 @@ def main() -> int:
                                  finalists=args.finalists,
                                  inner_selection_fraction=args.inner_selection_fraction,
                                  seed=42 + plan["fold"], include_trades=args.dump_trades,
-                                 sim=sim)
+                                 sim=sim, symbol_selection=args.symbol_selection,
+                                 symbol_top_k=args.symbol_top_k,
+                                 symbol_min_candidates=args.symbol_min_candidates)
             if args.dump_trades:
                 trade_dump[str(fold["fold"])] = fold.pop("trades_detail", [])
             records.append(fold)
@@ -208,7 +268,12 @@ def main() -> int:
                 ensure_ascii=False, indent=1), encoding="utf-8")
             print(f"{run_id} fold {fold['fold']}: search {fold['search']['start']}..{fold['search']['end']} "
                   f"selection -> test {fold['test']['start']}..{fold['test']['end']} | "
-                  f"trades={fold['metrics'].get('trades')} net={fold['metrics'].get('net_return_pct')}% "
+                  f"basket={fold['symbols_evaluated']}"
+                  + (f" (breadth from {fold['symbol_subset']['selection_slice']['start']}.."
+                     f"{fold['symbol_subset']['selection_slice']['end']}, "
+                     f"{fold['symbol_subset']['kept']}/{fold['symbol_subset']['requested']})"
+                     if "symbol_subset" in fold else "")
+                  + f" trades={fold['metrics'].get('trades')} net={fold['metrics'].get('net_return_pct')}% "
                   f"BH={fold['benchmark'].get('return_pct')}% chosen={fold['chosen_on']} "
                   f"elapsed={fold['elapsed_seconds']}s", flush=True)
 
@@ -249,7 +314,11 @@ def main() -> int:
                          "folds": settings.walk_forward.folds,
                          "test_days": settings.walk_forward.test_days,
                          "regime_symbol": sim.regime_symbol or None,
-                         "regime_ema": sim.regime_ema if sim.regime_symbol else None},
+                         "regime_ema": sim.regime_ema if sim.regime_symbol else None,
+                         "symbol_selection": args.symbol_selection,
+                         "symbol_top_k": args.symbol_top_k if args.symbol_selection != "universe" else None,
+                         "symbol_min_candidates": (args.symbol_min_candidates
+                                                   if args.symbol_selection != "universe" else None)},
             "window": fold_window.iso(), "final_test_start": splits["test"].iso()["start"],
             "final_test_read": False,
             "folds": records, "aggregate": aggregate, "decision": decision,

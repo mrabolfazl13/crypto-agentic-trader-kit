@@ -102,6 +102,52 @@ def nested_walk_forwards() -> list[dict]:
     return out
 
 
+def acceptance_tally(runs: list[dict]) -> dict:
+    """Count verdicts over *distinct results*, not over JSON files.
+
+    A replay (determinism check, the same window re-run under a new flag) writes
+    another directory with the same aggregate numbers, so counting files would
+    turn one accepted verdict into three and move the acceptance rate.  Two runs
+    are the same verdict only when window, end, trade count, net and profit
+    factor all match; every run id and directory behind a group is listed, so
+    collapsing never hides a file.  An accepted verdict is still not a registered
+    candidate — that decision lives in DECISIONS.md, and this file does not claim it.
+    """
+    decided = [row for row in runs if row["decision"] in ("accepted", "rejected")]
+
+    def key(row: dict) -> tuple:
+        return (row["window"], row["window_end"], row["trades"], row["net_sum_pct"],
+                row["profit_factor"])
+
+    groups: dict[tuple, list[dict]] = {}
+    for row in decided:
+        groups.setdefault(key(row), []).append(row)
+    accepted = [row for row in decided if row["decision"] == "accepted"]
+    accepted_groups = [rows for rows in groups.values() if rows[0]["decision"] == "accepted"]
+    return {
+        "runs_with_decision": len(decided),
+        "distinct_verdicts": len(groups),
+        "accepted_files": len(accepted),
+        "accepted_verdicts": len(accepted_groups),
+        "rejected_files": len(decided) - len(accepted),
+        "accepted_detail": [
+            {
+                "run_ids": sorted({row["id"] for row in rows}),
+                "window": rows[0]["window"],
+                "window_end": rows[0]["window_end"],
+                "trades": rows[0]["trades"],
+                "net_sum_pct": rows[0]["net_sum_pct"],
+                "excess_pp": rows[0]["excess_pp"],
+                "profit_factor": rows[0]["profit_factor"],
+                "positive_fold_pct": rows[0]["positive_fold_pct"],
+                "dirs": sorted(row["dir"] for row in rows),
+            }
+            for rows in accepted_groups
+        ],
+        "note": "an accepted verdict is not a registered candidate; see DECISIONS.md/FAILURES.md",
+    }
+
+
 def data_lake() -> dict:
     root = ROOT / "state" / "quant"
     files = list(root.rglob("*.parquet"))
@@ -131,6 +177,7 @@ def gate_b() -> dict:
         except (OSError, json.JSONDecodeError):
             continue
         win = raw.get("window") or {}
+        cadence = raw.get("cadence") or {}
         out[name] = {
             "status": raw.get("status"),
             "span_days": win.get("span_days"),
@@ -140,6 +187,11 @@ def gate_b() -> dict:
             "downtime_gaps": win.get("downtime_gaps"),
             "days_remaining": win.get("days_remaining"),
             "milestone_at": win.get("milestone_at"),
+            "closed_trades": (raw.get("ledger") or {}).get("trades"),
+            "trade_cadence_state": cadence.get("state"),
+            "required_trades_per_day": cadence.get("required_trades_per_day"),
+            "evaluated_at": raw.get("evaluated_at"),
+            "database": raw.get("database"),
             "source_file": rel,
         }
     return out
@@ -152,7 +204,7 @@ def server_snapshot() -> dict:
         return info
     info["bytes"] = path.stat().st_size
     try:
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        con = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
         tables = [r[0] for r in con.execute(
             "select name from sqlite_master where type='table' order by name")]
         info["tables"] = {name: con.execute(f"select count(*) from {name}").fetchone()[0]
@@ -203,7 +255,6 @@ def last_tests() -> dict | None:
 
 def build(tests: dict | None) -> dict:
     wf = nested_walk_forwards()
-    guarded = [row for row in wf if row["dir"] == "nested_walk_forward_guarded"]
     return {
         "generated_at": now_iso(),
         "code_version": code_version(),
@@ -211,11 +262,7 @@ def build(tests: dict | None) -> dict:
         "experiments": {
             "log": experiment_log(),
             "nested_walk_forwards": wf,
-            "guarded_tally": {
-                "configs": len(guarded),
-                "accepted": sum(1 for r in guarded if r["decision"] == "accepted"),
-                "rejected": sum(1 for r in guarded if r["decision"] == "rejected"),
-            },
+            "acceptance": acceptance_tally(wf),
         },
         "data_lake": data_lake(),
         "gates": {"B_paper": gate_b()},
@@ -234,11 +281,12 @@ def main() -> int:
     payload = build(tests)
     Path(args.out).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
                               encoding="utf-8")
-    tally = payload["experiments"]["guarded_tally"]
+    tally = payload["experiments"]["acceptance"]
     print(f"progress.json written: {args.out}")
     print(f"  head={payload['code_version']['head']} dirty={payload['code_version']['dirty']}")
     print(f"  tests={payload['tests']['last_run'] and payload['tests']['last_run'].get('passed')}")
-    print(f"  guarded_wf={tally['accepted']} accepted / {tally['rejected']} rejected of {tally['configs']}")
+    print(f"  acceptance={tally['accepted_verdicts']} accepted verdict(s) of "
+          f"{tally['distinct_verdicts']} distinct ({tally['runs_with_decision']} result files)")
     return 0
 
 

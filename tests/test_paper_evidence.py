@@ -207,3 +207,52 @@ def test_missing_or_negative_equity_fails_the_gate():
 def test_interval_must_be_positive():
     with pytest.raises(ValueError):
         analyze(snapshots=[], interval_hours=0, now=START)
+
+
+def _cadence_runs(count: int, **kwargs) -> dict:
+    times = _cadence(count)
+    params = {"snapshots": _snapshots(times), "restarts": [], "interval_hours": 3.0,
+              "now": times[-1] + timedelta(hours=1)}
+    params.update(kwargs)
+    return analyze(**params)
+
+
+def test_zero_closed_trades_projects_stalled():
+    """The recorded PAPER window so far: cycles land on time, nothing trades."""
+    result = _cadence_runs(13, trades=[], min_closed_trades=30)
+    cadence = result["cadence"]
+    assert cadence["state"] == "stalled"
+    assert cadence["observed_trades_per_day"] == 0.0
+    assert cadence["projected_at_milestone"] == 0.0
+    assert cadence["required_trades_per_day"] > 0
+
+
+def test_a_cadence_below_the_required_rate_is_behind_not_stalled():
+    result = _cadence_runs(13, trades=[{"id": 1, "net": 1.0, "fees": 0.1, "mode": "PAPER"}],
+                           min_closed_trades=30)
+    cadence = result["cadence"]
+    assert cadence["state"] == "behind"
+    assert cadence["observed_trades_per_day"] < cadence["required_trades_per_day"]
+
+
+def test_a_cadence_that_clears_the_count_projects_on_track():
+    result = _cadence_runs(13, min_closed_trades=30,
+                           trades=[{"id": index, "net": 1.0, "fees": 0.1, "mode": "PAPER"}
+                                   for index in range(20)])
+    assert result["cadence"]["state"] == "on-track"
+    assert result["cadence"]["projected_at_milestone"] >= 30
+
+
+def test_the_cadence_projection_never_changes_the_verdict():
+    """30 closed trades inside a 1.5-day window is still INCOMPLETE.
+
+    The projection is a report about arithmetic, not a gate: reaching the trade
+    count must not shorten the window, and missing it must not fail anything.
+    """
+    times = _cadence(13)
+    trades = [{"id": index, "net": 1.0, "fees": 0.1, "mode": "PAPER"} for index in range(30)]
+    result = analyze(snapshots=_snapshots(times), trades=trades, restarts=[],
+                     interval_hours=3.0, now=times[-1] + timedelta(hours=1))
+    assert result["status"] == "INCOMPLETE"
+    assert result["cadence"]["closed_trades"] == 30
+    assert result["cadence"]["state"] == "met"

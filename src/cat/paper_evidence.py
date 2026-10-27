@@ -16,6 +16,7 @@ from typing import Any, Iterable, Mapping
 
 DEFAULT_MIN_DAYS = 28.0
 DEFAULT_ON_TIME_FRACTION = 0.9
+DEFAULT_MIN_CLOSED_TRADES = 30
 GAP_TOLERANCE = 1.5  # a cycle is "on time" when it lands within 1.5 intervals
 
 
@@ -48,6 +49,45 @@ def _num(value: Any) -> float | None:
     return None
 
 
+def _feasibility(*, closed_trades: int, span_days: float, days_remaining: float,
+                 min_closed_trades: int) -> dict[str, Any]:
+    """Project the recorded trade cadence onto the rest of the gate-B window.
+
+    Diagnostic only — it never moves ``status``.  Gate B asks for
+    ``min_closed_trades`` closed trades inside ``min_days``; a loop that keeps
+    landing on time can still be mathematically unable to reach that count, and
+    silently waiting for a deadline that arithmetic says cannot be met is its own
+    kind of failure.
+    """
+    days_elapsed = max(0.0, float(span_days))
+    observed = closed_trades / days_elapsed if days_elapsed > 0 else None
+    needed = (min_closed_trades - closed_trades) / days_remaining if days_remaining > 0 else None
+    projected = (closed_trades + observed * days_remaining) if observed is not None and days_remaining > 0 else None
+    if closed_trades >= min_closed_trades:
+        state = "met"
+    elif days_remaining <= 0:
+        state = "exhausted"
+    elif observed is None:
+        state = "unmeasured"
+    elif observed <= 0:
+        state = "stalled"
+    elif needed is not None and observed >= needed:
+        state = "on-track"
+    else:
+        state = "behind"
+    return {
+        "min_closed_trades": int(min_closed_trades),
+        "closed_trades": int(closed_trades),
+        "days_elapsed": round(days_elapsed, 3),
+        "days_remaining": round(float(days_remaining), 3),
+        "observed_trades_per_day": round(observed, 4) if observed is not None else None,
+        "required_trades_per_day": round(needed, 4) if needed is not None else None,
+        "projected_at_milestone": round(projected, 2) if projected is not None else None,
+        "state": state,
+        "note": "projection of the recorded cadence; it does not change the gate verdict",
+    }
+
+
 def analyze(
     *,
     snapshots: Iterable[Mapping[str, Any]],
@@ -60,6 +100,7 @@ def analyze(
     mode: str = "PAPER",
     min_days: float = DEFAULT_MIN_DAYS,
     on_time_fraction: float = DEFAULT_ON_TIME_FRACTION,
+    min_closed_trades: int = DEFAULT_MIN_CLOSED_TRADES,
 ) -> dict[str, Any]:
     """Return a JSON-ready verdict for the recorded PAPER window.
 
@@ -67,7 +108,8 @@ def analyze(
     ``restarts`` are timestamps of automation "started" events.  A restart is
     recovered when a snapshot lands within two intervals; the *latest* restart
     is judged against its own deadline, while older misses are reported as
-    historical downtime rather than poisoning the gate forever.
+    historical downtime rather than poisoning the gate forever.  ``min_closed_trades``
+    feeds the cadence projection only; the status verdict does not use it.
     """
     interval_hours = float(interval_hours)
     if interval_hours <= 0:
@@ -229,6 +271,8 @@ def analyze(
 
     days_remaining = round(max(0.0, float(min_days) - span_days), 3)
     milestone_at = _iso(times[0] + timedelta(days=float(min_days))) if times and not long_enough else None
+    cadence = _feasibility(closed_trades=len(trade_rows), span_days=span_days,
+                           days_remaining=days_remaining, min_closed_trades=min_closed_trades)
 
     return {
         "gate": "B",
@@ -260,6 +304,7 @@ def analyze(
             "missed": missed[:5],
         },
         "ledger": ledger,
+        "cadence": cadence,
         "checks": {
             "integrity_ok": integrity_ok,
             "recovery_ok": recovery_ok,

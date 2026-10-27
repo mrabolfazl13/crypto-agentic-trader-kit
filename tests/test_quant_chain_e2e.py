@@ -196,3 +196,130 @@ def test_chain_gate_verdict_follows_its_own_gates_not_the_narrative(tmp_path: Pa
     rejected = acceptance(passing_validation, thin, None, settings)
     assert rejected["decision"] == "rejected"
     assert "positive_folds_pct" in rejected["reason"]
+
+
+# ------------------------------------------------ D-016 train-only symbol breadth selection
+
+def _wf_tool():
+    import sys
+
+    tools = str(Path(__file__).resolve().parents[1] / "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import quant_nested_walk_forward as wf
+    return wf
+
+
+def test_chain_breadth_selection_reads_only_the_slice_it_is_given(monkeypatch, lake):
+    """A fold may pick its basket from an earlier slice, never from the slice that scores it."""
+    wf = _wf_tool()
+    settings, _ = lake
+    seen: dict[str, int] = {}
+
+    def fake_backtest(_settings, symbols, **kwargs):
+        seen["start_ts"] = kwargs["start_ts"]
+        seen["end_ts"] = kwargs["end_ts"]
+        return {"per_symbol": [{"symbol": "BBBBUSDT", "candidates": 9, "entry_signals": 40},
+                               {"symbol": "AAAAUSDT", "candidates": 3, "entry_signals": 12},
+                               {"symbol": "CCCCUSDT", "candidates": 0, "entry_signals": 7}],
+                "errors": {}}
+
+    monkeypatch.setattr(wf, "run_backtest", fake_backtest)
+    slice_window = engine.Window(MONTH_START + 86400, MONTH_START + 3 * 86400)
+    subset = wf.breadth_ranking(settings, list(SYMBOLS), strategy="ema_trend", timeframe="1h",
+                                sim=engine.simulate_settings(settings), slice_window=slice_window,
+                                top_k=2, min_candidates=1)
+    assert (seen["start_ts"], seen["end_ts"]) == (slice_window.start_ts, slice_window.end_ts)
+    assert subset["symbols"] == ["AAAAUSDT", "BBBBUSDT"], "top_k must carry the guard-passing basket"
+    assert subset["counts"] == {"BBBBUSDT": 9, "AAAAUSDT": 3}
+    assert subset["kept"] == 2 and subset["requested"] == len(SYMBOLS)
+
+
+def test_chain_breadth_floor_leaves_a_symbol_without_candidates_out(monkeypatch, lake):
+    wf = _wf_tool()
+    settings, _ = lake
+
+    def fake_backtest(_settings, symbols, **kwargs):
+        return {"per_symbol": [{"symbol": symbol, "candidates": 0, "entry_signals": 1}
+                               for symbol in symbols], "errors": {}}
+
+    monkeypatch.setattr(wf, "run_backtest", fake_backtest)
+    subset = wf.breadth_ranking(settings, list(SYMBOLS), strategy="ema_trend", timeframe="1h",
+                                sim=engine.simulate_settings(settings),
+                                slice_window=engine.Window(MONTH_START, MONTH_START + 86400),
+                                top_k=25, min_candidates=1)
+    assert subset["kept"] == 0, "a symbol with no guard-passing candidate has no breadth"
+
+
+def test_chain_thin_breadth_falls_back_to_the_pre_registered_protocol(monkeypatch, lake):
+    """Pre-registered in D-016: a thin basket falls back, and the fallback may not widen the search."""
+    wf = _wf_tool()
+    settings, _ = lake
+    baskets: list[int] = []
+    search_baskets: list[int] = []
+
+    monkeypatch.setattr(wf, "breadth_ranking", lambda *a, **k: {
+        "rule": "train_breadth", "selection_slice": {"start": "x", "end": "y"}, "top_k": 25,
+        "min_candidates": 1, "requested": len(SYMBOLS), "kept": 2, "symbols": list(SYMBOLS[:2]),
+        "counts": {}, "probe_errors": {}, "elapsed_seconds": 0.0})
+    monkeypatch.setattr(wf, "optimize_windows", lambda _s, symbols, **kw: {
+        "best": {"params": QuantParams().as_dict()}, "chosen_on": "inner selection",
+        "finalists": 1, "trials": 1, "stop_reason": "done", "elapsed_seconds": 0.0,
+        "_captured": search_baskets.append(len(symbols))})
+    monkeypatch.setattr(wf, "simulate_settings", engine.simulate_settings)
+
+    def fake_backtest(_settings, symbols, **kwargs):
+        baskets.append(len(symbols))
+        return {"metrics": {"trades": 0}, "benchmark": {}, "trades": [],
+                "symbols_evaluated": len(symbols), "errors": {}}
+
+    monkeypatch.setattr(wf, "run_backtest", fake_backtest)
+    plan = {"fold": 1, "train": engine.Window(MONTH_START, MONTH_START + 10 * 86400),
+            "test": engine.Window(MONTH_START + 10 * 86400, MONTH_START + 13 * 86400)}
+    fold = wf.evaluate_fold(settings, list(SYMBOLS[:2]), list(SYMBOLS), strategy="ema_trend",
+                            timeframe="1h", plan=plan, trials=1, finalists=1,
+                            inner_selection_fraction=0.2, seed=1,
+                            sim=engine.simulate_settings(settings),
+                            symbol_selection="train_breadth")
+    assert fold["symbol_subset"]["fell_back"].startswith("only 2")
+    assert search_baskets == [2], "the fallback must keep the pre-registered search slice"
+    assert baskets == [len(SYMBOLS)], "the scored fold keeps the whole universe"
+    assert fold["search_basket"] == 2 and fold["scored_basket"] == len(SYMBOLS)
+    assert fold["symbols_evaluated"] == len(SYMBOLS)
+
+
+def test_chain_usable_breadth_does_narrow_the_fold_basket(monkeypatch, lake):
+    """The other half of D-016: with three or more usable symbols the subset is actually applied."""
+    wf = _wf_tool()
+    settings, _ = lake
+    basket = list(SYMBOLS) + ["DDDDUSDT"]
+    kept = list(SYMBOLS)
+    baskets: list[list[str]] = []
+
+    monkeypatch.setattr(wf, "breadth_ranking", lambda *a, **k: {
+        "rule": "train_breadth", "selection_slice": {"start": "x", "end": "y"}, "top_k": 25,
+        "min_candidates": 1, "requested": len(basket), "kept": len(kept), "symbols": kept,
+        "counts": {}, "probe_errors": {}, "elapsed_seconds": 0.0})
+    monkeypatch.setattr(wf, "optimize_windows", lambda _s, symbols, **kw: {
+        "best": {"params": QuantParams().as_dict()}, "chosen_on": "inner selection",
+        "finalists": 1, "trials": 1, "stop_reason": "done", "elapsed_seconds": 0.0,
+        "_captured": baskets.append(list(symbols))})
+    monkeypatch.setattr(wf, "simulate_settings", engine.simulate_settings)
+
+    def fake_backtest(_settings, symbols, **kwargs):
+        baskets.append(list(symbols))
+        return {"metrics": {"trades": 0}, "benchmark": {}, "trades": [],
+                "symbols_evaluated": len(symbols), "errors": {}}
+
+    monkeypatch.setattr(wf, "run_backtest", fake_backtest)
+    plan = {"fold": 1, "train": engine.Window(MONTH_START, MONTH_START + 10 * 86400),
+            "test": engine.Window(MONTH_START + 10 * 86400, MONTH_START + 13 * 86400)}
+    fold = wf.evaluate_fold(settings, list(basket), list(basket), strategy="ema_trend",
+                            timeframe="1h", plan=plan, trials=1, finalists=1,
+                            inner_selection_fraction=0.2, seed=1,
+                            sim=engine.simulate_settings(settings),
+                            symbol_selection="train_breadth")
+    assert "fell_back" not in fold["symbol_subset"]
+    assert baskets == [kept, kept], "search and test scoring must run on the same selected basket"
+    assert fold["search_basket"] == len(kept) and fold["scored_basket"] == len(kept)
+    assert fold["symbols_evaluated"] == len(kept)
