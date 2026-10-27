@@ -145,12 +145,23 @@ def run_backtest(
     assumed_spread_pct: float = 0.05,
     params: StrategyParams | None = None,
     propose_fn: Callable[..., Proposal] | None = None,
+    window_bars: int | None = None,
 ) -> BacktestResult:
     params = params or default_params()
     timeframe = timeframe or config.timeframe
     step = seconds_per_bar(timeframe)
     confirm_tf = config.confirm_timeframe
     higher_step = seconds_per_bar(confirm_tf)
+    # Production hands the classifier a fixed trailing window (`limit=300` in
+    # GateProvider.klines); an unbounded replay window is a different protocol, so
+    # a caller that means to match it passes it. Leaving it None keeps the
+    # historical behaviour untouched.
+    if window_bars is not None:
+        if window_bars < 2:
+            raise ValueError("window_bars must be at least 2 bars")
+        if warmup > len(bars) - 2:
+            raise ValueError("not enough bars to replay after warmup")
+        warmup = max(warmup, window_bars)
     prices = closes(bars)
     result = BacktestResult(
         symbol=symbol, timeframe=timeframe, bars=len(bars),
@@ -201,7 +212,10 @@ def run_backtest(
         evidence = None
 
     while index < len(bars) - 1:
-        window = bars[: index + 1]
+        history = bars[: index + 1]
+        # Clamped like production: at most window_bars bars, always ending on the
+        # decision bar. Nothing newer than `window` reaches the classifier.
+        window = history[-window_bars:] if window_bars else history
         decision_time = bars[index].open_time + step
         higher = select_closed_higher(higher_bars, decision_time, higher_step)
         snap = _snapshot(symbol, timeframe, window, higher[-200:] if len(higher) >= 60 else None, bars[index], filters, assumed_spread_pct, config.limits.stop_on_data_staleness_seconds)

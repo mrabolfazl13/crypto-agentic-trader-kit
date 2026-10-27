@@ -191,3 +191,51 @@ def test_existing_database_gains_the_evidence_column_in_place(tmp_path):
     store = Store(path)
     columns = {row[1] for row in store._conn.execute("PRAGMA table_info(run_trades)")}
     assert "evidence_json" in columns
+
+
+def _spy(seen: list[tuple[int, int]]):
+    """A propose_fn that records (window length, last bar) instead of trading."""
+    def propose(snap, position, **kwargs):
+        seen.append((len(snap.klines), snap.klines[-1].open_time))
+        return Proposal(action="NO_TRADE", confidence=0.0, rationale=[], entry=None,
+                        stop=None, target=None, analysis=Analysis(regime="UNKNOWN", summary="stub"),
+                        reason="no_signal")
+    return propose
+
+
+def _flat(count: int) -> list[Kline]:
+    return _bars([(100.0, 101.0, 99.0, 100.0)] * count)
+
+
+def test_window_bars_clamps_the_replay_window_to_the_size_production_uses(config):
+    """D-020 loyalty-to-input rule: the classifier sees at most N trailing bars.
+
+    Production hands `GateProvider.klines(limit=300)` a fixed trailing window, so a
+    replay that grows without bound measures a different protocol (F-020). The clamp
+    must never widen past window_bars and must always end on the decision bar.
+    """
+    seen: list[tuple[int, int]] = []
+    run_backtest(config, config.symbols[0], bars=_flat(20), higher_bars=[], filters=SYMBOL_FILTER,
+                 timeframe="1h", warmup=2, window_bars=6, propose_fn=_spy(seen))
+    assert seen, "the replay never reached a decision"
+    assert max(length for length, _ in seen) == 6
+    assert all(length == 6 for length, _ in seen)
+    for index, (length, last_ts) in enumerate(seen):
+        assert last_ts == START + (index + 6) * STEP  # decision bar, never a future one
+
+
+def test_the_unclamped_replay_still_grows_one_bar_per_step(config):
+    """window_bars=None is today's untouched behaviour, not a hidden default."""
+    seen: list[tuple[int, int]] = []
+    run_backtest(config, config.symbols[0], bars=_flat(12), higher_bars=[], filters=SYMBOL_FILTER,
+                 timeframe="1h", warmup=2, propose_fn=_spy(seen))
+    assert [length for length, _ in seen] == [3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+
+def test_an_impossible_window_fails_closed_instead_of_silently_shrinking(config):
+    with pytest.raises(ValueError):
+        run_backtest(config, config.symbols[0], bars=_flat(20), higher_bars=[], filters=SYMBOL_FILTER,
+                     timeframe="1h", window_bars=1, propose_fn=_spy([]))
+    with pytest.raises(ValueError):
+        run_backtest(config, config.symbols[0], bars=_flat(5), higher_bars=[], filters=SYMBOL_FILTER,
+                     timeframe="1h", warmup=4, window_bars=4, propose_fn=_spy([]))

@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-27T19:52:08+00:00",
+  "generated_at": "2026-10-27T20:12:16+00:00",
   "code_version": {
-    "head": "84a3531",
-    "committed_at": "2026-10-27T22:59:59+03:30",
-    "subject": "measure what threshold normalization explains in the timeframe gap, and lock the census warm-up to production",
+    "head": "7ce885a",
+    "committed_at": "2026-10-27T23:22:28+03:30",
+    "subject": "read the loop's own rejection reasons from the decisions table, not the research counters",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
@@ -13,24 +13,24 @@
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "src/cat/paper_evidence.py",
-      "tests/test_paper_evidence.py",
-      "tests/test_progress_snapshot.py",
-      "tools/paper_gate_b.py",
-      "tools/progress_snapshot.py"
+      "src/cat/backtest.py",
+      "tests/test_backtest_evidence.py",
+      "FULL_REPORT_2026-10-27.md",
+      "tests/test_paper_frequency_replay.py",
+      "tools/paper_frequency_replay.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-27T19:52:08+00:00",
+      "at": "2026-10-27T20:12:15+00:00",
       "command": "python -m pytest -q",
-      "passed": 413,
+      "passed": 428,
       "exit_code": 0,
-      "seconds": 58.88,
+      "seconds": 55.33,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "413 passed, 1 warning in 57.03s"
+        "428 passed, 1 warning in 53.97s"
       ]
     }
   },
