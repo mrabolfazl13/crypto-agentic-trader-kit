@@ -11,6 +11,7 @@ state; it never builds an Engine, never fetches data and never sends an order.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping
 
@@ -88,6 +89,56 @@ def _feasibility(*, closed_trades: int, span_days: float, days_remaining: float,
     }
 
 
+def _decision_reason(row: Mapping[str, Any]) -> str:
+    """Collapse one recorded decision to the reason the engine gave for it.
+
+    ``rationale_json`` is free text written at decision time ("no order for action
+    NO_TRADE: regime_filter"), so the reason is the first snake_case segment of the
+    first rationale line.  Anything unparseable stays visible as ``unparsed`` rather
+    than being folded into a bucket it may not belong to.
+    """
+    action = str(row.get("action") or "").upper()
+    if action not in ("NO_TRADE", "HOLD"):
+        return f"executed:{action.lower()}"
+    raw = row.get("rationale_json")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raw = [raw]
+    lines = raw if isinstance(raw, list) else []
+    text = str(lines[0]) if lines else ""
+    for segment in text.split(":"):
+        token = segment.strip()
+        if len(token) >= 4 and "_" in token and token.isidentifier() and token.islower():
+            return token
+    return "unparsed"
+
+
+def _decision_funnel(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
+    """What the deployed loop itself recorded, symbol-cycle by symbol-cycle.
+
+    Stronger evidence than a replay (D-018) because it is the build's own output at
+    run time.  Like the cadence projection it is arithmetic about evidence and never
+    moves ``status``.
+    """
+    totals: dict[str, int] = {}
+    for row in rows:
+        reason = _decision_reason(row)
+        totals[reason] = totals.get(reason, 0) + 1
+    ordered = sorted(totals.items(), key=lambda item: (-item[1], item[0]))
+    total = len(rows)
+    return {
+        "decisions": total,
+        "cycles": len({str(row.get("ts")) for row in rows if row.get("ts")}),
+        "symbols": len({str(row.get("symbol")) for row in rows if row.get("symbol")}),
+        "by_reason_counts": dict(ordered),
+        "by_reason_pct": {reason: round(count / total * 100.0, 2) for reason, count in ordered} if total else {},
+        "executed": {reason: count for reason, count in ordered if reason.startswith("executed:")},
+        "note": "reasons parsed from the recorded rationale; diagnostic only, never changes the gate verdict",
+    }
+
+
 def analyze(
     *,
     snapshots: Iterable[Mapping[str, Any]],
@@ -95,6 +146,7 @@ def analyze(
     fills: Iterable[Mapping[str, Any]] = (),
     trades: Iterable[Mapping[str, Any]] = (),
     restarts: Iterable[Any] = (),
+    decisions: Iterable[Mapping[str, Any]] = (),
     interval_hours: float,
     now: Any,
     mode: str = "PAPER",
@@ -110,6 +162,8 @@ def analyze(
     is judged against its own deadline, while older misses are reported as
     historical downtime rather than poisoning the gate forever.  ``min_closed_trades``
     feeds the cadence projection only; the status verdict does not use it.
+    ``decisions`` are the loop's own recorded decisions and feed the diagnostic funnel only —
+    like the cadence projection, they never move ``status``.
     """
     interval_hours = float(interval_hours)
     if interval_hours <= 0:
@@ -138,6 +192,7 @@ def analyze(
     order_rows = [dict(row) for row in orders]
     fill_rows = [dict(row) for row in fills]
     trade_rows = [dict(row) for row in trades]
+    decision_rows = [dict(row) for row in decisions]
 
     def foreign(rows: list[Mapping[str, Any]]) -> int:
         return sum(1 for row in rows if row.get("mode") not in (None, mode))
@@ -305,6 +360,7 @@ def analyze(
         },
         "ledger": ledger,
         "cadence": cadence,
+        "decision_funnel": _decision_funnel(decision_rows),
         "checks": {
             "integrity_ok": integrity_ok,
             "recovery_ok": recovery_ok,

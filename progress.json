@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-27T19:29:24+00:00",
+  "generated_at": "2026-10-27T19:52:08+00:00",
   "code_version": {
-    "head": "94825de",
-    "committed_at": "2026-10-27T22:21:05+03:30",
-    "subject": "count how often the shipped regime gate opens, project the trade cadence, and record the first paper fill",
+    "head": "84a3531",
+    "committed_at": "2026-10-27T22:59:59+03:30",
+    "subject": "measure what threshold normalization explains in the timeframe gap, and lock the census warm-up to production",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
@@ -13,21 +13,24 @@
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "tests/test_paper_signal_census.py",
-      "tools/paper_signal_census.py"
+      "src/cat/paper_evidence.py",
+      "tests/test_paper_evidence.py",
+      "tests/test_progress_snapshot.py",
+      "tools/paper_gate_b.py",
+      "tools/progress_snapshot.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-27T19:29:24+00:00",
+      "at": "2026-10-27T19:52:08+00:00",
       "command": "python -m pytest -q",
-      "passed": 406,
+      "passed": 413,
       "exit_code": 0,
-      "seconds": 37.27,
+      "seconds": 58.88,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "406 passed, 1 warning in 36.04s"
+        "413 passed, 1 warning in 57.03s"
       ]
     }
   },
@@ -1834,7 +1837,11 @@
         "closed_trades": 0,
         "trade_cadence_state": "stalled",
         "required_trades_per_day": 1.1322,
-        "evaluated_at": "2026-10-27T18:47:35+00:00",
+        "decision_symbol_cycles": 1300,
+        "top_decision_reason": "regime_filter",
+        "top_decision_reason_pct": 93.15,
+        "executed_decisions": 1,
+        "evaluated_at": "2026-10-27T19:43:13+00:00",
         "database": "state\\reports\\server_platform_snapshot.sqlite3",
         "source_file": "state/reports/gate_b_evidence_server.json"
       },
@@ -1850,6 +1857,10 @@
         "closed_trades": 0,
         "trade_cadence_state": "stalled",
         "required_trades_per_day": 1.1269,
+        "decision_symbol_cycles": null,
+        "top_decision_reason": null,
+        "top_decision_reason_pct": null,
+        "executed_decisions": 0,
         "evaluated_at": "2026-10-27T18:24:46+00:00",
         "database": "state\\reports\\server_platform_snapshot.sqlite3",
         "source_file": "state/reports/gate_b_evidence.json"

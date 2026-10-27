@@ -178,6 +178,8 @@ def gate_b() -> dict:
             continue
         win = raw.get("window") or {}
         cadence = raw.get("cadence") or {}
+        funnel = raw.get("decision_funnel") or {}
+        top_reason = next(iter(funnel.get("by_reason_pct") or {}), None)
         out[name] = {
             "status": raw.get("status"),
             "span_days": win.get("span_days"),
@@ -190,6 +192,10 @@ def gate_b() -> dict:
             "closed_trades": (raw.get("ledger") or {}).get("trades"),
             "trade_cadence_state": cadence.get("state"),
             "required_trades_per_day": cadence.get("required_trades_per_day"),
+            "decision_symbol_cycles": funnel.get("decisions"),
+            "top_decision_reason": top_reason,
+            "top_decision_reason_pct": (funnel.get("by_reason_pct") or {}).get(top_reason),
+            "executed_decisions": sum((funnel.get("executed") or {}).values()),
             "evaluated_at": raw.get("evaluated_at"),
             "database": raw.get("database"),
             "source_file": rel,

@@ -5,6 +5,7 @@ Pure-function tests only — no Engine, no network, no database.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -256,3 +257,80 @@ def test_the_cadence_projection_never_changes_the_verdict():
     assert result["status"] == "INCOMPLETE"
     assert result["cadence"]["closed_trades"] == 30
     assert result["cadence"]["state"] == "met"
+
+
+def _decision(ts: datetime, symbol: str, reason: str, *, action: str = "NO_TRADE") -> dict:
+    """One row exactly as the deployed loop writes it into the ``decisions`` table."""
+    text = (f"no order for action NO_TRADE: {reason}" if action in ("NO_TRADE", "HOLD")
+            else f"{symbol} 4h: regime=TRENDING_UP, price=0.71")
+    return {"ts": ts.isoformat(), "symbol": symbol, "action": action,
+            "rationale_json": json.dumps([text, "ema20 above ema50 (uptrend structure)"]),
+            "mode": "PAPER"}
+
+
+def _funnel(rows: list[dict]) -> dict:
+    times = _cadence(2)
+    return analyze(snapshots=_snapshots(times), interval_hours=3.0,
+                   now=times[-1] + timedelta(hours=1), decisions=rows)["decision_funnel"]
+
+
+def test_decision_funnel_counts_the_reasons_the_loop_recorded():
+    """The funnel is arithmetic over the build's own rows: every reason is one bucket."""
+    first, second = _cadence(2)
+    rows = [_decision(first, "BTC_USDT", "regime_filter"),
+            _decision(first, "ETH_USDT", "regime_filter"),
+            _decision(first, "SOL_USDT", "no_atr"),
+            _decision(second, "BTC_USDT", "regime_filter"),
+            _decision(second, "ETH_USDT", "insufficient_history")]
+    funnel = _funnel(rows)
+    assert funnel["decisions"] == 5
+    assert funnel["cycles"] == 2
+    assert funnel["symbols"] == 3
+    assert funnel["by_reason_counts"] == {"regime_filter": 3, "insufficient_history": 1, "no_atr": 1}
+    assert funnel["by_reason_pct"]["regime_filter"] == 60.0
+    assert sum(funnel["by_reason_pct"].values()) == pytest.approx(100.0)
+
+
+def test_decision_funnel_separates_filled_orders_from_rejections():
+    """A BUY is not a rejection reason; it must not be folded into a NO_TRADE bucket."""
+    first = _cadence(1)[0]
+    funnel = _funnel([_decision(first, "BTC_USDT", "regime_filter"),
+                      _decision(first, "ASTER_USDT", "", action="BUY")])
+    assert funnel["executed"] == {"executed:buy": 1}
+    assert funnel["by_reason_counts"] == {"executed:buy": 1, "regime_filter": 1}
+
+
+def test_decision_funnel_keeps_unparseable_rationale_visible():
+    """Free text with no snake_case token stays ``unparsed`` instead of a guess."""
+    first = _cadence(1)[0]
+    row = {"ts": first.isoformat(), "symbol": "XUSDT", "action": "NO_TRADE",
+           "rationale_json": json.dumps(["market looked fine today"]), "mode": "PAPER"}
+    assert _funnel([row])["by_reason_counts"] == {"unparsed": 1}
+
+
+def test_an_empty_decision_table_is_a_zero_funnel_not_a_failure():
+    funnel = _funnel([])
+    assert funnel == {"decisions": 0, "cycles": 0, "symbols": 0, "by_reason_counts": {},
+                      "by_reason_pct": {}, "executed": {}, "note": funnel["note"]}
+
+
+def test_the_decision_funnel_never_changes_the_verdict():
+    """93% regime_filter, or a single executed trade, or nothing at all: same status.
+
+    The funnel is evidence about the loop, not a gate — D-020 pre-registers it as
+    diagnostic, so the verdict computed with the loop's own rows must equal the
+    verdict computed without them, key for key except the funnel itself.
+    """
+    times = _cadence(13)
+    first, second = times[0], times[1]
+    rows = [_decision(first, f"SYM{index}_USDT", "regime_filter") for index in range(99)]
+    rows.append(_decision(second, "ASTER_USDT", "", action="BUY"))
+    with_funnel = analyze(snapshots=_snapshots(times), interval_hours=3.0,
+                          now=times[-1] + timedelta(hours=1), decisions=rows)
+    without = analyze(snapshots=_snapshots(times), interval_hours=3.0,
+                      now=times[-1] + timedelta(hours=1))
+    assert with_funnel["status"] == without["status"] == "INCOMPLETE"
+    assert with_funnel["reasons"] == without["reasons"]
+    assert with_funnel["checks"] == without["checks"]
+    assert with_funnel["cadence"] == without["cadence"]
+    assert with_funnel["decision_funnel"]["by_reason_counts"] == {"regime_filter": 99, "executed:buy": 1}

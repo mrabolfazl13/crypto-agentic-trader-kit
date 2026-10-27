@@ -41,6 +41,7 @@ def _rows(connection: sqlite3.Connection, sql: str) -> list[dict]:
 
 def collect(connection: sqlite3.Connection) -> dict[str, object]:
     meta = {row["key"]: row["value"] for row in _rows(connection, "SELECT key, value FROM meta")}
+    tables = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     return {
         "snapshots": _rows(connection, "SELECT ts, equity, drawdown_pct, mode FROM portfolio_snapshots"),
         "orders": _rows(connection, "SELECT id, client_order_id, status, mode, created_ts FROM orders"),
@@ -50,6 +51,9 @@ def collect(connection: sqlite3.Connection) -> dict[str, object]:
             connection,
             "SELECT ts FROM logs WHERE source='automation' AND message LIKE 'started:%' ORDER BY ts",
         ),
+        # What the loop itself recorded per symbol-cycle; absent in very old stores.
+        "decisions": _rows(connection, "SELECT ts, symbol, action, rationale_json, mode FROM decisions")
+        if "decisions" in tables else [],
         "meta": meta,
     }
 
@@ -87,6 +91,13 @@ def _persian_lines(payload: dict) -> list[str]:
         f"تداوم={'ok' if checks['continuous_enough'] else 'کم'}، "
         f"همین حالا={'فعال' if checks['live_now'] else 'بی‌چرخه'}",
     ]
+    funnel = payload.get("decision_funnel") or {}
+    if funnel.get("decisions"):
+        top = "، ".join(f"{reason} {share}%" for reason, share in list(funnel["by_reason_pct"].items())[:5])
+        lines.append(
+            f"فانلِ تصمیمِ خودِ حلقه (تشخیصی، داوری را تغییر نمی‌دهد): "
+            f"{funnel['decisions']} سطرِ نماد-چرخه در {funnel['cycles']} چرخه روی {funnel['symbols']} نماد ⇒ {top}"
+        )
     if payload["reasons"]:
         lines.append("دلایل: " + "؛ ".join(payload["reasons"]))
     if window["days_remaining"]:
@@ -146,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
         fills=recorded["fills"],
         trades=recorded["trades"],
         restarts=[row["ts"] for row in recorded["restarts"]],
+        decisions=recorded["decisions"],
         interval_hours=interval,
         now=now,
         min_days=args.min_days,

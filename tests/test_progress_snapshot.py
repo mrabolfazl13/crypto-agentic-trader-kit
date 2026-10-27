@@ -7,6 +7,7 @@ project's evidence looks. Pure-function tests on synthetic tally rows only.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -74,3 +75,45 @@ def test_undecided_runs_are_excluded():
     assert tally["runs_with_decision"] == 0
     assert tally["distinct_verdicts"] == 0
     assert tally["accepted_detail"] == []
+
+
+def test_gate_b_summary_carries_the_decision_funnel(tmp_path, monkeypatch):
+    """The recovery file must show *why* the loop stayed silent, not just that it did.
+
+    Diagnostic only: these keys come straight from the recorded funnel and the
+    status shown is whatever the gate itself decided.
+    """
+    reports = tmp_path / "state" / "reports"
+    reports.mkdir(parents=True)
+    (reports / "gate_b_evidence_server.json").write_text(json.dumps({
+        "status": "INCOMPLETE", "min_days": 28.0, "evaluated_at": "2026-10-27T18:40:00+00:00",
+        "database": "state/reports/server_platform_snapshot.sqlite3",
+        "window": {"span_days": 1.504, "on_time_fraction": 100.0, "cycles_observed": 13,
+                   "downtime_gaps": 0, "days_remaining": 26.496, "milestone_at": None},
+        "ledger": {"trades": 0},
+        "cadence": {"state": "stalled", "required_trades_per_day": 1.1322},
+        "decision_funnel": {"decisions": 1300, "cycles": 13, "symbols": 100,
+                            "by_reason_pct": {"regime_filter": 93.15, "no_atr": 3.23,
+                                              "executed:buy": 0.08},
+                            "executed": {"executed:buy": 1}},
+    }), encoding="utf-8")
+    monkeypatch.setattr(snap, "ROOT", tmp_path)
+    summary = snap.gate_b()["server"]
+    assert summary["decision_symbol_cycles"] == 1300
+    assert summary["top_decision_reason"] == "regime_filter"
+    assert summary["top_decision_reason_pct"] == 93.15
+    assert summary["executed_decisions"] == 1
+    assert summary["status"] == "INCOMPLETE"
+
+
+def test_gate_b_summary_survives_an_evidence_file_without_a_funnel(tmp_path, monkeypatch):
+    """Older reports predate the funnel: the keys are absent/None, never a crash."""
+    reports = tmp_path / "state" / "reports"
+    reports.mkdir(parents=True)
+    (reports / "gate_b_evidence_server.json").write_text(json.dumps(
+        {"status": "INCOMPLETE", "window": {}, "ledger": {}, "cadence": {}}), encoding="utf-8")
+    monkeypatch.setattr(snap, "ROOT", tmp_path)
+    summary = snap.gate_b()["server"]
+    assert summary["decision_symbol_cycles"] is None
+    assert summary["top_decision_reason"] is None
+    assert summary["executed_decisions"] == 0

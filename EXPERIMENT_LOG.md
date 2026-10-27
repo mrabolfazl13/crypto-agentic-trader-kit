@@ -41,7 +41,7 @@
 ## بازتولید
 
 ```bash
-# gارددار روی کل دریاچه‌ی ۷ ماهه (نمونه)
+# گیت‌دار روی کل دریاچه‌ی ۷ ماهه (نمونه)
 python tools/quant_nested_walk_forward.py --out-dir state/quant/results/nested_walk_forward_guarded
 
 # بازسازی خلاصه‌ی ماشین‌خوان از فایل‌های واقعی
@@ -53,4 +53,10 @@ for tf in 15m 1h 4h; do
   python tools/paper_signal_census.py --timeframe $tf --normalize-to 4h --symbols 30 --count-from 2026-05-01 --count-to 2026-08-01 --out state/quant/results/census_norm4h_$tf
 done
 # warm-up باید ۳۰۰ بماند (پیش‌فرض ابزار = limit در GateProvider.klines؛ F-020)
+
+# فانلِ تصمیمِ خودِ حلقه (D-020 قدمِ الف؛ فقط‌خواندنی، داوری را تغییر نمی‌دهد)
+# اسنپ‌شات از کانتینرِ سرور گرفته می‌شود: docker exec trade_backend sqlite3 /app/state/platform.sqlite3 "VACUUM INTO '/tmp/snap.sqlite3'"
+# سپس docker cp + scp. خروجیِ 2026-10-27T18:33:25Z: 1300 سطر ⇒ regime_filter 93.15%، executed:buy 0.08%
+# منبعِ فانل جدولِ decisions است، نه run_rejections (آن سطرهای grid/walk_forward هستند؛ F-021)
+python tools/paper_gate_b.py --db state/reports/server_platform_snapshot.sqlite3 --out state/reports/gate_b_evidence_server.json
 ```
