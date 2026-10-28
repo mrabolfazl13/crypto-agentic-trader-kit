@@ -49,7 +49,8 @@ from cat.data import SymbolFilter  # noqa: E402
 from cat.quant.engine import load_bars  # noqa: E402
 from cat.quant.features import TIMEFRAME_SECONDS, resample  # noqa: E402
 from cat.quant.settings import load_quant_settings  # noqa: E402
-from cat.quant.storage import current_data_version, daily_data_version, universe_symbols  # noqa: E402
+from cat.quant.storage import (  # noqa: E402
+    current_data_version, daily_data_version, universe_digest, universe_symbols)
 from cat.strategies import default_params, params_from_dict  # noqa: E402
 
 from paper_signal_census import (  # noqa: E402
@@ -259,6 +260,9 @@ def main() -> int:
     parser.add_argument("--extra-months", default="",
                         help="comma separated YYYY-MM stored outside quant.months (a daily-sourced month); "
                              "off by default so an earlier window keeps reading only monthly files")
+    parser.add_argument("--universe", default=None,
+                        help="alternative quant-universe-v1 file to replay (e.g. the "
+                             "deployed-allowlist universe); overrides --symbols when given")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
@@ -272,11 +276,15 @@ def main() -> int:
 
     config = load_config(root=ROOT)
     settings = load_quant_settings(config)
+    if args.universe:
+        from dataclasses import replace
+        path = Path(args.universe)
+        settings = replace(settings, universe_path=(path if path.is_absolute() else ROOT / path))
     params = default_params()
     if args.params:
         params = params_from_dict(json.loads(Path(args.params).read_text(encoding="utf-8")), base=params)
 
-    symbols = universe_symbols(settings, limit=args.symbols)
+    symbols = universe_symbols(settings, limit=None if args.universe else args.symbols)
     months = months_with_extra(settings, args.extra_months)
     lake_version = (daily_data_version(settings) if months != list(settings.months)
                     else current_data_version(settings))
@@ -336,6 +344,8 @@ def main() -> int:
         "decision_bars_total": sum(row.get("decision_ticks", 0) for row in measured),
         "production_cycle_hours": config.auto_cycle_hours,
         "months_read": months,
+        "universe_file": settings.universe_path.name,
+        "universe_digest": universe_digest(settings),
         "classifier": params.as_dict(),
         "symbols_replayed": len(measured),
         "symbols_skipped": [row["symbol"] for row in rows if "closed_trades" not in row],

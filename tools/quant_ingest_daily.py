@@ -27,6 +27,7 @@ from cat.quant.storage import (  # noqa: E402
     current_data_version,
     daily_data_version,
     storage_report,
+    universe_digest,
 )
 
 
@@ -49,6 +50,10 @@ def main() -> int:
                         help="fetch directly; the configured local proxy comes and goes and a dead one "
                              "fails every download (2026-10-27: 127.0.0.1:1080 refused, direct worked)")
     parser.add_argument("--out", default=None, help="write the summary JSON here")
+    parser.add_argument("--universe", default=None,
+                        help="alternative quant-universe-v1 file that gates which symbols may be "
+                             "stored (e.g. the deployed-allowlist universe); the recorded "
+                             "state/quant/universe.json is never written by this tool")
     args = parser.parse_args()
 
     settings = load_quant_settings(load_config(root=ROOT))
@@ -59,6 +64,10 @@ def main() -> int:
         import os
         from dataclasses import replace
         settings = replace(settings, proxy=os.environ.get("CAT_PROXY") or None)
+    if args.universe:
+        from dataclasses import replace
+        path = Path(args.universe)
+        settings = replace(settings, universe_path=(path if path.is_absolute() else ROOT / path))
 
     storage = storage_report(settings)
     gib = 1024 ** 3
@@ -84,6 +93,7 @@ def main() -> int:
 
     _log(settings, f"[daily-ingest] start {dates[0]}..{dates[-1]} ({len(dates)} days) "
                    f"symbols={symbols or f'universe limit={args.limit}'} "
+                   f"universe={settings.universe_path.name}:{universe_digest(settings)} "
                    f"proxy={'yes' if settings.proxy else 'no'}")
 
     def progress(event: dict) -> None:

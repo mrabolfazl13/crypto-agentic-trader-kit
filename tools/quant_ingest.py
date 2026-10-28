@@ -39,10 +39,23 @@ def main() -> int:
     parser.add_argument("--symbols", default=None, help="comma separated symbols")
     parser.add_argument("--months", default=None, help="comma separated YYYY-MM")
     parser.add_argument("--report", action="store_true")
+    parser.add_argument("--universe", default=None,
+                        help="alternative quant-universe-v1 file (e.g. the deployed-allowlist "
+                             "universe); state/quant/universe.json is never written by this tool")
+    parser.add_argument("--no-proxy", action="store_true",
+                        help="fetch directly; the configured local proxy comes and goes and a dead "
+                             "one fails every download (same escape as quant_ingest_daily.py)")
     args = parser.parse_args()
 
     config = load_config(root=ROOT)
     settings = load_quant_settings(config)
+    if args.no_proxy:
+        from dataclasses import replace
+        settings = replace(settings, proxy=None)
+    if args.universe:
+        from dataclasses import replace
+        path = Path(args.universe)
+        settings = replace(settings, universe_path=(path if path.is_absolute() else ROOT / path))
     if settings.proxy is None:
         import os
         from dataclasses import replace

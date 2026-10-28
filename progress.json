@@ -1,54 +1,55 @@
 {
-  "generated_at": "2026-10-28T05:46:31+00:00",
+  "generated_at": "2026-10-28T06:40:53+00:00",
   "code_version": {
-    "head": "b8e6fcc",
-    "committed_at": "2026-10-28T01:47:42+03:30",
-    "subject": "measure the cadence-vs-concurrency curve: two open positions buy the count, never the edge",
+    "head": "4e62cad",
+    "committed_at": "2026-10-28T09:18:18+03:30",
+    "subject": "price the threshold-level lever and it comes back empty: 0 of 15 lambda combinations pass",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
       "EXPERIMENT_LOG.csv",
-      "EXPERIMENT_LOG.md",
       "FAILURES.md",
       "NEXT_ACTION.md",
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "tools/progress_snapshot.py",
-      "tests/test_paper_breadth_audit.py",
-      "tests/test_paper_threshold_grid.py",
-      "tools/paper_breadth_audit.py",
-      "tools/paper_threshold_grid.py"
+      "tools/paper_frequency_replay.py",
+      "tools/quant_ingest.py",
+      "tools/quant_ingest_daily.py",
+      "tests/test_build_allowlist_universe.py",
+      "tests/test_paper_breadth_compare.py",
+      "tools/build_allowlist_universe.py",
+      "tools/paper_breadth_compare.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-28T05:46:30+00:00",
+      "at": "2026-10-28T06:40:52+00:00",
       "command": "python -m pytest -q --basetemp=d:/tmp/pytest",
-      "passed": 483,
+      "passed": 495,
       "errors": 0,
       "exit_code": 0,
-      "seconds": 50.71,
+      "seconds": 41.38,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "483 passed, 1 warning in 47.69s"
+        "495 passed, 1 warning in 39.92s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 169,
+      "csv_rows": 179,
       "last_row": {
-        "run_id": "lam2.0-w3-15m-k2",
+        "run_id": "alw-w3-15m-k2",
         "strategy": "trend_pullback",
         "timeframe": "15m",
         "slice": "independent_window3",
-        "net_return_pct": "-56.7691",
+        "net_return_pct": "-24.3494",
         "excess_return_pct": "",
-        "status": "completed; decision=diagnostic-no-acceptance; schedule=single-account; max_concurrent=2; trades_per_day=2.6538; lambda=2.0; thresholds=2.0/3.0/0.12; classifier=trend-pullback:v1@c89ea1c6a76d; symbols=100; cadence=production; candidates=114; gate_rate=clears-1.1322-but-negative; lake=monthly+daily-2026-10; config_unchanged=true"
+        "status": "completed; decision=diagnostic-no-acceptance; schedule=single-account; max_concurrent=2; peak=2; trades_per_day=2.2692; days_to_30=13.22; allocation_needed_pct=10.0; symbols=69; basket=deployed-allowlist-universe:cf828076fde8f347; cadence=production; candidates=84; gate_rate=clears-1.1322-but-negative; lake=monthly+daily-2026-10; reproduces_recorded_k1=True; integrity_lock_passed=true; config_unchanged=true"
       },
-      "runs_with_window": 169
+      "runs_with_window": 179
     },
     "nested_walk_forwards": [
       {
@@ -1832,9 +1833,9 @@
     }
   },
   "data_lake": {
-    "parquet_files": 3400,
-    "bytes": 535404081,
-    "gb": 0.535,
+    "parquet_files": 3502,
+    "bytes": 554188918,
+    "gb": 0.554,
     "audit": {
       "months": [
         "2026-03",
@@ -1851,21 +1852,21 @@
     "B_paper": {
       "server": {
         "status": "INCOMPLETE",
-        "span_days": 1.629,
+        "span_days": 1.88,
         "min_days": 28.0,
         "on_time_fraction": 1.0,
-        "cycles_observed": 14,
+        "cycles_observed": 16,
         "downtime_gaps": 0,
-        "days_remaining": 26.371,
+        "days_remaining": 26.12,
         "milestone_at": "2026-11-23T06:27:57+00:00",
         "closed_trades": 0,
         "trade_cadence_state": "stalled",
-        "required_trades_per_day": 1.1376,
-        "decision_symbol_cycles": 1400,
+        "required_trades_per_day": 1.1485,
+        "decision_symbol_cycles": 1600,
         "top_decision_reason": "regime_filter",
-        "top_decision_reason_pct": 93.0,
+        "top_decision_reason_pct": 92.94,
         "executed_decisions": 1,
-        "evaluated_at": "2026-10-27T22:27:25+00:00",
+        "evaluated_at": "2026-10-28T05:49:00+00:00",
         "database": "state\\reports\\server_platform_snapshot.sqlite3",
         "source_file": "state/reports/gate_b_evidence_server.json"
       },
@@ -1894,12 +1895,12 @@
   "server_snapshot": {
     "file": "state\\reports\\server_platform_snapshot.sqlite3",
     "exists": true,
-    "bytes": 2613248,
+    "bytes": 2666496,
     "tables": {
       "datasets": 11,
-      "decisions": 1400,
-      "portfolio_snapshots": 14,
-      "logs": 51
+      "decisions": 1600,
+      "portfolio_snapshots": 16,
+      "logs": 53
     }
   }
 }
