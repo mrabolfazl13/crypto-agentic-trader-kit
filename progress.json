@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-28T07:15:36+00:00",
+  "generated_at": "2026-10-28T20:33:08+00:00",
   "code_version": {
-    "head": "fb100e7",
-    "committed_at": "2026-10-28T10:13:46+03:30",
-    "subject": "price the fifth lever - the owner's own basket - and it buys 0 to 8.6 percent of count",
+    "head": "14dccfb",
+    "committed_at": "2026-10-28T10:45:54+03:30",
+    "subject": "count real opportunities in the un-archived basket from the loop's own decisions, and the prediction dies",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
@@ -14,38 +14,40 @@
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "tests/test_paper_decisions_unarchived.py",
-      "tools/paper_decisions_unarchived.py"
+      "progress.json",
+      ".perch/",
+      "tests/test_paper_unevaluability_probe.py",
+      "tools/paper_unevaluability_probe.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-28T07:15:35+00:00",
+      "at": "2026-10-28T19:07:41+00:00",
       "command": "python -m pytest -q --basetemp=d:/tmp/pytest",
-      "passed": 504,
+      "passed": 517,
       "errors": 0,
       "exit_code": 0,
-      "seconds": 52.42,
+      "seconds": 61.13,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "504 passed, 1 warning in 50.92s"
+        "517 passed, 1 warning in 59.04s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 181,
+      "csv_rows": 186,
       "last_row": {
-        "run_id": "d027-archived",
+        "run_id": "d028-basket",
         "strategy": "trend_pullback",
         "timeframe": "4h",
-        "slice": "deployed-loop-census-archived",
+        "slice": "deployed-path-basket-sweep",
         "net_return_pct": "",
         "excess_return_pct": "",
-        "status": "completed; decision=opportunity-census-no-expectancy; symbols=69; seen_by_loop=69; not_seen=0; cycles=17; symbol_cycles=1173; cleared_regime_gate=5 (0.4263%); not_evaluable=36 (3.0691%); blocked_by_regime=1132 (96.5047%); orders=1; closed_trades=0; allowlist=cf828076fde8f347; window_days=2.006; prediction_band=undefined-because-unarchived-cleared-zero; config_unchanged=true"
+        "status": "completed; decision=footprint-census; symbols=100; measured=100; sizable=96; unsizable_by_rounding=4; under_min_bars=1; unresolved=0; research_path_unaffected=src/cat/quant/features.py; gate_b=stalled; config_unchanged=true"
       },
-      "runs_with_window": 181
+      "runs_with_window": 186
     },
     "nested_walk_forwards": [
       {
@@ -1848,21 +1850,21 @@
     "B_paper": {
       "server": {
         "status": "INCOMPLETE",
-        "span_days": 2.006,
+        "span_days": 2.507,
         "min_days": 28.0,
         "on_time_fraction": 1.0,
-        "cycles_observed": 17,
+        "cycles_observed": 21,
         "downtime_gaps": 0,
-        "days_remaining": 25.994,
+        "days_remaining": 25.493,
         "milestone_at": "2026-11-23T06:27:57+00:00",
         "closed_trades": 0,
         "trade_cadence_state": "stalled",
-        "required_trades_per_day": 1.1541,
-        "decision_symbol_cycles": 1700,
+        "required_trades_per_day": 1.1768,
+        "decision_symbol_cycles": 2100,
         "top_decision_reason": "regime_filter",
-        "top_decision_reason_pct": 92.88,
-        "executed_decisions": 1,
-        "evaluated_at": "2026-10-28T06:49:21+00:00",
+        "top_decision_reason_pct": 92.62,
+        "executed_decisions": 2,
+        "evaluated_at": "2026-10-28T20:33:00+00:00",
         "database": "state\\reports\\server_platform_snapshot.sqlite3",
         "source_file": "state/reports/gate_b_evidence_server.json"
       },
@@ -1891,12 +1893,12 @@
   "server_snapshot": {
     "file": "state\\reports\\server_platform_snapshot.sqlite3",
     "exists": true,
-    "bytes": 2695168,
+    "bytes": 2826240,
     "tables": {
       "datasets": 11,
-      "decisions": 1700,
-      "portfolio_snapshots": 17,
-      "logs": 54
+      "decisions": 2100,
+      "portfolio_snapshots": 21,
+      "logs": 58
     }
   }
 }
