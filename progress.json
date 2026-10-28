@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-28T20:33:08+00:00",
+  "generated_at": "2026-10-28T20:42:12+00:00",
   "code_version": {
-    "head": "14dccfb",
-    "committed_at": "2026-10-28T10:45:54+03:30",
-    "subject": "count real opportunities in the un-archived basket from the loop's own decisions, and the prediction dies",
+    "head": "9bcfbf4",
+    "committed_at": "2026-10-29T00:04:11+03:30",
+    "subject": "blame the sixth decimal, not the market: rounding blinded four symbols and fixing it buys no orders",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
@@ -14,40 +14,39 @@
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "progress.json",
       ".perch/",
-      "tests/test_paper_unevaluability_probe.py",
-      "tools/paper_unevaluability_probe.py"
+      "tests/test_paper_reward_risk_probe.py",
+      "tools/paper_reward_risk_probe.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-28T19:07:41+00:00",
+      "at": "2026-10-28T20:42:11+00:00",
       "command": "python -m pytest -q --basetemp=d:/tmp/pytest",
-      "passed": 517,
+      "passed": 522,
       "errors": 0,
       "exit_code": 0,
-      "seconds": 61.13,
+      "seconds": 57.79,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "517 passed, 1 warning in 59.04s"
+        "522 passed, 1 warning in 56.25s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 186,
+      "csv_rows": 189,
       "last_row": {
-        "run_id": "d028-basket",
+        "run_id": "d029-four-symbols",
         "strategy": "trend_pullback",
         "timeframe": "4h",
-        "slice": "deployed-path-basket-sweep",
+        "slice": "reward-risk-gate-d028-symbols",
         "net_return_pct": "",
         "excess_return_pct": "",
-        "status": "completed; decision=footprint-census; symbols=100; measured=100; sizable=96; unsizable_by_rounding=4; under_min_bars=1; unresolved=0; research_path_unaffected=src/cat/quant/features.py; gate_b=stalled; config_unchanged=true"
+        "status": "completed; decision=prediction-holds; PEPE_USDT atr_pct=3.117% permissive=True expensive=True; SHIB_USDT atr_pct=1.4268% permissive=True expensive=True; BTT_USDT atr_pct=0.8687% permissive=True expensive=False; HTX_USDT atr_pct=0.9707% permissive=True expensive=False; all four clear the gate so regime_filter remains the blocker; new_orders_expected~0; config_unchanged=true"
       },
-      "runs_with_window": 186
+      "runs_with_window": 189
     },
     "nested_walk_forwards": [
       {
