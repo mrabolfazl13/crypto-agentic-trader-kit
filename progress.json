@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-28T20:42:12+00:00",
+  "generated_at": "2026-10-28T21:15:12+00:00",
   "code_version": {
-    "head": "9bcfbf4",
-    "committed_at": "2026-10-29T00:04:11+03:30",
-    "subject": "blame the sixth decimal, not the market: rounding blinded four symbols and fixing it buys no orders",
+    "head": "1113eb7",
+    "committed_at": "2026-10-29T00:14:42+03:30",
+    "subject": "the reward gate is a volatility floor, not a chooser: it admits 88 to 98 of 100 and blocks nothing that mattered",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
@@ -15,38 +15,38 @@
       "PROJECT_STATE.md",
       "TASKS.md",
       ".perch/",
-      "tests/test_paper_reward_risk_probe.py",
-      "tools/paper_reward_risk_probe.py"
+      "tests/test_paper_slot_reachability_probe.py",
+      "tools/paper_slot_reachability_probe.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-28T20:42:11+00:00",
+      "at": "2026-10-28T21:15:12+00:00",
       "command": "python -m pytest -q --basetemp=d:/tmp/pytest",
-      "passed": 522,
+      "passed": 528,
       "errors": 0,
       "exit_code": 0,
-      "seconds": 57.79,
+      "seconds": 60.05,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "522 passed, 1 warning in 56.25s"
+        "528 passed, 1 warning in 58.53s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 189,
+      "csv_rows": 192,
       "last_row": {
-        "run_id": "d029-four-symbols",
+        "run_id": "d030-live-evidence",
         "strategy": "trend_pullback",
         "timeframe": "4h",
-        "slice": "reward-risk-gate-d028-symbols",
+        "slice": "bnb-second-slot-rejection",
         "net_return_pct": "",
         "excess_return_pct": "",
-        "status": "completed; decision=prediction-holds; PEPE_USDT atr_pct=3.117% permissive=True expensive=True; SHIB_USDT atr_pct=1.4268% permissive=True expensive=True; BTT_USDT atr_pct=0.8687% permissive=True expensive=False; HTX_USDT atr_pct=0.9707% permissive=True expensive=False; all four clear the gate so regime_filter remains the blocker; new_orders_expected~0; config_unchanged=true"
+        "status": "completed; decision=structural-not-price; snapshot=2026-10-28T18:37:53+00:00; open_positions=1; deployed_at_entry=49.9473; remaining_headroom=0.0527; exposure_pct=4.9703; bnb_rejection=computed position size rounds to zero; config_unchanged=true"
       },
-      "runs_with_window": 189
+      "runs_with_window": 192
     },
     "nested_walk_forwards": [
       {
