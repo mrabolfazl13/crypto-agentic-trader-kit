@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-27T22:15:36+00:00",
+  "generated_at": "2026-10-28T05:46:31+00:00",
   "code_version": {
-    "head": "a67a015",
-    "committed_at": "2026-10-28T01:24:12+03:30",
-    "subject": "widen the cadence replay to the deployed 100-symbol universe: the D-020 generalization breaks",
+    "head": "b8e6fcc",
+    "committed_at": "2026-10-28T01:47:42+03:30",
+    "subject": "measure the cadence-vs-concurrency curve: two open positions buy the count, never the edge",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
@@ -14,39 +14,41 @@
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "tests/test_paper_frequency_replay.py",
-      "tools/paper_frequency_replay.py",
-      "tests/test_paper_concurrency_sweep.py",
-      "tools/paper_concurrency_sweep.py"
+      "tools/progress_snapshot.py",
+      "tests/test_paper_breadth_audit.py",
+      "tests/test_paper_threshold_grid.py",
+      "tools/paper_breadth_audit.py",
+      "tools/paper_threshold_grid.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-27T22:15:36+00:00",
-      "command": "python -m pytest -q",
-      "passed": 469,
+      "at": "2026-10-28T05:46:30+00:00",
+      "command": "python -m pytest -q --basetemp=d:/tmp/pytest",
+      "passed": 483,
+      "errors": 0,
       "exit_code": 0,
-      "seconds": 41.21,
+      "seconds": 50.71,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "469 passed, 1 warning in 39.95s"
+        "483 passed, 1 warning in 47.69s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 121,
+      "csv_rows": 169,
       "last_row": {
-        "run_id": "conc-w3-15m-k2",
+        "run_id": "lam2.0-w3-15m-k2",
         "strategy": "trend_pullback",
         "timeframe": "15m",
         "slice": "independent_window3",
-        "net_return_pct": "-25.3549",
+        "net_return_pct": "-56.7691",
         "excess_return_pct": "",
-        "status": "completed; decision=diagnostic-no-acceptance; schedule=single-account; max_concurrent=2; peak=2; trades_per_day=2.0385; symbols=100; cadence=production; lake=monthly+daily-2026-10; config_unchanged=true"
+        "status": "completed; decision=diagnostic-no-acceptance; schedule=single-account; max_concurrent=2; trades_per_day=2.6538; lambda=2.0; thresholds=2.0/3.0/0.12; classifier=trend-pullback:v1@c89ea1c6a76d; symbols=100; cadence=production; candidates=114; gate_rate=clears-1.1322-but-negative; lake=monthly+daily-2026-10; config_unchanged=true"
       },
-      "runs_with_window": 121
+      "runs_with_window": 169
     },
     "nested_walk_forwards": [
       {
@@ -1863,7 +1865,7 @@
         "top_decision_reason": "regime_filter",
         "top_decision_reason_pct": 93.0,
         "executed_decisions": 1,
-        "evaluated_at": "2026-10-27T22:14:42+00:00",
+        "evaluated_at": "2026-10-27T22:27:25+00:00",
         "database": "state\\reports\\server_platform_snapshot.sqlite3",
         "source_file": "state/reports/gate_b_evidence_server.json"
       },

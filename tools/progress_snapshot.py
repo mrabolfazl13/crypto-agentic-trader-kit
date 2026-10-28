@@ -2,8 +2,9 @@
 
 Everything written here is read back from disk or from git at run time, so a
 restart can trust the file without trusting the last report. The test-suite
-section is only updated by an explicit --with-tests run (or by passing
---tests-passed/--tests-seconds from a fresh run); it never invents a number.
+section is only updated by an explicit --with-tests run; it never invents a
+number. Use --basetemp when the default temp drive has no free space, otherwise
+the storage guard fails the ingest tests closed and the recorded run is red.
 """
 from __future__ import annotations
 
@@ -221,17 +222,19 @@ def server_snapshot() -> dict:
     return info
 
 
-def run_tests() -> dict:
+def run_tests(basetemp: str | None = None) -> dict:
     started = time.time()
-    proc = subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=ROOT,
-                          capture_output=True, text=True)
+    command = [sys.executable, "-m", "pytest", "-q"] + ([f"--basetemp={basetemp}"] if basetemp else [])
+    proc = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     elapsed = round(time.time() - started, 2)
     tail = (proc.stdout or "").strip().splitlines()[-3:]
     match = re.search(r"(\d+) passed", proc.stdout or "")
+    errors = re.search(r"(\d+) error", proc.stdout or "")
     record = {
         "at": now_iso(),
-        "command": "python -m pytest -q",
+        "command": " ".join(command[1:]).replace("-m pytest", "python -m pytest", 1),
         "passed": int(match.group(1)) if match else None,
+        "errors": int(errors.group(1)) if errors else 0,
         "exit_code": proc.returncode,
         "seconds": elapsed,
         "tail": tail,
@@ -281,9 +284,11 @@ def main() -> int:
     parser.add_argument("--out", default=str(PROGRESS))
     parser.add_argument("--with-tests", action="store_true",
                         help="run the full pytest suite and record it in progress.json")
+    parser.add_argument("--basetemp", default=None,
+                        help="pytest temp directory for the --with-tests run (use a drive with free space)")
     args = parser.parse_args()
 
-    tests = run_tests() if args.with_tests else None
+    tests = run_tests(args.basetemp) if args.with_tests else None
     payload = build(tests)
     Path(args.out).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
                               encoding="utf-8")
