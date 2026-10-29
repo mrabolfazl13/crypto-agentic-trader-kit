@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-28T21:32:19+00:00",
+  "generated_at": "2026-10-29T17:22:28+00:00",
   "code_version": {
-    "head": "33d9c45",
-    "committed_at": "2026-10-29T00:57:23+03:30",
-    "subject": "D-031: the one-slot ceiling was measured on a censored observation, so gate B is indeterminate, not blocked",
+    "head": "3a96557",
+    "committed_at": "2026-10-29T01:02:57+03:30",
+    "subject": "D-032: the backtest had a 24 hour time exit that the deployment never had",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
@@ -15,38 +15,38 @@
       "PROJECT_STATE.md",
       "TASKS.md",
       ".perch/",
-      "tests/test_paper_hold_divergence_probe.py",
-      "tools/paper_hold_divergence_probe.py"
+      "tests/test_paper_deployed_ceiling_probe.py",
+      "tools/paper_deployed_ceiling_probe.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-28T21:32:19+00:00",
+      "at": "2026-10-29T17:22:28+00:00",
       "command": "python -m pytest -q --basetemp=d:/tmp/pytest",
-      "passed": 546,
+      "passed": 561,
       "errors": 0,
       "exit_code": 0,
-      "seconds": 47.86,
+      "seconds": 42.17,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "546 passed, 1 warning in 46.23s"
+        "561 passed, 1 warning in 40.92s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 198,
+      "csv_rows": 204,
       "last_row": {
-        "run_id": "d032-live-exceeded-cap",
+        "run_id": "d033-sim-vs-deployed-source",
         "strategy": "trend_pullback",
         "timeframe": "4h",
-        "slice": "aster-past-cap",
+        "slice": "wrong-source-recurrence",
         "net_return_pct": "",
         "excess_return_pct": "",
-        "status": "completed; decision=backtest-would-have-closed; age_hours=24.0744; exceeded_cap_hours=0.0744; config_unchanged=true"
+        "status": "completed; decision=earlier-verdict-superseded-not-deleted; sim_censored_share_pct=46.335; sim_trades=1869; deployed_cells_read=6; protocol_guard_added=true; config_unchanged=true"
       },
-      "runs_with_window": 198
+      "runs_with_window": 204
     },
     "nested_walk_forwards": [
       {
