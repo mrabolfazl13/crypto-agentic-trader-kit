@@ -38,7 +38,7 @@ from cat.http import HttpClient  # noqa: E402
 from cat.indicators import atr as wilder_atr  # noqa: E402
 from cat.paper_evidence import _decision_reason  # noqa: E402
 from cat.strategy import analyze, propose  # noqa: E402
-from paper_decisions_unarchived import classify, groups_from_universe  # noqa: E402
+from paper_decisions_unarchived import classify, decision_projection, groups_from_universe  # noqa: E402
 
 EXIT = {"MEASURED": 0, "FAIL": 3}
 ATR_DECIMALS = 6
@@ -312,8 +312,7 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_config()
     connection = _read_only(Path(args.db))
-    rows = [dict(row) for row in connection.execute(
-        "SELECT ts, symbol, action, rationale_json, mode FROM decisions ORDER BY ts")]
+    rows = [dict(row) for row in connection.execute(decision_projection(connection))]
     connection.close()
     modes = {str(row.get("mode") or "") for row in rows}
     if modes - {"PAPER"}:

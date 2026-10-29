@@ -44,7 +44,10 @@ def classify(reason: str) -> str:
         return "blocked_by_regime"
     if reason in NOT_EVALUABLE:
         return "not_evaluable"
-    if reason in PASSED_REGIME or reason.startswith("executed:"):
+    # A row that reached sizing (and was blocked there, D-035) did clear the regime gate, so it
+    # must keep counting here; only the *order* vocabulary changed.
+    if reason in PASSED_REGIME or reason.startswith(("executed:", "blocked_after_signal:",
+                                                     "unverified_action:")):
         return "cleared_regime_gate"
     return f"other:{reason}"
 
@@ -147,6 +150,21 @@ def measure(decision_rows: list[dict], orders: list[dict], trades: list[dict],
     return out
 
 
+def decision_projection(connection: sqlite3.Connection) -> str:
+    """Project ``approved`` only when the store has it (D-035).
+
+    A store that predates the column must not be silently read as "nothing was approved"; the
+    funnel labels those rows ``unverified_action:*`` instead, so the census keeps counting them as
+    gate-clearing opportunities without claiming an order was placed.
+    """
+    columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(decisions)")}
+    fields = ["ts", "symbol", "action"]
+    if "approved" in columns:
+        fields.append("approved")
+    fields += ["rationale_json", "mode"]
+    return f"SELECT {', '.join(fields)} FROM decisions ORDER BY ts"
+
+
 def _read_only(path: Path) -> sqlite3.Connection:
     if not path.exists():
         raise SystemExit(f"database not found: {path}")
@@ -185,8 +203,7 @@ def main() -> int:
     groups = groups_from_universe(universe)
 
     connection = _read_only(Path(args.db))
-    decision_rows = [dict(row) for row in connection.execute(
-        "SELECT ts, symbol, action, rationale_json, mode FROM decisions ORDER BY ts")]
+    decision_rows = [dict(row) for row in connection.execute(decision_projection(connection))]
     modes = {str(row.get("mode") or "") for row in decision_rows}
     if modes - {"PAPER"}:
         print(f"REFUSED: decisions carry a non-PAPER mode: {sorted(modes)}")

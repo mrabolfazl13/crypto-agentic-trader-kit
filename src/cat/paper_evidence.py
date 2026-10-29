@@ -89,6 +89,26 @@ def _feasibility(*, closed_trades: int, span_days: float, days_remaining: float,
     }
 
 
+def _rationale_lines(row: Mapping[str, Any]) -> list[str]:
+    raw = row.get("rationale_json")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raw = [raw]
+    return [str(line) for line in raw] if isinstance(raw, list) else []
+
+
+def _rationale_token(row: Mapping[str, Any]) -> str | None:
+    """First snake_case segment of the first rationale line, or None."""
+    lines = _rationale_lines(row)
+    for segment in (lines[0].split(":") if lines else []):
+        token = segment.strip()
+        if len(token) >= 4 and "_" in token and token.isidentifier() and token.islower():
+            return token
+    return None
+
+
 def _decision_reason(row: Mapping[str, Any]) -> str:
     """Collapse one recorded decision to the reason the engine gave for it.
 
@@ -96,23 +116,21 @@ def _decision_reason(row: Mapping[str, Any]) -> str:
     NO_TRADE: regime_filter"), so the reason is the first snake_case segment of the
     first rationale line.  Anything unparseable stays visible as ``unparsed`` rather
     than being folded into a bucket it may not belong to.
+
+    A BUY is not an order (D-035): the store records `approved` alongside the action, and
+    counting a proposal that never reached the venue as `executed:` overstated live buying
+    by 4 of 6 rows on the 2026-10-29 snapshot.  `approved` absent means the row came from a
+    source that does not carry it, which is reported as `unverified_action:` rather than
+    silently read as either outcome.
     """
     action = str(row.get("action") or "").upper()
     if action not in ("NO_TRADE", "HOLD"):
-        return f"executed:{action.lower()}"
-    raw = row.get("rationale_json")
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except ValueError:
-            raw = [raw]
-    lines = raw if isinstance(raw, list) else []
-    text = str(lines[0]) if lines else ""
-    for segment in text.split(":"):
-        token = segment.strip()
-        if len(token) >= 4 and "_" in token and token.isidentifier() and token.islower():
-            return token
-    return "unparsed"
+        if "approved" not in row:
+            return f"unverified_action:{action.lower()}"
+        if row.get("approved"):
+            return f"executed:{action.lower()}"
+        return f"blocked_after_signal:{_rationale_token(row) or 'other'}"
+    return _rationale_token(row) or "unparsed"
 
 
 def _decision_funnel(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
@@ -123,9 +141,14 @@ def _decision_funnel(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
     moves ``status``.
     """
     totals: dict[str, int] = {}
+    blocked_lines: dict[str, int] = {}
     for row in rows:
         reason = _decision_reason(row)
         totals[reason] = totals.get(reason, 0) + 1
+        if reason.startswith("blocked_after_signal:"):
+            lines = _rationale_lines(row)
+            verbatim = lines[0].strip() if lines else "<no rationale>"
+            blocked_lines[verbatim] = blocked_lines.get(verbatim, 0) + 1
     ordered = sorted(totals.items(), key=lambda item: (-item[1], item[0]))
     total = len(rows)
     return {
@@ -135,6 +158,7 @@ def _decision_funnel(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
         "by_reason_counts": dict(ordered),
         "by_reason_pct": {reason: round(count / total * 100.0, 2) for reason, count in ordered} if total else {},
         "executed": {reason: count for reason, count in ordered if reason.startswith("executed:")},
+        "blocked_rationale_counts": dict(sorted(blocked_lines.items(), key=lambda item: (-item[1], item[0]))),
         "note": "reasons parsed from the recorded rationale; diagnostic only, never changes the gate verdict",
     }
 

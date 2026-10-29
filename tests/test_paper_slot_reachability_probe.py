@@ -62,7 +62,34 @@ def test_probe_runs_and_writes_artifact():
     assert payload["slots"]["reachable"] < payload["slots"]["configured_max_open"]
     assert payload["caps"]["total_deployed_cap"] < payload["caps"]["per_position_cap"]
     assert payload["cadence_ceiling"]["one_slot_clears_requirement"] is False
-    assert "rounds to zero" in payload["bnb_rejection"]
+    assert payload["cadence_ceiling"]["hold_source"]["kind"] == "closed_trade"
+    assert "rounds to zero" in payload["bnb_rejections"]["sizing_rejection"]["rationale"]
+
+
+def test_the_censored_age_is_recorded_but_never_sets_the_ceiling():
+    """A position that just opened makes 1/age beat the requirement — and that is not a hold time.
+
+    This is the D-035/F-039 regression: the ceiling used to be the age of whatever was open, so the
+    day the first trade closed and a fresh position started, the same one-slot arithmetic "cleared"
+    gate B.  The closed trade must set the number, and the censored age may only be reported.
+    """
+    payload = json.loads(ARTIFACT.read_text(encoding="utf-8"))
+    ceiling = payload["cadence_ceiling"]
+    age_hours = ceiling["hold_source"]["open_position_age_hours"]
+    assert 24.0 / age_hours > ceiling["required_per_day"], "the censored number would have passed"
+    assert ceiling["hold_hours"] > age_hours
+    assert ceiling["ceiling_one_slot_per_day"] < ceiling["required_per_day"]
+    assert ceiling["hold_source"].get("censored") is False
+
+
+def test_the_two_bnb_rejection_reasons_are_not_pooled():
+    """A cooldown rejection says nothing about the allocation cap; the sizing one does."""
+    payload = json.loads(ARTIFACT.read_text(encoding="utf-8"))
+    rejections = payload["bnb_rejections"]
+    assert rejections["count"] == len(rejections["rationales"]) == 4
+    rationales = {text.split('"')[1] for text in rejections["rationales"].values()}
+    assert rationales == {"computed position size rounds to zero", "cooldown after loss, 3600s remaining"}
+    assert rejections["sizing_rejection"]["rationale"].startswith('["computed position size')
 
 
 def test_probe_is_read_only():

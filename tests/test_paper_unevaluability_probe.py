@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import cat.strategy as strategy_module  # noqa: E402
 import pytest  # noqa: E402
+from paper_decisions_unarchived import classify  # noqa: E402
 from paper_unevaluability_probe import (  # noqa: E402
     WINDOW_DAYS, _read_only, atr_facts, bars_at, counterfactual_reason, ledger_census, main, scan_history,
 )
@@ -97,9 +98,12 @@ def test_counterfactual_uses_the_shipped_gate_and_leaves_no_patch_behind():
     assert strategy_module.analyze(snapshot, PARAMS).indicators["atr"] == 0.0
 
 
-def _decision(ts: str, symbol: str, text: str, action: str = "NO_TRADE") -> dict:
-    return {"ts": ts, "symbol": symbol, "action": action, "mode": "PAPER",
-            "rationale_json": json.dumps([text])}
+def _decision(ts: str, symbol: str, text: str, action: str = "NO_TRADE", approved=None) -> dict:
+    row = {"ts": ts, "symbol": symbol, "action": action, "mode": "PAPER",
+           "rationale_json": json.dumps([text])}
+    if approved is not None:
+        row["approved"] = approved
+    return row
 
 
 def test_ledger_census_keeps_the_rounding_bucket_and_the_data_bucket_apart():
@@ -108,16 +112,22 @@ def test_ledger_census_keeps_the_rounding_bucket_and_the_data_bucket_apart():
         _decision("2026-10-27T03:00:00+00:00", "HTX_USDT", "untrusted data: source_price_disagreement:1.013%"),
         _decision("2026-10-27T06:00:00+00:00", "HTX_USDT", "untrusted data: source_price_disagreement:0.612%"),
         _decision("2026-10-27T09:00:00+00:00", "BTC_USDT", "no order for action NO_TRADE: regime_filter"),
-        _decision("2026-10-27T12:00:00+00:00", "ASTER_USDT", "executed: buy", action="BUY"),
+        _decision("2026-10-27T12:00:00+00:00", "ASTER_USDT", "executed: buy", action="BUY", approved=1),
+        # D-035: a row that carries no approval column is not a rejection and not an execution.
+        _decision("2026-10-27T15:00:00+00:00", "BNB_USDT", "computed position size rounds to zero",
+                  action="BUY"),
     ]
     census = ledger_census(rows)
     assert census["not_evaluable_totals"] == {"no_atr": 1, "source_price_disagreement": 2}
     assert census["not_evaluable_rows_total"] == 3
     assert census["reason_counts_by_symbol"]["BTC_USDT"] == {"regime_filter": 1}
     assert census["reason_counts_by_symbol"]["ASTER_USDT"] == {"executed:buy": 1}
+    assert census["reason_counts_by_symbol"]["BNB_USDT"] == {"unverified_action:buy": 1}
+    # Neither order-vocabulary label is "not evaluable", so the D-028 verdicts cannot move with it.
+    assert classify("unverified_action:buy") == classify("executed:buy") == "cleared_regime_gate"
     assert census["disagreement_spread_by_symbol"]["HTX_USDT"] == {
         "rows": 2, "cycles": 2, "min_pct": 0.612, "median_pct": 0.812, "max_pct": 1.013}
-    assert census["cycles_in_ledger"] == 5
+    assert census["cycles_in_ledger"] == 6
     assert census["cycles_with_any_disagreement"] == 2
     assert census["max_disagreeing_symbols_in_one_cycle"] == 1
     assert census["disagreement_by_cycle"]["2026-10-27T03:00:00+00:00"] == {"symbols": 1, "max_pct": 1.013}

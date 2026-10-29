@@ -52,8 +52,8 @@ def collect(connection: sqlite3.Connection) -> dict[str, object]:
             "SELECT ts FROM logs WHERE source='automation' AND message LIKE 'started:%' ORDER BY ts",
         ),
         # What the loop itself recorded per symbol-cycle; absent in very old stores.
-        "decisions": _rows(connection, "SELECT ts, symbol, action, rationale_json, mode FROM decisions")
-        if "decisions" in tables else [],
+        # ``SELECT *`` so a store that predates the ``approved`` column still reads (D-035).
+        "decisions": _rows(connection, "SELECT * FROM decisions") if "decisions" in tables else [],
         "meta": meta,
     }
 

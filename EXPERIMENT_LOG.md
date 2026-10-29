@@ -341,3 +341,53 @@ live خاموش؛ هیچ نتیجه‌ی منفی حذف نشد.
 
 **دست‌نخوردگی‌ها:** `config.yaml`، آستانه‌ها، نمادها، K، timeframe، تخصیص و `strategy.py` دست‌نخورده؛
 هیچ سفارشی ساخته نشد؛ live خاموش؛ نتیجه‌ی منفی (ردِ سقف و ردِ دسترس‌پذیری) حذف نشد.
+
+
+### D-035 — واژه‌ی `executed:` در فانل دروغ می‌گفت: ۶ → ۲ اجراشده + ۴ بلوکه‌شده‌ی پس از سیگنال (2026-10-29)
+
+**نوع:** فقط‌خواندنی روی اسنپ‌شاتِ استور سرور + اصلاحِ لایه‌ی شواهد، پیش‌ثبت‌شده در `DECISIONS.md` پیش از
+نوشتنِ تست، با **قاعده‌ی داوریِ دو‌بندی** (اگر بند «ب» نخورد تغییر برگردانده می‌شود).
+**ابزار:** `tools/paper_funnel_vocabulary_probe.py` (+۱۶ تست)، `src/cat/paper_evidence.py`
+(`_decision_reason` سه‌حالته + `blocked_rationale_counts`)، `classify()` در `tools/paper_decisions_unarchived.py`
+و `tools/paper_unevaluability_probe.py`، `decision_projection()` با PRAGMA (استورِ بدونِ ستونِ `approved`
+هم ممیزی‌پذیر بماند)، `tools/paper_gate_b.py` (`SELECT *`).
+**آرتیفکت:** `state/quant/results/d035_funnel_vocabulary/funnel_vocabulary.json` + شاهدِ تغییرناپذیرِ
+`gate_b_pre_fix_funnel.json` (چون `state/reports/gate_b_evidence_server.json` هر روز بازنویسی می‌شود و
+untracked است).
+
+**نتیجه (همه از آرتیفکت؛ ۲۸۰۱ سطرِ `decisions`، ۲۸ چرخه، ۱۰۰ نماد، ۳ سطرِ `orders`، read-only):**
+- **H1 / بندِ «الف» تأیید شد:** ۷ سطرِ سیگنال = **۳ `approved=1` + ۴ `approved=0`**. بازپخشِ تخمین‌گرِ
+  پیشین روی همان سطرها عیناً `{executed:buy: 6, executed:sell: 1}` داد؛ تخمین‌گرِ نو
+  `{executed:buy: 2, executed:sell: 1}` + `{blocked_after_signal:other: 4}` ⇒ بیش‌گزارِ **۴ در buy، صفر در
+  sell**. چهار فهرستِ تطبیقِ دفتر (`approved_signal_without_order`، `blocked_signal_with_order`،
+  `order_without_approved_signal`، `extras_order_id_disagreements`) همه خالی و `extras_json` روی هر ۷ سطر
+  هم‌راستا ⇒ `book_and_ledger_agree: true`.
+- **H2 / بندِ «ب» تأیید شد:** پنجره‌ی D-027 هنوز کامل در اسنپ‌شاتِ امروز است ⇒ بازتولیدِ **مطلق**
+  (`reproduced_exactly: true`، `differences: {}`): unarchived ۵۲۷ (cleared ۰ / ارزیابی‌ناپذیر ۸۰ / مسدود ۴۴۷)
+  و archived ۱۱۷۳ (cleared ۵ / ارزیابی‌ناپذیر ۳۶ / مسدود ۱۱۳۲). نصفِ `decisions`ِ D-028 عیناً:
+  `insufficient_history` ۱۷، `no_atr` ۵۴، `source_price_disagreement` ۴۵. با قاعده‌ی انجمادِ ورودی
+  (سفارش بر حسبِ `created_ts`، معامله‌ی بسته بر حسبِ `exit_ts`، هر دو ≤ پایانِ پنجره) تنها اختلاف‌های باقی‌مانده
+  رشدِ دفترند (`archived.orders` ۱→۳، `archived.closed_trades` ۰→۱؛ `explained_by_ledger_growth_alone: true`)
+  و در هر دو گروه `class_counts_match: true`.
+- **H3 (کرانِ تازه، بدونِ تغییرِ پیکربندی):** هر ۴ ردِ پس از سیگنال `BNB_USDT` است. در سه ردِ
+  `computed position size rounds to zero` کرانه‌ی زیرِ سقفِ ۵٪ = **0.312392 / 0.330259 / 0.407066** USDT در
+  برابرِ یک lot = **0.7531** USDT ⇒ `every_size_block_is_below_one_lot: true`. ردِ چهارم `cooldown` بود در
+  لحظه‌ای که exposure = ۰ و headroom کاملِ ۵۰ (ASTER همان چرخه بسته شده بود). همان نماد
+  **6.025 ساعت** پس از آخرین ردِ اندازه `approved=1` گرفت ⇒ کرانِ تخصیص، نه باگِ قیمت.
+- **اصلاحِ همزمانِ D-030 (F-039):** سقفِ نرخِ تک‌اسلات از **0.9969** (عمرِ سانسورشده‌ی یک موقعیتِ باز) به
+  **0.7248/روز** (نگهداریِ یک معامله‌ی بسته: ASTER، 33.114h، `exit_stop`) رسید؛ لازم از آرتیفکت خوانده می‌شود
+  (1.1781) ⇒ `one_slot_clears_requirement: false`، و ۰٫۱٪ با عددِ مستقلِ D-033 (0.7241) می‌خواند.
+
+**حکم:** واژه تصحیح شد و **نگه داشته می‌شود** چون هر دو بند خوردند. هیچ سفارشی ساخته نشد، هیچ گیتی شل نشد،
+`status`ِ دروازه بیت‌به‌بیت همان ماند (INCOMPLETE؛ پنجره ۳٫۳۸۵ از ۲۸ روز؛ 0.2954/روز در برابرِ 1.1781 ⇒
+`behind`)، و جمعِ فانل روی ۲۸۰۱ سطر ثابت است. **F-038** (اسمی که معنای خودش را نقض می‌کرد و فقط وقتی یک
+تراکنِ واقعی بسته شد دیدنی شد) و **F-039** (سنجه‌ی سانسورشده + ثابتِ hardcoded + «آخرین رد»).
+
+**محدودیت‌ها:** لایه‌ی تحلیل هرگز `status` سفارش را جابه‌جا نمی‌کند، پس «`approved=1`» به‌معنای پرشدنِ نهایی
+ثابت نشده. نصفِ **بازپخشِ** D-028 دوباره اجرا نشد (شبکه + بررسیِ قیمتِ زنده می‌خواست)؛ فقط نصفِ `decisions`
+آن قفل شد و آرتیفکت همین را در `note` می‌گوید. اسنادِ پیش از این تاریخ عمداً ویرایشِ پس‌رو نشدند؛ «۶
+executed:buy» در آن‌ها **اشتباه بوده** و این قسمت محلِ ثبتِ همان خطاست. `signal_rows_total` در نخستین نسخه‌ی
+پروب ۶ می‌داد (سطرهای سیگنال دو بار شمرده می‌شدند) و تستِ تازه همان را گرفت؛ عددِ منتشرشده ۷ است.
+
+**دست‌نخوردگی‌ها:** `config.yaml`، آستانه‌ها، تخصیص، K، timeframe، نمادها و `strategy.py` دست‌نخورده؛ live
+خاموش؛ هیچ نتیجه‌ی منفی حذف نشد.

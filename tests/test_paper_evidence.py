@@ -259,13 +259,17 @@ def test_the_cadence_projection_never_changes_the_verdict():
     assert result["cadence"]["state"] == "met"
 
 
-def _decision(ts: datetime, symbol: str, reason: str, *, action: str = "NO_TRADE") -> dict:
+def _decision(ts: datetime, symbol: str, reason: str, *, action: str = "NO_TRADE",
+              approved: int | None = 0, rationale: str | None = None) -> dict:
     """One row exactly as the deployed loop writes it into the ``decisions`` table."""
-    text = (f"no order for action NO_TRADE: {reason}" if action in ("NO_TRADE", "HOLD")
-            else f"{symbol} 4h: regime=TRENDING_UP, price=0.71")
-    return {"ts": ts.isoformat(), "symbol": symbol, "action": action,
-            "rationale_json": json.dumps([text, "ema20 above ema50 (uptrend structure)"]),
-            "mode": "PAPER"}
+    text = rationale or (f"no order for action NO_TRADE: {reason}" if action in ("NO_TRADE", "HOLD")
+                         else f"{symbol} 4h: regime=TRENDING_UP, price=0.71")
+    row = {"ts": ts.isoformat(), "symbol": symbol, "action": action,
+           "rationale_json": json.dumps([text, "ema20 above ema50 (uptrend structure)"]),
+           "mode": "PAPER"}
+    if approved is not None:
+        row["approved"] = approved
+    return row
 
 
 def _funnel(rows: list[dict]) -> dict:
@@ -292,12 +296,40 @@ def test_decision_funnel_counts_the_reasons_the_loop_recorded():
 
 
 def test_decision_funnel_separates_filled_orders_from_rejections():
-    """A BUY is not a rejection reason; it must not be folded into a NO_TRADE bucket."""
+    """A proposal is not an order (D-035): only an approved signal may be called executed."""
     first = _cadence(1)[0]
     funnel = _funnel([_decision(first, "BTC_USDT", "regime_filter"),
-                      _decision(first, "ASTER_USDT", "", action="BUY")])
+                      _decision(first, "ASTER_USDT", "", action="BUY", approved=1),
+                      _decision(first, "BNB_USDT", "", action="BUY", approved=0,
+                                rationale="computed position size rounds to zero")])
     assert funnel["executed"] == {"executed:buy": 1}
-    assert funnel["by_reason_counts"] == {"executed:buy": 1, "regime_filter": 1}
+    assert funnel["by_reason_counts"] == {"regime_filter": 1, "executed:buy": 1,
+                                          "blocked_after_signal:other": 1}
+    assert sum(funnel["by_reason_counts"].values()) == 3
+
+
+def test_decision_funnel_keeps_the_verbatim_rationale_of_a_blocked_signal():
+    """The census is the loop's own text, not a label invented here."""
+    first = _cadence(1)[0]
+    funnel = _funnel([
+        _decision(first, "BNB_USDT", "", action="BUY", approved=0,
+                  rationale="computed position size rounds to zero"),
+        _decision(first + timedelta(hours=3), "BNB_USDT", "", action="BUY", approved=0,
+                  rationale="computed position size rounds to zero"),
+        _decision(first + timedelta(hours=6), "BNB_USDT", "", action="BUY", approved=0,
+                  rationale="cooldown after loss, 3600s remaining")])
+    assert funnel["blocked_rationale_counts"] == {"computed position size rounds to zero": 2,
+                                                  "cooldown after loss, 3600s remaining": 1}
+
+
+def test_decision_funnel_marks_rows_that_carry_no_approval_column_as_unverified():
+    """A source without `approved` must not be read as either executed or rejected."""
+    first = _cadence(1)[0]
+    row = _decision(first, "ASTER_USDT", "", action="BUY", approved=None)
+    assert "approved" not in row
+    funnel = _funnel([row])
+    assert funnel["executed"] == {}
+    assert funnel["by_reason_counts"] == {"unverified_action:buy": 1}
 
 
 def test_decision_funnel_keeps_unparseable_rationale_visible():
@@ -311,7 +343,8 @@ def test_decision_funnel_keeps_unparseable_rationale_visible():
 def test_an_empty_decision_table_is_a_zero_funnel_not_a_failure():
     funnel = _funnel([])
     assert funnel == {"decisions": 0, "cycles": 0, "symbols": 0, "by_reason_counts": {},
-                      "by_reason_pct": {}, "executed": {}, "note": funnel["note"]}
+                      "by_reason_pct": {}, "executed": {}, "blocked_rationale_counts": {},
+                      "note": funnel["note"]}
 
 
 def test_the_decision_funnel_never_changes_the_verdict():
@@ -324,7 +357,7 @@ def test_the_decision_funnel_never_changes_the_verdict():
     times = _cadence(13)
     first, second = times[0], times[1]
     rows = [_decision(first, f"SYM{index}_USDT", "regime_filter") for index in range(99)]
-    rows.append(_decision(second, "ASTER_USDT", "", action="BUY"))
+    rows.append(_decision(second, "ASTER_USDT", "", action="BUY", approved=1))
     with_funnel = analyze(snapshots=_snapshots(times), interval_hours=3.0,
                           now=times[-1] + timedelta(hours=1), decisions=rows)
     without = analyze(snapshots=_snapshots(times), interval_hours=3.0,

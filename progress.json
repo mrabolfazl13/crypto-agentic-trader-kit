@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-29T17:22:28+00:00",
+  "generated_at": "2026-10-29T18:09:23+00:00",
   "code_version": {
-    "head": "3a96557",
-    "committed_at": "2026-10-29T01:02:57+03:30",
-    "subject": "D-032: the backtest had a 24 hour time exit that the deployment never had",
+    "head": "eac0dab",
+    "committed_at": "2026-10-29T20:52:44+03:30",
+    "subject": "D-033: the deployed path holds 33h and 62h, not 16h, so gate B at 4h is arithmetically unreachable and the bottleneck is entries",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
@@ -14,39 +14,47 @@
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
+      "src/cat/paper_evidence.py",
+      "tests/test_paper_evidence.py",
+      "tests/test_paper_slot_reachability_probe.py",
+      "tests/test_paper_unevaluability_probe.py",
+      "tools/paper_decisions_unarchived.py",
+      "tools/paper_gate_b.py",
+      "tools/paper_slot_reachability_probe.py",
+      "tools/paper_unevaluability_probe.py",
       ".perch/",
-      "tests/test_paper_deployed_ceiling_probe.py",
-      "tools/paper_deployed_ceiling_probe.py"
+      "tests/test_paper_funnel_vocabulary_probe.py",
+      "tools/paper_funnel_vocabulary_probe.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-29T17:22:28+00:00",
+      "at": "2026-10-29T18:09:23+00:00",
       "command": "python -m pytest -q --basetemp=d:/tmp/pytest",
-      "passed": 561,
+      "passed": 581,
       "errors": 0,
       "exit_code": 0,
-      "seconds": 42.17,
+      "seconds": 48.0,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "561 passed, 1 warning in 40.92s"
+        "581 passed, 1 warning in 46.75s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 204,
+      "csv_rows": 208,
       "last_row": {
-        "run_id": "d033-sim-vs-deployed-source",
+        "run_id": "d035-d030-ceiling-amendment",
         "strategy": "trend_pullback",
         "timeframe": "4h",
-        "slice": "wrong-source-recurrence",
+        "slice": "censored-observational",
         "net_return_pct": "",
         "excess_return_pct": "",
-        "status": "completed; decision=earlier-verdict-superseded-not-deleted; sim_censored_share_pct=46.335; sim_trades=1869; deployed_cells_read=6; protocol_guard_added=true; config_unchanged=true"
+        "status": "completed; decision=one-slot-ceiling-corrected; ceiling_before=0.9969; ceiling_after=0.7248; hold_hours=33.114_closed_trade; censored_open_age_hours=9.013_never_used; required_per_day=1.1781_read_from_artifact; one_slot_clears_requirement=false; cross_check_d033=0.7241; slots/caps/live=unchanged; config_unchanged=true"
       },
-      "runs_with_window": 204
+      "runs_with_window": 208
     },
     "nested_walk_forwards": [
       {
@@ -1849,21 +1857,21 @@
     "B_paper": {
       "server": {
         "status": "INCOMPLETE",
-        "span_days": 2.507,
+        "span_days": 3.385,
         "min_days": 28.0,
         "on_time_fraction": 1.0,
-        "cycles_observed": 21,
+        "cycles_observed": 28,
         "downtime_gaps": 0,
-        "days_remaining": 25.493,
+        "days_remaining": 24.615,
         "milestone_at": "2026-11-23T06:27:57+00:00",
-        "closed_trades": 0,
-        "trade_cadence_state": "stalled",
-        "required_trades_per_day": 1.1768,
-        "decision_symbol_cycles": 2100,
+        "closed_trades": 1,
+        "trade_cadence_state": "behind",
+        "required_trades_per_day": 1.1781,
+        "decision_symbol_cycles": 2801,
         "top_decision_reason": "regime_filter",
-        "top_decision_reason_pct": 92.62,
-        "executed_decisions": 2,
-        "evaluated_at": "2026-10-28T20:33:00+00:00",
+        "top_decision_reason_pct": 92.07,
+        "executed_decisions": 3,
+        "evaluated_at": "2026-10-29T17:47:06+00:00",
         "database": "state\\reports\\server_platform_snapshot.sqlite3",
         "source_file": "state/reports/gate_b_evidence_server.json"
       },
@@ -1892,12 +1900,12 @@
   "server_snapshot": {
     "file": "state\\reports\\server_platform_snapshot.sqlite3",
     "exists": true,
-    "bytes": 2826240,
+    "bytes": 3031040,
     "tables": {
       "datasets": 11,
-      "decisions": 2100,
-      "portfolio_snapshots": 21,
-      "logs": 58
+      "decisions": 2801,
+      "portfolio_snapshots": 28,
+      "logs": 65
     }
   }
 }
