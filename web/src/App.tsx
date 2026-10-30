@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import {
   BarChart3,
@@ -32,24 +32,43 @@ import { Button } from "./components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { NO_DATA, dateTime, money, num, sinceLabel, text } from "./format";
 import { NAV_GROUPS, RESEARCH_DISCLAIMER, labelForPath } from "./nav";
-import Analysis from "./pages/Analysis";
-import Backtesting from "./pages/Backtesting";
-import Dashboard from "./pages/Dashboard";
-import Data from "./pages/Data";
-import Logs from "./pages/Logs";
-import Optimizer from "./pages/Optimizer";
-import PaperTrading from "./pages/PaperTrading";
-import PerformanceReports from "./pages/PerformanceReports";
-import Portfolio from "./pages/Portfolio";
-import Profiles from "./pages/Profiles";
-import QuantResearch from "./pages/QuantResearch";
-import Risk from "./pages/Risk";
-import SettingsPage from "./pages/Settings";
-import StrategyLab from "./pages/StrategyLab";
-import Trades from "./pages/Trades";
-import TradeAnalysis from "./pages/TradeAnalysis";
-import TseMarket from "./pages/tse/TseMarket";
-import Versions from "./pages/Versions";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const Analysis = lazy(() => import("./pages/Analysis"));
+const Backtesting = lazy(() => import("./pages/Backtesting"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Data = lazy(() => import("./pages/Data"));
+const Logs = lazy(() => import("./pages/Logs"));
+const Optimizer = lazy(() => import("./pages/Optimizer"));
+const PaperTrading = lazy(() => import("./pages/PaperTrading"));
+const PerformanceReports = lazy(() => import("./pages/PerformanceReports"));
+const Portfolio = lazy(() => import("./pages/Portfolio"));
+const Profiles = lazy(() => import("./pages/Profiles"));
+const QuantResearch = lazy(() => import("./pages/QuantResearch"));
+const Risk = lazy(() => import("./pages/Risk"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
+const StrategyLab = lazy(() => import("./pages/StrategyLab"));
+const Trades = lazy(() => import("./pages/Trades"));
+const TradeAnalysis = lazy(() => import("./pages/TradeAnalysis"));
+const TseMarket = lazy(() => import("./pages/tse/TseMarket"));
+const Versions = lazy(() => import("./pages/Versions"));
 
 const COLLAPSE_KEY = "cat.sidebar.collapsed";
 const THEME_KEY = "cat.theme";
@@ -253,6 +272,7 @@ function Shell() {
         </header>
 
         <main className="content" id="main-content" tabIndex={-1}>
+          <Suspense fallback={<div className="card" role="status" aria-live="polite">در حال بارگذاری بخش…</div>}>
           <Routes>
             <Route index element={<Dashboard />} />
             <Route path="/data" element={<Data />} />
@@ -274,6 +294,7 @@ function Shell() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Dashboard />} />
           </Routes>
+          </Suspense>
           <footer className="notice warn">{RESEARCH_DISCLAIMER}</footer>
         </main>
       </div>
