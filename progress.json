@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-29T18:09:23+00:00",
+  "generated_at": "2026-10-30T04:34:32+00:00",
   "code_version": {
-    "head": "eac0dab",
-    "committed_at": "2026-10-29T20:52:44+03:30",
-    "subject": "D-033: the deployed path holds 33h and 62h, not 16h, so gate B at 4h is arithmetically unreachable and the bottleneck is entries",
+    "head": "7a5f2d5",
+    "committed_at": "2026-10-29T21:40:16+03:30",
+    "subject": "D-035: the funnel counted 4 risk-engine rejections as executed, so 6 executed:buy really meant 2 orders",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
@@ -14,47 +14,54 @@
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "src/cat/paper_evidence.py",
-      "tests/test_paper_evidence.py",
-      "tests/test_paper_slot_reachability_probe.py",
-      "tests/test_paper_unevaluability_probe.py",
-      "tools/paper_decisions_unarchived.py",
-      "tools/paper_gate_b.py",
-      "tools/paper_slot_reachability_probe.py",
-      "tools/paper_unevaluability_probe.py",
-      ".perch/",
+      "src/cat/markets/tse.py",
+      "src/cat/quant/optimizer.py",
+      "tests/test_markets_tse.py",
       "tests/test_paper_funnel_vocabulary_probe.py",
-      "tools/paper_funnel_vocabulary_probe.py"
+      "tests/test_paper_slot_reachability_probe.py",
+      "tests/test_quant_chain_e2e.py",
+      "tests/test_quant_platform.py",
+      "tests/tse_helpers.py",
+      "tools/paper_funnel_vocabulary_probe.py",
+      "tools/paper_slot_reachability_probe.py",
+      "tools/quant_nested_walk_forward.py",
+      ".perch/",
+      "tests/test_paper_research_cap_probe.py",
+      "tests/test_quant_daily_average_probe.py",
+      "tests/test_tse_ingest_daily.py",
+      "tools/paper_research_cap_probe.py",
+      "tools/quant_daily_average_probe.py",
+      "tools/tse_ingest_daily.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-29T18:09:23+00:00",
-      "command": "python -m pytest -q --basetemp=d:/tmp/pytest",
-      "passed": 581,
+      "at": "2026-10-30T04:34:32+00:00",
+      "command": "python -m pytest -q",
+      "passed": 681,
       "errors": 0,
       "exit_code": 0,
-      "seconds": 48.0,
+      "seconds": 61.39,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "581 passed, 1 warning in 46.75s"
+        "681 passed, 1 warning in 60.03s (0:01:00)"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 208,
+      "csv_rows": 223,
       "last_row": {
-        "run_id": "d035-d030-ceiling-amendment",
-        "strategy": "trend_pullback",
-        "timeframe": "4h",
-        "slice": "censored-observational",
+        "run_id": "d040-tse-daily-ingest",
+        "strategy": "n/a",
+        "timeframe": "1d",
+        "slice": "data-ingest",
         "net_return_pct": "",
         "excess_return_pct": "",
-        "status": "completed; decision=one-slot-ceiling-corrected; ceiling_before=0.9969; ceiling_after=0.7248; hold_hours=33.114_closed_trade; censored_open_age_hours=9.013_never_used; required_per_day=1.1781_read_from_artifact; one_slot_clears_requirement=false; cross_check_d033=0.7241; slots/caps/live=unchanged; config_unchanged=true"
+        "status": "completed; decision=usable-read-only-ingest; universe 616 ordinary shares fetched, usable=616, empty=0, fetch_errors={}; rows_returned=119877 -> bars=83462 (0.6962 of returned rows were traded sessions); sessions per symbol median=143 min=1 max=152; calendar span median=306d; oldest session overall=20251223 vs target start=20251028; symbols depth-capped by the source=581 of 616 (the 200-row cap, not a fetch failure); dropped rows {\"no_open\": 75, \"no_trading_session\": 36214, \"ohlc_inconsistent\": 126}; integrity_violations=0 (no duplicate, no future, no non-Sat-Wed session); bars_digest=2cc4930200dd774d3e277ba13d2e4b31ecae3126eeb43009cf0980390d968d25; reused_from_disk=20; safety={mode: read-only ingest, orders_placed: 0, live: false, credentials_used: false}; no return number measured here (pre-registered in D-040); defects fixed on the shipped adapter: F-048 (silent window truncation) and F-049 (NameError behind 33 green tests); tests=63 passed for the TSE set"
       },
-      "runs_with_window": 208
+      "runs_with_window": 216
     },
     "nested_walk_forwards": [
       {
@@ -1857,21 +1864,21 @@
     "B_paper": {
       "server": {
         "status": "INCOMPLETE",
-        "span_days": 3.385,
+        "span_days": 3.761,
         "min_days": 28.0,
         "on_time_fraction": 1.0,
-        "cycles_observed": 28,
+        "cycles_observed": 31,
         "downtime_gaps": 0,
-        "days_remaining": 24.615,
+        "days_remaining": 24.239,
         "milestone_at": "2026-11-23T06:27:57+00:00",
-        "closed_trades": 1,
+        "closed_trades": 2,
         "trade_cadence_state": "behind",
-        "required_trades_per_day": 1.1781,
-        "decision_symbol_cycles": 2801,
+        "required_trades_per_day": 1.1552,
+        "decision_symbol_cycles": 3102,
         "top_decision_reason": "regime_filter",
-        "top_decision_reason_pct": 92.07,
-        "executed_decisions": 3,
-        "evaluated_at": "2026-10-29T17:47:06+00:00",
+        "top_decision_reason_pct": 91.84,
+        "executed_decisions": 4,
+        "evaluated_at": "2026-10-30T02:52:52+00:00",
         "database": "state\\reports\\server_platform_snapshot.sqlite3",
         "source_file": "state/reports/gate_b_evidence_server.json"
       },
@@ -1900,12 +1907,12 @@
   "server_snapshot": {
     "file": "state\\reports\\server_platform_snapshot.sqlite3",
     "exists": true,
-    "bytes": 3031040,
+    "bytes": 3121152,
     "tables": {
       "datasets": 11,
-      "decisions": 2801,
-      "portfolio_snapshots": 28,
-      "logs": 65
+      "decisions": 3102,
+      "portfolio_snapshots": 31,
+      "logs": 68
     }
   }
 }
