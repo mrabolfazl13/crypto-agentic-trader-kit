@@ -27,7 +27,7 @@ jobs:
       - name: Report research-state acceptance tests
         run: python -m pytest --collect-only -q -m requires_research_state
       - name: Safety and engine tests
-        run: python -m pytest -q -m "not requires_research_state"
+        run: python -m pytest -q -rs -m "not requires_research_state"
       - name: Run research-state acceptance tests when the private evidence bundle is present
         run: |
           if [ -d state/quant/results ] && [ -f state/reports/server_platform_snapshot.sqlite3 ]; then
