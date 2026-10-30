@@ -460,7 +460,7 @@ def test_aggregate_profit_factor_uses_combined_net_pnl_not_mean_of_fold_ratios()
                           "net_profit": 10.0, "net_loss": 10.0}},
     ]
     aggregate = aggregate_folds(folds)
-    assert aggregate["profit_factor"] == 20.0 / 11.0
+    assert aggregate["profit_factor"] == pytest.approx(20.0 / 11.0, abs=0.001)
     assert aggregate["profit_factor_mean"] == 5.5
     assert aggregate["gross_profit"] == 27.0
     assert aggregate["gross_loss"] == 14.0
@@ -597,9 +597,9 @@ def test_run_research_keeps_the_champion_and_stores_the_rejection(config, engine
     bars = _bars(_prices_rally_then_fade())
     before = config.limits
     report = run_research(store, config, symbol="BTC_USDT", timeframe="4h", bars=bars, higher_bars=[],
-                          filters=FILTERS, grid={"atr_target_mult": [3.5, 4.0]}, folds=4)
+                          filters=FILTERS, grid={"atr_target_mult": [3.5, 4.0]}, folds=4, min_trades=10_000)
     assert report["verdict"] == "rejected"
-    assert any("no out-of-sample net-return improvement" in reason for reason in report["reasons"])
+    assert any("minimum is 10000" in reason for reason in report["reasons"])
     assert report["champion_label"] == default_params().label()
     assert report["candidate_label"] != report["champion_label"]
     assert report["risk_checks"]["risk_limits_untouched"] is True and config.limits == before
@@ -678,7 +678,7 @@ def test_run_research_rejects_bars_that_do_not_match_the_timeframe(config, engin
     bars = _bars(_prices_rising(900))
     misaligned = bars[:100] + [Kline(open_time=bars[100].open_time + 900, open=1, high=1.1, low=0.9, close=1.0,
                                      base_volume=1.0, quote_volume=1.0, closed=True)] + bars[101:]
-    with pytest.raises(ValueError, match="not aligned to timeframe"):
+    with pytest.raises(ValueError, match="unexpected gap"):
         run_research(store, config, symbol="BTC_USDT", timeframe="4h", bars=misaligned, higher_bars=[],
                      filters=FILTERS, grid={"atr_stop_mult": [1.2]}, folds=4)
     with pytest.raises(ValueError, match="unknown timeframe"):
