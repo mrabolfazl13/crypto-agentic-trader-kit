@@ -25,7 +25,7 @@ def test_research_rejects_missing_market_candles():
             quote_volume=bars[index].quote_volume,
             closed=True,
         )
-    with pytest.raises(ValueError, match="not gap-free"):
+    with pytest.raises(ValueError, match="unexpected gap"):
         validate_research_bars(bars, "1h")
 
 
@@ -119,3 +119,13 @@ def test_optimizer_walk_forward_never_receives_final_holdout(config, monkeypatch
     assert all(length == len(split.train) + len(split.validation) for length, _, _ in observed)
     assert all(last_ts < split.test[0].open_time for _, last_ts, _ in observed)
     assert report["test"]["bars"] == len(split.test)
+
+
+def test_research_allows_only_explicitly_declared_session_gaps():
+    bars = make_klines([100.0, 101.0, 102.0])
+    bars[2] = Kline(**{**bars[2].__dict__, "open_time": bars[2].open_time + 7200})
+    validate_research_bars(
+        bars,
+        "1h",
+        gap_is_expected=lambda previous, following: following - previous == 3 * 3600,
+    )
