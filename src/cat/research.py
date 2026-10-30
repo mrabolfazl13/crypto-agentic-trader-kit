@@ -90,7 +90,7 @@ def bar_spacings(bars: list[Kline]) -> list[int]:
     return [int(bars[i].open_time) - int(bars[i - 1].open_time) for i in range(1, len(bars))]
 
 
-def validate_research_bars(bars: list[Kline], timeframe: str) -> None:
+def validate_research_bars(bars: list[Kline], timeframe: str, *, gap_is_expected=None) -> None:
     """Fail closed on incomplete or malformed 24/7 market history before research.
 
     A multi-step timestamp gap is not a harmless formatting detail: it means the
@@ -103,9 +103,12 @@ def validate_research_bars(bars: list[Kline], timeframe: str) -> None:
     if any(times[index] <= times[index - 1] for index in range(1, len(times))):
         raise ValueError("research candles must have strictly increasing unique timestamps")
     gaps = bar_spacings(bars)
-    if any(gap != step for gap in gaps):
-        bad = next(gap for gap in gaps if gap != step)
-        raise ValueError(f"research history is not gap-free for {timeframe}: expected {step}s spacing, found {bad}s")
+    for index, gap in enumerate(gaps, start=1):
+        if gap == step:
+            continue
+        if gap_is_expected is not None and gap_is_expected(times[index - 1], times[index]):
+            continue
+        raise ValueError(f"research history has an unexpected gap for {timeframe}: expected {step}s spacing, found {gap}s")
     for index, bar in enumerate(bars):
         if not bar.closed:
             raise ValueError(f"research refuses an unclosed candle at index {index}")
@@ -253,7 +256,7 @@ def walk_forward(config: Config, symbol: str, *, bars: list[Kline], higher_bars:
         raise ValueError("walk-forward needs at least 2 folds; a single window proves nothing")
     if not bars:
         raise ValueError("no bars for walk-forward")
-    validate_research_bars(bars, timeframe or config.timeframe)
+    validate_research_bars(bars, timeframe or config.timeframe, gap_is_expected=config.spec.gap_is_expected)
     total, first_cut = len(bars), warmup + MIN_SEGMENT_BARS
     region = total - first_cut
     if region < folds * min_test_bars:
@@ -472,7 +475,7 @@ def run_research(store: Any, config: Config, *, symbol: str, timeframe: str | No
         step = seconds_per_bar(tf)
     except Exception as exc:
         raise ValueError(f"unknown timeframe {tf!r}: {exc}") from exc
-    validate_research_bars(bars, tf)
+    validate_research_bars(bars, tf, gap_is_expected=config.spec.gap_is_expected)
     limits_before = config.limits
     try:
         parts = split_bars(bars, min_bars=max(MIN_SEGMENT_BARS, warmup + 1))
