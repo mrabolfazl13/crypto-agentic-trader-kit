@@ -23,16 +23,14 @@
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-30T10:48:00+00:00",
-      "command": "python -m pytest -q --basetemp=d:/tmp/pt-u",
-      "passed": 709,
+      "at": "2026-10-30T12:04:39Z",
+      "command": "python -m pytest -q --basetemp=d:/tmp/pt-x",
+      "passed": 738,
       "errors": 0,
       "exit_code": 0,
-      "seconds": 51.66,
+      "seconds": 58.17,
       "tail": [
-        "",
-        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "709 passed, 1 warning in 50.27s"
+        "738 passed, 1 warning in 58.17s"
       ]
     }
   },
