@@ -245,9 +245,8 @@ def aggregate_folds(folds: list[dict[str, Any]]) -> dict[str, Any]:
     factors = [float(m["profit_factor"]) for m in metrics if isinstance(m.get("profit_factor"), (int, float))]
     # The arithmetic mean of fold profit factors is not the portfolio profit
     # factor: folds can contain very different amounts of winning/losing PnL.
-    # Prefer a ratio of summed gross profit to summed gross loss when every fold
-    # carries those auditable totals. Keep the mean as a diagnostic and as a
-    # compatibility fallback for historical reports without gross totals.
+    # Use summed fee-adjusted net winners/losers when available; retain the mean
+    # only as a diagnostic and legacy gross-field fallback for older reports.
     has_gross_totals = all(_numbers(m, "gross_profit", "gross_loss") for m in metrics)
     gross_profit = sum(float(m["gross_profit"]) for m in metrics) if has_gross_totals else None
     gross_loss = sum(float(m["gross_loss"]) for m in metrics) if has_gross_totals else None
@@ -270,6 +269,8 @@ def aggregate_folds(folds: list[dict[str, Any]]) -> dict[str, Any]:
             "profit_factor": combined_factor,
             "gross_profit": round(gross_profit, 4) if gross_profit is not None else None,
             "gross_loss": round(gross_loss, 4) if gross_loss is not None else None,
+            "net_profit": round(net_profit, 4) if net_profit is not None else None,
+            "net_loss": round(net_loss, 4) if net_loss is not None else None,
             "profit_factor_mean": round(sum(factors) / len(factors), 3) if factors else None,
             "net_return_pct_median": round(median, 4), "net_return_pct_min": round(returns[0], 4),
             "net_return_pct_max": round(returns[-1], 4), "positive_folds": sum(1 for value in returns if value > 0),
