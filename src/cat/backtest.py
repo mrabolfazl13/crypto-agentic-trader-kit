@@ -201,9 +201,15 @@ def run_backtest(
             initial_target = ev.get("initial_target")
             if initial_target is not None and initial_target > entry:
                 rr_ratio = (initial_target - entry) / (entry - initial_stop)
+        entry_fee = float(ev.get("entry_fee", 0.0) or 0.0)
+        # The account cash ledger already paid both sides, but ClosedTrade only
+        # knows the exit fee. Attribute the entry fee to this round trip so per-
+        # trade PnL, win rate and profit factor are genuinely net of all costs.
+        total_fees = round(float(trade.fees) + entry_fee, 8)
+        net_pnl = round(float(trade.realized_pnl) - entry_fee, 8)
         result.trades.append(BacktestTrade(
             symbol=symbol, entry_time=entry_time, exit_time=exit_ts, entry=entry, exit=exit_price,
-            qty=trade.qty, pnl=trade.realized_pnl, fees=trade.fees, reason=trade.reason,
+            qty=trade.qty, pnl=net_pnl, fees=total_fees, reason=trade.reason,
             side="long", entry_reason=ev.get("entry_reason", ""), decision_time=ev.get("decision_time", 0),
             confidence=ev.get("confidence"), regime=ev.get("regime", ""), volume_state=ev.get("volume_state", ""),
             indicators=ev.get("indicators", {}), bullish=ev.get("bullish", []), bearish=ev.get("bearish", []),
@@ -275,6 +281,7 @@ def run_backtest(
                         # ledger keeps it separate from the post-trade analysis.
                         evidence = {
                             "entry": entry,
+                            "entry_fee": fee,
                             "entry_reason": proposal.reason,
                             "decision_time": decision_time,
                             "confidence": float(proposal.confidence),
