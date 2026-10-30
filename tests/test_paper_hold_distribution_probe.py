@@ -28,6 +28,7 @@ SAMPLE_DUMP = (
 )
 
 
+@pytest.mark.requires_research_state
 def test_bars_field_is_minutes_not_bar_count():
     """`bars` tracks elapsed minutes (off-by-one inclusive), never elapsed/bar_seconds."""
     d = json.loads(SAMPLE_DUMP.read_text(encoding="utf-8"))
@@ -56,6 +57,7 @@ def test_deployed_strategy_has_no_time_exit():
     assert cfg.strategy_params.max_hold_bars == 0
 
 
+@pytest.mark.requires_research_state
 def test_measured_holds_respect_the_backtest_cap():
     """No measured 4h hold should exceed the backtest cap by more than one bar."""
     payload = json.loads(ARTIFACT.read_text(encoding="utf-8"))
@@ -64,6 +66,7 @@ def test_measured_holds_respect_the_backtest_cap():
         assert dump["max_days"] <= cap_days + 0.05, (dump["strategy"], dump["max_days"])
 
 
+@pytest.mark.requires_research_state
 def test_one_slot_ceiling_arithmetic_is_consistent():
     """Recompute the ceiling from the stored mean rather than trusting the flag."""
     payload = json.loads(ARTIFACT.read_text(encoding="utf-8"))
@@ -76,6 +79,7 @@ def test_one_slot_ceiling_arithmetic_is_consistent():
     assert ceil_["clears_requirement_at_mean"] is (recomputed >= required)
 
 
+@pytest.mark.requires_research_state
 def test_censoring_is_reported_and_break_even_is_consistent():
     """46% of measured trades hit the 24h cap, so the pooled mean is a lower bound.
     The break-even censored mean must reproduce the stated arithmetic."""
@@ -99,6 +103,7 @@ def test_censoring_is_reported_and_break_even_is_consistent():
     assert clears[0] is True and clears[-1] is False
 
 
+@pytest.mark.requires_research_state
 def test_probe_runs_and_writes_artifact():
     result = subprocess.run(
         [sys.executable, str(TOOL)], cwd=ROOT, capture_output=True, text=True, timeout=180
@@ -113,6 +118,7 @@ def test_probe_runs_and_writes_artifact():
     assert "minutes" in payload["bars_field_note"]
 
 
+@pytest.mark.requires_research_state
 def test_probe_is_read_only():
     """The trade dumps and config must be byte-identical after a run."""
     cfg_path = ROOT / "config.yaml"
