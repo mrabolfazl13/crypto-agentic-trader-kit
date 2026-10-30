@@ -10,6 +10,7 @@ silently re-labels a *decision* is the F-030 family again.
 from __future__ import annotations
 
 import json
+import pytest
 import sqlite3
 import sys
 from pathlib import Path
@@ -228,6 +229,7 @@ def test_classify_lock_tolerates_only_the_order_buckets_moving():
     assert classify_lock(leaked, legacy)["identical_with_the_single_exception_of_the_order_buckets"] is False
 
 
+@pytest.mark.requires_research_state
 def test_probe_measures_and_reports_both_clauses_holding(tmp_path):
     """The probe measures the witness's own generation, whatever the store has grown to since."""
     out = tmp_path / "funnel_vocabulary.json"
@@ -240,6 +242,7 @@ def test_probe_measures_and_reports_both_clauses_holding(tmp_path):
     assert verdict["change_is_allowed"] is True
 
 
+@pytest.mark.requires_research_state
 def test_the_generation_is_pinned_to_the_witness_and_published(tmp_path):
     """D-038: the daily audit overwrites the snapshot, so the pair is rebuilt by cutting, not by luck."""
     witness = json.loads((ROOT / "state" / "quant" / "results" / "d035_funnel_vocabulary"
@@ -255,6 +258,7 @@ def test_the_generation_is_pinned_to_the_witness_and_published(tmp_path):
     assert decisions["in_store"] >= counted, "the store only grows; the cut is what keeps the pair valid"
 
 
+@pytest.mark.requires_research_state
 def test_an_unpinned_whole_store_audit_still_refuses(tmp_path):
     """Refusing a mismatched pair is the gate; --as-of none must hit it, not silently pass (D-038/الف)."""
     out = tmp_path / "funnel_vocabulary.json"
@@ -275,6 +279,7 @@ def test_cutting_a_generation_keeps_only_the_rows_that_existed_then():
         "a trade closed after the instant is not in that generation, and neither is one opened after it")
 
 
+@pytest.mark.requires_research_state
 def test_committed_artifact_carries_the_measured_numbers():
     if not ARTIFACT.exists():
         raise SystemExit("run tools/paper_funnel_vocabulary_probe.py before the test suite")
