@@ -690,7 +690,7 @@ def test_evaluate_against_the_real_backtest_engine(config):
     assert report["bars"] == 500 and report["start"] == research._iso(bars[0].open_time)
     assert report["end"] == research._iso(bars[-1].open_time)
     assert report["trades"] == report["metrics"]["trades"]
-    assert {"net_return_pct", "max_drawdown_pct", "profit_factor", "fees_paid"} <= set(report["metrics"])
+    assert {"net_return_pct", "max_drawdown_pct", "profit_factor", "gross_profit", "gross_loss", "fees_paid"} <= set(report["metrics"])
     assert report["metrics"]["fees_paid"] >= 0.0
     assert report["params_label"] == default_params().label()
     assert isinstance(report["buy_hold_pct"], float)
