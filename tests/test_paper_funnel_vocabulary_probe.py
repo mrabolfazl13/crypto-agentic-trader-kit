@@ -161,7 +161,13 @@ def test_probe_refuses_a_store_that_cannot_be_cross_checked(tmp_path):
                        "positions_json TEXT)")
     connection.commit()
     connection.close()
-    assert main(["--db", str(db), "--out", str(tmp_path / "out.json")]) == 3
+    # Supply an explicit synthetic witness so the refusal is tested before any private
+    # research-state files are needed.
+    witness = tmp_path / "recorded-funnel.json"
+    witness.write_text(json.dumps({"evaluated_at": "2026-10-29T00:00:00+00:00",
+                                   "decision_funnel": {"decisions": 1}}), encoding="utf-8")
+    assert main(["--db", str(db), "--recorded-funnel", str(witness),
+                 "--out", str(tmp_path / "out.json")]) == 3
 
 
 def test_recorded_funnel_reads_both_file_shapes():
