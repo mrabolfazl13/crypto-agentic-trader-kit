@@ -666,6 +666,16 @@ def test_run_research_rejects_bars_that_do_not_match_the_timeframe(config, engin
     store.close()
 
 
+def test_evaluate_rejects_gapped_higher_timeframe_history(config, engine):
+    bars = _bars(_prices_rising(500))
+    higher = _bars(uptrend_prices(120, base=40_000.0), step=DAY)
+    del higher[40]
+    with pytest.raises(ValueError, match="unexpected gap"):
+        evaluate(config, "BTC_USDT", bars=bars, higher_bars=higher, filters=FILTERS,
+                 params=default_params(), warmup=80, timeframe="4h")
+    assert engine.calls == [], "malformed confirmation history must fail before the simulator runs"
+
+
 # ---- real engine ----------------------------------------------------------
 def test_evaluate_against_the_real_backtest_engine(config):
     """The wiring is only proven on the real engine; when it cannot run, that is reported, not faked."""
