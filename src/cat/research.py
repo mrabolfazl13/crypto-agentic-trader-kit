@@ -236,11 +236,24 @@ def aggregate_folds(folds: list[dict[str, Any]]) -> dict[str, Any]:
         metrics.append(row)
     returns = sorted(float(m["net_return_pct"]) for m in metrics)
     factors = [float(m["profit_factor"]) for m in metrics if isinstance(m.get("profit_factor"), (int, float))]
+    # The arithmetic mean of fold profit factors is not the portfolio profit
+    # factor: folds can contain very different amounts of winning/losing PnL.
+    # Prefer a ratio of summed gross profit to summed gross loss when every fold
+    # carries those auditable totals. Keep the mean as a diagnostic and as a
+    # compatibility fallback for historical reports without gross totals.
+    has_gross_totals = all(_numbers(m, "gross_profit", "gross_loss") for m in metrics)
+    gross_profit = sum(float(m["gross_profit"]) for m in metrics) if has_gross_totals else None
+    gross_loss = sum(float(m["gross_loss"]) for m in metrics) if has_gross_totals else None
+    combined_factor = (round(gross_profit / gross_loss, 3)
+                       if gross_profit is not None and gross_loss is not None and gross_loss > 0 else None)
     middle = len(returns) // 2
     median = returns[middle] if len(returns) % 2 else (returns[middle - 1] + returns[middle]) / 2.0
     return {"folds": len(folds), "net_pnl": round(sum(float(m["net_pnl"]) for m in metrics), 4),
             "trades": sum(int(m["trades"]) for m in metrics),
             "max_drawdown_pct": round(max(float(m["max_drawdown_pct"]) for m in metrics), 3),
+            "profit_factor": combined_factor,
+            "gross_profit": round(gross_profit, 4) if gross_profit is not None else None,
+            "gross_loss": round(gross_loss, 4) if gross_loss is not None else None,
             "profit_factor_mean": round(sum(factors) / len(factors), 3) if factors else None,
             "net_return_pct_median": round(median, 4), "net_return_pct_min": round(returns[0], 4),
             "net_return_pct_max": round(returns[-1], 4), "positive_folds": sum(1 for value in returns if value > 0),
