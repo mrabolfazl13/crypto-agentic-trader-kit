@@ -57,6 +57,7 @@ def test_cost_bounds_follow_slippage_formula():
     assert c_max == pytest.approx(0.0060)
 
 
+@pytest.mark.requires_research_state
 def test_probe_runs_and_writes_artifact():
     """The probe must run read-only and produce its JSON artifact."""
     result = subprocess.run(
@@ -78,6 +79,7 @@ def test_probe_runs_and_writes_artifact():
     assert "reward_risk" in payload["ledger_limitation"]
 
 
+@pytest.mark.requires_research_state
 def test_probe_does_not_touch_config_or_ledger():
     """Read-only guarantee: config and the snapshot must be byte-identical after a run."""
     cfg_path = ROOT / "config.yaml"
