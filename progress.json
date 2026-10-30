@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-30T04:34:32+00:00",
+  "generated_at": "2026-10-30T10:48:00+00:00",
   "code_version": {
-    "head": "7a5f2d5",
-    "committed_at": "2026-10-29T21:40:16+03:30",
-    "subject": "D-035: the funnel counted 4 risk-engine rejections as executed, so 6 executed:buy really meant 2 orders",
+    "head": "7b98441",
+    "committed_at": "2026-10-30T08:07:51+03:30",
+    "subject": "records: retract the Bourse verdict, file D-039/D-040/D-041, backfill F-046",
     "dirty": true,
     "dirty_files": [
       "DECISIONS.md",
@@ -14,54 +14,41 @@
       "NIGHTLY_STATUS.md",
       "PROJECT_STATE.md",
       "TASKS.md",
-      "src/cat/markets/tse.py",
-      "src/cat/quant/optimizer.py",
-      "tests/test_markets_tse.py",
-      "tests/test_paper_funnel_vocabulary_probe.py",
-      "tests/test_paper_slot_reachability_probe.py",
-      "tests/test_quant_chain_e2e.py",
-      "tests/test_quant_platform.py",
-      "tests/tse_helpers.py",
-      "tools/paper_funnel_vocabulary_probe.py",
-      "tools/paper_slot_reachability_probe.py",
-      "tools/quant_nested_walk_forward.py",
-      ".perch/",
-      "tests/test_paper_research_cap_probe.py",
       "tests/test_quant_daily_average_probe.py",
-      "tests/test_tse_ingest_daily.py",
-      "tools/paper_research_cap_probe.py",
       "tools/quant_daily_average_probe.py",
-      "tools/tse_ingest_daily.py"
+      ".perch/",
+      "tests/test_paper_family_rate_probe.py",
+      "tools/paper_family_rate_probe.py"
     ]
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-30T04:34:32+00:00",
-      "command": "python -m pytest -q",
-      "passed": 681,
+      "at": "2026-10-30T10:48:00+00:00",
+      "command": "python -m pytest -q --basetemp=d:/tmp/pt-u",
+      "passed": 709,
       "errors": 0,
       "exit_code": 0,
-      "seconds": 61.39,
+      "seconds": 51.66,
       "tail": [
         "",
         "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
-        "681 passed, 1 warning in 60.03s (0:01:00)"
+        "709 passed, 1 warning in 50.27s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 223,
+      "csv_rows": 225,
       "last_row": {
-        "run_id": "d040-tse-daily-ingest",
+        "run_id": "d042-label-repair",
         "strategy": "n/a",
-        "timeframe": "1d",
-        "slice": "data-ingest",
-        "net_return_pct": "",
+        "timeframe": "n/a",
+        "slice": "measurement-layer labelling fix (D-036 artifact)",
+        "net_return_pct": "-0.111787",
         "excess_return_pct": "",
-        "status": "completed; decision=usable-read-only-ingest; universe 616 ordinary shares fetched, usable=616, empty=0, fetch_errors={}; rows_returned=119877 -> bars=83462 (0.6962 of returned rows were traded sessions); sessions per symbol median=143 min=1 max=152; calendar span median=306d; oldest session overall=20251223 vs target start=20251028; symbols depth-capped by the source=581 of 616 (the 200-row cap, not a fetch failure); dropped rows {\"no_open\": 75, \"no_trading_session\": 36214, \"ohlc_inconsistent\": 126}; integrity_violations=0 (no duplicate, no future, no non-Sat-Wed session); bars_digest=2cc4930200dd774d3e277ba13d2e4b31ecae3126eeb43009cf0980390d968d25; reused_from_disk=20; safety={mode: read-only ingest, orders_placed: 0, live: false, credentials_used: false}; no return number measured here (pre-registered in D-040); defects fixed on the shipped adapter: F-048 (silent window truncation) and F-049 (NameError behind 33 green tests); tests=63 passed for the TSE set"
+        "status": "completed; decision=label-fix-zero-numeric-change; tree-diff before/after = 3 leaf paths, all labels (1 rename + note + new key), 0 numbers moved; paper book stayed -0.111787%/day at n=2; deployed replay 0.002144%/day (2/12 cells); research best 0.300836%/day; witness archived at state/quant/results/d036_daily_average/archive/20261030T030753 (sha 54676ec8cf0e911b); failures_closed=F-050,F-051; tests=2 new locks, 709 passed; gates untouched; orders_placed=0"
       },
-      "runs_with_window": 216
+      "runs_with_window": 217
     },
     "nested_walk_forwards": [
       {

@@ -203,9 +203,11 @@ def paper_ledger(gate_b_path: Path, capital_usdt: float | None) -> dict[str, Any
         payload["realized_net_pct_per_day_on_allocated_capital"] = round(100.0 * net / capital_usdt / days, 6)
     payload["average_claimable"] = bool(isinstance(ledger.get("trades"), int)
                                         and ledger["trades"] >= MIN_DISTINCT_FOLDS)
-    payload["note"] = ("n=%s closed trade(s): one observation cannot answer a mean; the number is the "
-                       "realised P&L of that single trade divided by the elapsed window, on the "
-                       "%s USDT allocated capital" % (ledger.get("trades"), capital_usdt))
+    payload["note"] = ("n=%s closed trade(s): the number is the realised P&L of those trades divided by "
+                       "the elapsed window, on the %s USDT allocated capital; %s"
+                       % (ledger.get("trades"), capital_usdt,
+                          ("a sample this thin cannot answer a mean"
+                           if not payload["average_claimable"] else "the mean is reportable")))
     return payload
 
 
@@ -401,7 +403,7 @@ def build_report(results_root: Path, gate_b_path: Path, capital_usdt: float | No
         "paper_ledger": ledger,
         "deployed_path_replay": replay,
         "answer": {
-            "positive_daily_average_proven": bool(supported),
+            "positive_daily_average_claim_supported": bool(supported),
             "accepted_and_positive": any(run.get("verdict") == "accepted" for run in supported),
             "evidence_breadth": {"claim_supported_runs": len(supported),
                                  "distinct_computations": len(supported_signatures),

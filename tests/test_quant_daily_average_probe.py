@@ -152,7 +152,38 @@ def test_the_paper_ledger_is_an_observation_not_an_average(tmp_path: Path):
     assert ledger["average_claimable"] is False, "n=1 is one observation, never a mean"
     assert ledger["realized_net_pct_per_day_on_allocated_capital"] == round(
         100.0 * -1.1019 / 1000.0 / 3.385, 6)
-    assert "one observation" in ledger["note"]
+    assert "n=1 closed trade(s)" in ledger["note"]
+    assert ledger["note"].endswith("a sample this thin cannot answer a mean")
+
+
+def test_the_book_note_describes_the_sample_it_actually_has(tmp_path: Path):
+    """D-042/F-051: the note was written for n=1 and stayed at n=2, still claiming one single trade."""
+    def note(trades: int) -> dict:
+        gate = _write(tmp_path, f"gate_b_{trades}.json", {
+            "evaluated_at": "2026-10-30T00:00:00+00:00", "status": "INCOMPLETE",
+            "window": {"span_days": 3.761},
+            "ledger": {"orders": 3, "fills": trades, "trades": trades,
+                       "net_pnl": -4.2043, "fees": 0.0489},
+            "cadence": {"observed_trades_per_day": 0.5318, "required_trades_per_day": 1.1552}})
+        return probe.paper_ledger(gate, 1000.0)
+
+    two = note(2)
+    assert "single trade" not in two["note"] and "one observation" not in two["note"]
+    assert two["average_claimable"] is False, "2 is still below the 4-fold sample rule"
+    six = note(6)
+    assert six["average_claimable"] is True
+    assert six["note"].endswith("the mean is reportable")
+
+
+def test_no_answer_key_claims_proof(tmp_path: Path):
+    """D-042/F-050: `proven` was a stronger word than the four clauses behind it."""
+    good = [_fold(i, days=7.0, net=1.0, bench=0.2) for i in range(4)]
+    _write(tmp_path, "nested-wf-good.json", _run(good, decision="accepted"))
+    report = probe.build_report(tmp_path, tmp_path / "missing.json", capital_usdt=1000.0)
+    assert "proven" not in json.dumps(report["answer"], ensure_ascii=False)
+    source = (ROOT / "tools" / "quant_daily_average_probe.py").read_text(encoding="utf-8")
+    assert "positive_daily_average_proven" not in source
+    assert report["answer"]["positive_daily_average_claim_supported"] is True
 
 
 def test_a_missing_gate_b_report_is_reported_as_missing(tmp_path: Path):
@@ -164,7 +195,8 @@ def test_the_answer_says_supported_only_when_every_clause_holds(tmp_path: Path):
     good = [_fold(i, days=7.0, net=1.0, bench=0.2) for i in range(4)]
     _write(tmp_path, "nested-wf-good.json", _run(good, decision="accepted"))
     report = probe.build_report(tmp_path, tmp_path / "missing.json", capital_usdt=1000.0)
-    assert report["runs_supporting_the_claim"] and report["answer"]["positive_daily_average_proven"] is True
+    assert report["runs_supporting_the_claim"] and report["answer"][
+        "positive_daily_average_claim_supported"] is True
     assert report["answer"]["accepted_and_positive"] is True
     assert report["accepted_summary"][0]["failed_clauses"] == []
 
@@ -291,7 +323,7 @@ def test_a_foldless_in_sample_replay_can_never_carry_the_claim(tmp_path: Path):
     assert replay["cells"][0]["net_per_day_pct"] == 10.0
     assert replay["can_support_the_d036_claim"] is False
     assert "fold" in replay["reason"]
-    assert report["answer"]["positive_daily_average_proven"] is False
+    assert report["answer"]["positive_daily_average_claim_supported"] is False
     assert report["answer"]["per_day_by_path"]["deployed_path_best_pct"] == 10.0
     assert report["answer"]["per_day_by_path"]["research_path_best_pct"] is None
 
