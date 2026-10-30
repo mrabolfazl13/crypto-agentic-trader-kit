@@ -33,24 +33,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./comp
 import { NO_DATA, dateTime, money, num, sinceLabel, text } from "./format";
 import { NAV_GROUPS, RESEARCH_DISCLAIMER, labelForPath } from "./nav";
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 const Analysis = lazy(() => import("./pages/Analysis"));
 const Backtesting = lazy(() => import("./pages/Backtesting"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
