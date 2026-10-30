@@ -24,7 +24,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 import time
@@ -45,6 +44,7 @@ except AttributeError:  # pragma: no cover - older interpreters
 
 from build_tse_universe import FetchError, build_instruments, fetch_board, fetch_board_date, fetch_json  # noqa: E402
 from cat.markets.tse import BASE, DAILY_PATH, SOURCE_MAX_DAILY_ROWS  # noqa: E402
+from cat.quant import tse_bars  # noqa: E402
 
 DEFAULT_OUT = ROOT / "state" / "tse"
 DEFAULT_TOP_K = 1000
@@ -191,11 +191,12 @@ def aggregate_audit(per_symbol: dict[str, dict[str, Any]], dropped: Counter[str]
 
 
 def bars_digest(all_bars: dict[str, list[dict[str, Any]]]) -> str:
-    blob = json.dumps(
-        {code: [bar["session"] for bar in bars] for code, bars in sorted(all_bars.items())},
-        sort_keys=True,
-    ).encode("utf-8")
-    return hashlib.sha256(blob).hexdigest()
+    """The lake identity the reader in ``cat.quant.tse_bars`` re-computes and compares against.
+
+    One implementation on purpose: a writer-side hash that a reader cannot reproduce byte-for-byte
+    is how a stale lake starts looking like a fresh one.
+    """
+    return tse_bars.bars_digest(all_bars)
 
 
 def write_bars(out_dir: Path, code: str, bars: list[dict[str, Any]]) -> Path:

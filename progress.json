@@ -23,28 +23,43 @@
   },
   "tests": {
     "last_run": {
-      "at": "2026-10-30T12:04:39Z",
-      "command": "python -m pytest -q --basetemp=d:/tmp/pt-x",
-      "passed": 738,
+      "at": "2026-10-30T12:56:05+00:00",
+      "command": "python -m pytest -q --basetemp=d:/tmp/pt-d045full",
+      "passed": 774,
       "errors": 0,
       "exit_code": 0,
-      "seconds": 58.17,
+      "seconds": 49.01,
       "tail": [
-        "738 passed, 1 warning in 58.17s"
+        "774 passed, 1 warning in 49.01s"
       ]
     }
   },
   "experiments": {
     "log": {
-      "csv_rows": 225,
+      "csv_rows": 226,
       "last_row": {
-        "run_id": "d042-label-repair",
-        "strategy": "n/a",
-        "timeframe": "n/a",
-        "slice": "measurement-layer labelling fix (D-036 artifact)",
-        "net_return_pct": "-0.111787",
-        "excess_return_pct": "",
-        "status": "completed; decision=label-fix-zero-numeric-change; tree-diff before/after = 3 leaf paths, all labels (1 rename + note + new key), 0 numbers moved; paper book stayed -0.111787%/day at n=2; deployed replay 0.002144%/day (2/12 cells); research best 0.300836%/day; witness archived at state/quant/results/d036_daily_average/archive/20261030T030753 (sha 54676ec8cf0e911b); failures_closed=F-050,F-051; tests=2 new locks, 709 passed; gates untouched; orders_placed=0"
+        "date": "2026-10-30T12:56:05+00:00",
+        "run_id": "d045-tse-daily-verdict",
+        "code_version": "D-045 reader src/cat/quant/tse_bars.py + driver tools/tse_daily_verdict.py",
+        "strategy": "ema_trend+trend_pullback (TSE daily)",
+        "timeframe": "1d",
+        "slice": "in-sample research backtest on the D-040 Bourse lake; no walk-forward, no holdout",
+        "params_label": "fill at next session open; fee 0.325%/side from SPEC; slippage grid ['0', '0.5', '1']% (verdict at 1%); horizons [5, 10, 20] sessions, verdict at 20; windows ['full', 'first_half', 'second_half']; long-only, no leverage, no regime gate by venue contract",
+        "data_start": "2025-12-23",
+        "data_end": "2026-10-28",
+        "window_start": "1766480400",
+        "window_end": "1793178000",
+        "trades": "203",
+        "net_return_pct": "-3.3096",
+        "max_drawdown_pct": "10.865",
+        "effective_drawdown_pct": "10.865",
+        "profit_factor": "0.9176",
+        "win_rate_pct": "46.31",
+        "fees": "3369849.1007",
+        "exposure_pct": "",
+        "benchmark_return_pct": "62.5747",
+        "excess_return_pct": "-65.8843",
+        "status": "completed; decision=bourse-lever-rejected-on-this-grid (registered rule applied unchanged); universe 616/616 symbols 83462 bars digest 2cc4930200dd774d 0 failed 0 reordered; cells_digest 4d0c0e81c2b79caf; columns describe ema_trend full window at the verdict cost; ema_trend net_per_day -0.010711/-0.000847/-0.022603 %/day at 1% slippage (all three negative); trend_pullback 0.005723/0.0/0.011445 (first_half is exactly 0.0 with 0 trades, so the every-window rule fails); benchmark full 0.202507 %/day (62.5747% over 309.0 calendar days on 615 symbols) so the best strategy figure is 2.83% of the board's own drift; H1=True; H2=True; H3=True (ema_trend 0.100777 at 0% -> -0.010711 at 1%); H4 census 116 sessions >30% of 83462 bars in unadjusted data; first-half emptiness published as a census (25745 bars vs 50-bar warm-up, 0 symbols past it, ready_bars 85 vs 54242) and the rule was NOT changed after seeing that it decided the verdict; lot floor not applied by design: median one-lot-over-position 31.835%, 44 trades below one lot; crypto lake not read; crypto gates untouched; config.yaml not written; orders_placed=0; live=false; tests=774 passed in 49.01s; failures_closed=F-055,F-056,F-057,F-058"
       },
       "runs_with_window": 217
     },
@@ -1898,6 +1913,100 @@
       "decisions": 3102,
       "portfolio_snapshots": 31,
       "logs": 68
+    }
+  },
+  "bourse": {
+    "d045_first_measured_verdict": {
+      "artifact": "state/quant/results/d045_tse_daily/tse_daily_verdict.json",
+      "cells_digest": "4d0c0e81c2b79caf",
+      "verdict": "rejected_on_this_grid",
+      "universe": "616/616 symbols, 83462 bars",
+      "lake_digest_matches_manifest": true,
+      "verdict_cost_net_per_day_pct": {
+        "ema_trend": {
+          "full": -0.010711,
+          "first_half": -0.000847,
+          "second_half": -0.022603
+        },
+        "trend_pullback": {
+          "full": 0.005723,
+          "first_half": 0.0,
+          "second_half": 0.011445
+        }
+      },
+      "benchmark_net_per_day_pct": {
+        "full": 0.202507,
+        "first_half": -0.106544,
+        "second_half": 0.555062
+      },
+      "best_strategy_share_of_board_pct": 2.83,
+      "hypotheses": {
+        "h1": true,
+        "h2": true,
+        "h3": true,
+        "cost_flipping_families": [
+          "ema_trend"
+        ],
+        "h4_big_move_sessions": 116
+      },
+      "window_bar_census": {
+        "full": {
+          "bars_inside": 82847,
+          "symbols_with_bars": 615,
+          "median_bars_per_symbol": 142,
+          "warmup_bars": 50,
+          "symbols_past_warmup": 596
+        },
+        "first_half": {
+          "bars_inside": 25745,
+          "symbols_with_bars": 589,
+          "median_bars_per_symbol": 45,
+          "warmup_bars": 50,
+          "symbols_past_warmup": 0
+        },
+        "second_half": {
+          "bars_inside": 57102,
+          "symbols_with_bars": 615,
+          "median_bars_per_symbol": 97,
+          "warmup_bars": 50,
+          "symbols_past_warmup": 593
+        }
+      },
+      "ready_bars": {
+        "ema_trend": {
+          "full": 54327,
+          "first_half": 85,
+          "second_half": 54242
+        },
+        "trend_pullback": {
+          "full": 54327,
+          "first_half": 85,
+          "second_half": 54242
+        }
+      },
+      "lot_bias": {
+        "ema_trend": {
+          "lot_shares": 100.0,
+          "median_one_lot_over_position_pct": 31.835,
+          "positions_below_one_lot": 44
+        },
+        "trend_pullback": {
+          "lot_shares": 100.0,
+          "median_one_lot_over_position_pct": 31.689,
+          "positions_below_one_lot": 19
+        }
+      },
+      "safety": {
+        "mode": "research backtest",
+        "orders_placed": 0,
+        "live": false,
+        "credentials_used": false,
+        "config_written": false,
+        "crypto_lake_read": false,
+        "crypto_gates_changed": false
+      },
+      "config_written": false,
+      "crypto_gates_changed": false
     }
   }
 }
