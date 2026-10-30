@@ -48,3 +48,12 @@ def test_research_rejects_invalid_ohlc_range():
     bars[-1] = Kline(**{**bars[-1].__dict__, "high": bars[-1].close - 1.0})
     with pytest.raises(ValueError, match="invalid OHLC range"):
         validate_research_bars(bars, "1h")
+
+
+def test_backtest_higher_timeframe_filter_ignores_unclosed_candles():
+    from cat.backtest import select_closed_higher
+
+    bars = make_klines([100.0, 101.0, 102.0])
+    bars[0] = Kline(**{**bars[0].__dict__, "closed": False})
+    selected = select_closed_higher(bars, bars[2].open_time + 3600, 3600)
+    assert selected == bars[1:3]
