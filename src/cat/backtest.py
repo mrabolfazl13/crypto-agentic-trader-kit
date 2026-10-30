@@ -361,8 +361,14 @@ def compute_metrics(result: BacktestResult, state: AccountState, step: int) -> d
     trades = result.trades
     wins = [t for t in trades if t.pnl > 0]
     losses = [t for t in trades if t.pnl <= 0]
-    gross_win = sum(t.pnl for t in wins)
-    gross_loss = abs(sum(t.pnl for t in losses))
+    # Trade.pnl is net of entry and exit fees. Reconstruct pre-fee PnL by
+    # adding the round-trip fees recorded on each trade; keep net totals
+    # separate so the portfolio-level profit factor never silently ignores costs.
+    net_profit = sum(t.pnl for t in wins)
+    net_loss = abs(sum(t.pnl for t in losses))
+    gross_trade_pnls = [t.pnl + t.fees for t in trades]
+    gross_win = sum(value for value in gross_trade_pnls if value > 0)
+    gross_loss = abs(sum(value for value in gross_trade_pnls if value <= 0))
     equity = [e for _, e in result.equity_curve] or [state.allocated_capital]
     returns = [(equity[i] - equity[i - 1]) / equity[i - 1] for i in range(1, len(equity)) if equity[i - 1] > 0]
     mean = sum(returns) / len(returns) if returns else 0.0
@@ -377,9 +383,11 @@ def compute_metrics(result: BacktestResult, state: AccountState, step: int) -> d
     return {
         "trades": len(trades),
         "win_rate_pct": round(len(wins) / len(trades) * 100.0, 2) if trades else None,
-        "profit_factor": round(gross_win / gross_loss, 3) if gross_loss > 0 else None,
+        "profit_factor": round(net_profit / net_loss, 3) if net_loss > 0 else None,
         "gross_profit": round(gross_win, 4),
         "gross_loss": round(gross_loss, 4),
+        "net_profit": round(net_profit, 4),
+        "net_loss": round(net_loss, 4),
         "avg_win": round(gross_win / len(wins), 4) if wins else None,
         "avg_loss": round(-gross_loss / len(losses), 4) if losses else None,
         "net_pnl": round(net, 4),
