@@ -204,6 +204,13 @@ def evaluate(config: Config, symbol: str, *, bars: list[Kline], higher_bars: lis
     sizing, risk gate and exits stay the audited ones, and the family is kept in the label."""
     if len(bars) <= warmup:
         raise ValueError(f"evaluation window has {len(bars)} bars but warmup={warmup}: no bar could be decided")
+    # Higher-timeframe confirmation is part of the decision, not decorative
+    # metadata. Reject malformed history and discard an unfinished live tail
+    # before the simulator can inspect it.
+    if higher_bars:
+        higher_bars = validate_research_bars(
+            higher_bars, config.confirm_timeframe, gap_is_expected=config.spec.gap_is_expected
+        )
     propose_fn, prefix = _family(strategy)
     result = run_backtest(config, symbol, bars=bars, higher_bars=higher_bars, filters=filters, timeframe=timeframe,
                           warmup=warmup, assumed_spread_pct=assumed_spread_pct, params=params,
