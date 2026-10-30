@@ -14,16 +14,17 @@ def test_research_accepts_closed_contiguous_ohlcv_history():
 
 def test_research_rejects_missing_market_candles():
     bars = make_klines([100.0, 101.0, 102.0, 103.0])
-    bars[2] = Kline(
-        open_time=bars[2].open_time + 3600,
-        open=bars[2].open,
-        high=bars[2].high,
-        low=bars[2].low,
-        close=bars[2].close,
-        base_volume=bars[2].base_volume,
-        quote_volume=bars[2].quote_volume,
-        closed=True,
-    )
+    for index in range(2, len(bars)):
+        bars[index] = Kline(
+            open_time=bars[index].open_time + 3600,
+            open=bars[index].open,
+            high=bars[index].high,
+            low=bars[index].low,
+            close=bars[index].close,
+            base_volume=bars[index].base_volume,
+            quote_volume=bars[index].quote_volume,
+            closed=True,
+        )
     with pytest.raises(ValueError, match="not gap-free"):
         validate_research_bars(bars, "1h")
 
