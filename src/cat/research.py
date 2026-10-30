@@ -251,8 +251,17 @@ def aggregate_folds(folds: list[dict[str, Any]]) -> dict[str, Any]:
     has_gross_totals = all(_numbers(m, "gross_profit", "gross_loss") for m in metrics)
     gross_profit = sum(float(m["gross_profit"]) for m in metrics) if has_gross_totals else None
     gross_loss = sum(float(m["gross_loss"]) for m in metrics) if has_gross_totals else None
-    combined_factor = (round(gross_profit / gross_loss, 3)
-                       if gross_profit is not None and gross_loss is not None and gross_loss > 0 else None)
+    # Profit factor must reflect the actual net trade ledger after round-trip
+    # fees. Gross totals remain available for diagnostics, not as the PF numerator.
+    has_net_totals = all(_numbers(m, "net_profit", "net_loss") for m in metrics)
+    net_profit = sum(float(m["net_profit"]) for m in metrics) if has_net_totals else None
+    net_loss = sum(float(m["net_loss"]) for m in metrics) if has_net_totals else None
+    combined_factor = (round(net_profit / net_loss, 3)
+                       if net_profit is not None and net_loss is not None and net_loss > 0 else None)
+    if combined_factor is None and not has_net_totals and has_gross_totals:
+        # Compatibility for older saved reports: before net totals were added,
+        # these two fields contained fee-adjusted winning/losing trade PnL.
+        combined_factor = round(gross_profit / gross_loss, 3) if gross_loss and gross_loss > 0 else None
     middle = len(returns) // 2
     median = returns[middle] if len(returns) % 2 else (returns[middle - 1] + returns[middle]) / 2.0
     return {"folds": len(folds), "net_pnl": round(sum(float(m["net_pnl"]) for m in metrics), 4),
