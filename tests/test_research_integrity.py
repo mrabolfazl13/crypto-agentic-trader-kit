@@ -29,10 +29,17 @@ def test_research_rejects_missing_market_candles():
         validate_research_bars(bars, "1h")
 
 
-def test_research_rejects_unclosed_final_candle():
+def test_research_drops_unclosed_final_candle():
     bars = make_klines([100.0, 101.0, 102.0])
     bars[-1] = Kline(**{**bars[-1].__dict__, "closed": False})
-    with pytest.raises(ValueError, match="unclosed candle"):
+    usable = validate_research_bars(bars, "1h")
+    assert usable == bars[:-1]
+
+
+def test_research_rejects_unclosed_candle_inside_history():
+    bars = make_klines([100.0, 101.0, 102.0, 103.0])
+    bars[1] = Kline(**{**bars[1].__dict__, "closed": False})
+    with pytest.raises(ValueError, match="unexpected gap"):
         validate_research_bars(bars, "1h")
 
 
