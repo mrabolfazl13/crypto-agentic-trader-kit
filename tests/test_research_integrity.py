@@ -78,6 +78,7 @@ def test_optimizer_walk_forward_never_receives_final_holdout(config, monkeypatch
         return [{
             "params_label": "candidate-only",
             "params": default_params().as_dict(),
+            "metrics": {"net_return_pct": 0.1},
             "train": {"metrics": {"net_return_pct": 0.1}, "rejected": {}},
             "validation": {"metrics": {"net_return_pct": 0.2}},
         }]
