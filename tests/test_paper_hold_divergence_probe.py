@@ -10,6 +10,7 @@ deployment. Nothing here changes config, thresholds or strategy.py.
 """
 
 import json
+import pytest
 import subprocess
 import sys
 from pathlib import Path
@@ -58,6 +59,7 @@ def test_deployed_exit_is_guarded_by_a_positive_check():
     assert "if p.max_hold_bars > 0 and horizon is not None" in src
 
 
+@pytest.mark.requires_research_state
 def test_time_exit_share_is_material():
     """The cap closes more than half of all 4h backtest trades."""
     payload = json.loads(ARTIFACT.read_text(encoding="utf-8"))
@@ -70,12 +72,14 @@ def test_time_exit_share_is_material():
     assert by_reason["time"]["n"] > 900
 
 
+@pytest.mark.requires_research_state
 def test_cap_actually_binds_at_the_boundary():
     """Most time exits land at the 24h cap, not merely somewhere before it."""
     payload = json.loads(ARTIFACT.read_text(encoding="utf-8"))
     assert payload["time_exits_at_cap_pct"] > 80.0
 
 
+@pytest.mark.requires_research_state
 def test_live_position_exceeded_the_backtest_cap():
     """ASTER was older than 24h and still open, so the backtest would have closed it."""
     payload = json.loads(ARTIFACT.read_text(encoding="utf-8"))
@@ -85,6 +89,7 @@ def test_live_position_exceeded_the_backtest_cap():
     assert payload["h4_live_evidence"] is True
 
 
+@pytest.mark.requires_research_state
 def test_verdict_is_validation_divergence():
     payload = json.loads(ARTIFACT.read_text(encoding="utf-8"))
     assert payload["verdict"] == "validation-divergence"
@@ -92,6 +97,7 @@ def test_verdict_is_validation_divergence():
     assert payload["backtest"]["applied_unconditionally"] is True
 
 
+@pytest.mark.requires_research_state
 def test_probe_runs_and_is_read_only():
     cfg_path = ROOT / "config.yaml"
     strat = ROOT / "src" / "cat" / "strategy.py"
