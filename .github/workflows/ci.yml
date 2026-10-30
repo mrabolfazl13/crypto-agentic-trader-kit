@@ -21,9 +21,20 @@ jobs:
       # path: the stack is asserted here instead of trusting the skip.
       - name: Research stack is installed
         run: python -c "import optuna, pyarrow, lightgbm, sklearn, psutil; print('quant stack OK')"
-      # The suite is offline by design: no exchange calls, no API keys.
+      # The portable suite is offline by design: no exchange calls, no API keys.
+      # The 22 marked research-state tests validate real PAPER evidence snapshots that are
+      # deliberately excluded from git. They remain runnable locally with the owner's state/.
+      - name: Report research-state acceptance tests
+        run: python -m pytest --collect-only -q -m requires_research_state
       - name: Safety and engine tests
-        run: python -m pytest -q
+        run: python -m pytest -q -m "not requires_research_state"
+      - name: Run research-state acceptance tests when the private evidence bundle is present
+        run: |
+          if [ -d state/quant/results ] && [ -f state/reports/server_platform_snapshot.sqlite3 ]; then
+            python -m pytest -q -m requires_research_state
+          else
+            echo "::notice::Research-state acceptance tests were not run: private runtime evidence is not part of this public repository. Run them locally with the original state/ directory."
+          fi
       - name: Refuse any live order path in default config
         run: |
           python - <<'PY'
