@@ -74,8 +74,24 @@ def test_the_payload_keeps_the_same_schema_and_names_every_exclusion():
 
 
 def test_the_builder_refuses_to_overwrite_the_cited_research_universe(capsys):
-    before = (ROOT / "state" / "quant" / "universe.json").read_bytes()
-    exit_code = main(["--out", str(ROOT / "state" / "quant" / "universe.json")])
-    assert exit_code == 3
-    assert "refusing to overwrite" in capsys.readouterr().out
-    assert (ROOT / "state" / "quant" / "universe.json").read_bytes() == before
+    # A clean checkout has no ignored runtime state. Seed a disposable sentinel so this
+    # safety test proves the refusal path without requiring or modifying a real universe.
+    target = ROOT / "state" / "quant" / "universe.json"
+    existed = target.exists()
+    if not existed:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b'{"fixture":"must remain untouched"}\\n')
+    before = target.read_bytes()
+    try:
+        exit_code = main(["--out", str(target)])
+        assert exit_code == 3
+        assert "refusing to overwrite" in capsys.readouterr().out
+        assert target.read_bytes() == before
+    finally:
+        if not existed:
+            target.unlink(missing_ok=True)
+            for parent in (target.parent, target.parent.parent):
+                try:
+                    parent.rmdir()
+                except OSError:
+                    break
