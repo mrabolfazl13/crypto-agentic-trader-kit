@@ -13,7 +13,7 @@ import pytest
 
 from cat.data import DataUnavailable
 from cat.markets import calendar
-from cat.markets.tse import TEHRAN, TseProvider, week_anchor
+from cat.markets.tse import SOURCE_MAX_DAILY_ROWS, TEHRAN, TseProvider, week_anchor
 from tse_helpers import (
     FOLD_CODE,
     FOLD_ISIN,
@@ -22,7 +22,6 @@ from tse_helpers import (
     fixture_provider,
     load_fixture,
     marketwatch_rows,
-    write_tse_config,
     write_universe,
 )
 
@@ -266,6 +265,53 @@ def test_unsupported_timeframe_is_refused(workspace: Path):
     provider = fixture_provider(workspace)
     with pytest.raises(DataUnavailable, match="daily history only"):
         provider.klines(FOLD_CODE, "1h", 30)
+
+
+def test_daily_rows_never_asks_for_more_depth_than_the_source_has(workspace: Path):
+    """top>200 returns the same 200 rows (measured 2026-10-30); the request must say so."""
+    write_universe(workspace)
+    provider = fixture_provider(workspace)
+    provider.daily_rows(FOLD_CODE, 1000)
+    url = provider.client.calls[-1][0]
+    assert url.endswith(f"/{SOURCE_MAX_DAILY_ROWS}")
+
+
+def test_klines_range_refuses_a_window_the_source_cannot_reach(workspace: Path):
+    """F-048: silently returning the last 30 sessions for a two-year request is bad data."""
+    write_universe(workspace)
+    provider = fixture_provider(workspace)
+    start = tehran(2025, 1, 1, 9, 0).timestamp()
+    end = tehran(2026, 10, 21, 12, 0).timestamp()
+    with pytest.raises(DataUnavailable, match="refusing a truncated window"):
+        provider.klines_range(FOLD_CODE, "1d", start, end)
+
+
+def test_klines_range_returns_the_window_the_source_covers(workspace: Path):
+    write_universe(workspace)
+    provider = fixture_provider(workspace)
+    start = tehran(2026, 9, 12, 0, 0).timestamp()
+    end = tehran(2026, 10, 21, 12, 0).timestamp()
+    bars = provider.klines_range(FOLD_CODE, "1d", start, end)
+    assert len(bars) == 30
+    assert bars[0].open_time >= start
+
+
+def test_server_time_reads_the_constant_that_exists():
+    """F-049: this method named MARKETOVERVIEW_PATH (no such constant) and no test called it."""
+    provider = TseProvider(FixtureClient())
+    assert provider.server_time() == 1_793_000_000.0
+    assert any("GetMarketOverview" in url for url in provider.client.date_header_calls)
+
+
+def test_server_time_fails_closed_without_a_date_header():
+    class NoDateClient(FixtureClient):
+        def date_header_epoch(self, url: str):
+            self.date_header_calls.append(url)
+            return None
+
+    provider = TseProvider(NoDateClient())
+    with pytest.raises(DataUnavailable, match="Date header"):
+        provider.server_time()
 
 
 # ---------------------------------------------------------------------------

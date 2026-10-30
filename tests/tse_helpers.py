@@ -48,6 +48,7 @@ class FixtureClient:
         self.overrides = overrides or {}
         self.date_epoch = date_epoch
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.date_header_calls: list[str] = []
 
     def get(self, url: str, params: dict[str, Any] | None = None) -> Any:
         self.calls.append((url, dict(params or {})))
@@ -58,6 +59,7 @@ class FixtureClient:
         raise AssertionError(f"unexpected TSETMC URL in test: {url}")
 
     def date_header_epoch(self, url: str) -> float:
+        self.date_header_calls.append(url)
         return self.date_epoch
 
     def date_header_epoch_rtt(self, url: str) -> tuple[float, float]:

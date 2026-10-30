@@ -55,6 +55,16 @@ CLOSING_INFO_PATH = "/ClosingPrice/GetClosingPriceInfo/{ins}"
 MARKET_OVERVIEW_PATH = "/MarketData/GetMarketOverview/{flow}"
 SEARCH_PATH = "/Instrument/GetInstrumentSearch/{query}"
 
+# Measured live on 2026-10-30 (D-040/F-048): GetClosingPriceDailyList answers exactly
+# 200 rows no matter how large ``top`` is, so asking for 1000 only invents a depth the
+# venue does not have. ~200 sessions is about 305 calendar days of the Sat-Wed board.
+SOURCE_MAX_DAILY_ROWS = 200
+
+# How late the first bar of a requested window may legitimately be: official closures
+# (Nowruz, Ashura) keep the board shut for up to ~10 days, and a weekly bar is anchored
+# to its week. Beyond that the source simply does not have the history.
+RANGE_START_GRACE_DAYS = {"1d": 14.0, "1w": 21.0}
+
 # market=0 + paperTypes[0]=1 was the combination that returned the ordinary-share
 # board (1017 instruments on 2026-10-24). Kept as a constant so the provenance in
 # universe_tse.json and the runtime query can never drift apart.
@@ -376,7 +386,7 @@ class TseProvider:
     # --- candles ----------------------------------------------------------
     def daily_rows(self, symbol: str, limit: int) -> list[dict[str, Any]]:
         code = self.canonical_symbol(symbol)
-        payload = self._url(DAILY_PATH.format(ins=code, top=max(1, min(int(limit), 1000))))
+        payload = self._url(DAILY_PATH.format(ins=code, top=max(1, min(int(limit), SOURCE_MAX_DAILY_ROWS))))
         rows = payload.get("closingPriceDaily") if isinstance(payload, dict) else None
         if not isinstance(rows, list) or not rows:
             raise DataUnavailable(f"no daily history for {code}")
@@ -433,15 +443,28 @@ class TseProvider:
         return bars
 
     def klines_range(self, symbol: str, timeframe: str, start_ts: int, end_ts: int, page: int = 800) -> list[Kline]:
-        """History over a window — TSETMC answers depth by count, so request enough bars."""
+        """History over a window.
+
+        ``page`` is part of the provider protocol (``data.py``); this venue ignores it
+        because TSETMC answers depth by row count, capped at ``SOURCE_MAX_DAILY_ROWS``.
+        A window reaching past that cap is refused instead of being silently truncated:
+        a backtest fed a shorter history than it asked for reads the gap as market
+        behaviour (F-048).
+        """
         if timeframe not in (TIMEFRAME, WEEK_TIMEFRAME):
             raise DataUnavailable(f"TSE publishes daily history only; {timeframe!r} is not available")
         sessions = max(30, int((end_ts - start_ts) // BAR_SECONDS) + 40)
-        bars = self.klines(symbol, timeframe, min(sessions, 1000))
-        bars = [bar for bar in bars if start_ts <= bar.open_time <= end_ts]
-        if not bars:
+        bars = self.klines(symbol, timeframe, min(sessions, SOURCE_MAX_DAILY_ROWS))
+        window = [bar for bar in bars if start_ts <= bar.open_time <= end_ts]
+        if not window:
             raise DataUnavailable(f"no TSE bars for {symbol} in the requested window")
-        return bars
+        gap_days = (window[0].open_time - start_ts) / BAR_SECONDS
+        if gap_days > RANGE_START_GRACE_DAYS[timeframe]:
+            raise DataUnavailable(
+                f"TSE history for {symbol} starts {gap_days:.0f} days after the requested window "
+                f"(source caps at {SOURCE_MAX_DAILY_ROWS} sessions); refusing a truncated window"
+            )
+        return window
 
     # --- venue rules ------------------------------------------------------
     def price_band(self, symbol: str) -> dict[str, Any]:
@@ -491,7 +514,7 @@ class TseProvider:
     # --- clock + market state --------------------------------------------
     def server_time(self) -> float:
         """TSETMC has no time endpoint; the CDN's own HTTP ``Date`` header is used."""
-        epoch = self.client.date_header_epoch(f"{self.base}{MARKETOVERVIEW_PATH.format(flow=1)}")
+        epoch = self.client.date_header_epoch(f"{self.base}{MARKET_OVERVIEW_PATH.format(flow=1)}")
         if epoch is None:
             raise DataUnavailable("TSETMC did not return a usable Date header")
         return epoch
