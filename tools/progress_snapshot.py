@@ -53,7 +53,9 @@ def experiment_log() -> dict:
     with path.open(newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
     last = rows[-1] if rows else {}
-    keep = ("run_id", "strategy", "timeframe", "slice", "net_return_pct",
+    # "date" is not decoration: progress.json is read first after a break, and without the
+    # row's timestamp a fresh session cannot tell whether the last experiment is from today.
+    keep = ("date", "run_id", "strategy", "timeframe", "slice", "net_return_pct",
             "excess_return_pct", "status")
     return {
         "csv_rows": len(rows),
@@ -212,8 +214,6 @@ def server_snapshot() -> dict:
     info["bytes"] = path.stat().st_size
     try:
         con = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
-        tables = [r[0] for r in con.execute(
-            "select name from sqlite_master where type='table' order by name")]
         info["tables"] = {name: con.execute(f"select count(*) from {name}").fetchone()[0]
                           for name in ("datasets", "decisions", "portfolio_snapshots", "logs")}
         con.close()

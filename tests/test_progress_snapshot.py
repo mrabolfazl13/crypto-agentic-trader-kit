@@ -117,3 +117,21 @@ def test_gate_b_summary_survives_an_evidence_file_without_a_funnel(tmp_path, mon
     assert summary["decision_symbol_cycles"] is None
     assert summary["top_decision_reason"] is None
     assert summary["executed_decisions"] == 0
+
+
+def test_the_last_experiment_row_keeps_its_date_so_freshness_is_readable(tmp_path, monkeypatch):
+    """A summary that drops the timestamp cannot answer "is the last run today?".
+
+    The whitelist once started at `run_id`, so progress.json carried the verdict of the last
+    experiment without ever saying when it happened.
+    """
+    (tmp_path / "EXPERIMENT_LOG.csv").write_text(
+        "date,run_id,strategy,timeframe,slice,net_return_pct,excess_return_pct,status,trades\n"
+        "2026-10-30T12:56:05+00:00,d045-tse-daily-verdict,ema_trend,1d,in-sample,-3.3096,-65.8843,"
+        "completed,203\n", encoding="utf-8")
+    monkeypatch.setattr(snap, "ROOT", tmp_path)
+    log = snap.experiment_log()
+    assert log["csv_rows"] == 1
+    assert log["last_row"]["date"] == "2026-10-30T12:56:05+00:00"
+    assert log["last_row"]["run_id"] == "d045-tse-daily-verdict"
+    assert "trades" not in log["last_row"], "the summary stays a summary; the CSV remains the authority"
