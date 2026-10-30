@@ -174,6 +174,7 @@ def test_the_censored_age_is_recorded_but_never_sets_the_ceiling():
     assert out["hold_source"]["censored"] is False
 
 
+@pytest.mark.requires_research_state
 def test_probe_runs_and_writes_artifact():
     result = subprocess.run(
         [sys.executable, str(TOOL)], cwd=ROOT, capture_output=True, text=True, timeout=180
@@ -190,6 +191,7 @@ def test_probe_runs_and_writes_artifact():
     assert "rounds to zero" in payload["bnb_rejections"]["sizing_rejection"]["rationale"]
 
 
+@pytest.mark.requires_research_state
 def test_the_published_ceiling_is_the_artifact_s_own_arithmetic():
     """No hardcoded expected verdict: recompute the rule from the per-trade rows the artifact shows."""
     payload = json.loads(ARTIFACT.read_text(encoding="utf-8"))
@@ -206,6 +208,7 @@ def test_the_published_ceiling_is_the_artifact_s_own_arithmetic():
     assert ceiling["one_slot_clears_requirement"] is (None if straddles else band["min"] >= required)
 
 
+@pytest.mark.requires_research_state
 def test_the_two_bnb_rejection_reasons_are_not_pooled():
     """A cooldown rejection says nothing about the allocation cap; the sizing one does."""
     payload = json.loads(ARTIFACT.read_text(encoding="utf-8"))
@@ -216,6 +219,7 @@ def test_the_two_bnb_rejection_reasons_are_not_pooled():
     assert rejections["sizing_rejection"]["rationale"].startswith('["computed position size')
 
 
+@pytest.mark.requires_research_state
 def test_probe_is_read_only():
     """Config and the snapshot must be byte-identical after a run."""
     cfg_path = ROOT / "config.yaml"
@@ -232,6 +236,7 @@ def test_probe_is_read_only():
         assert db_path.read_bytes() == before_db
 
 
+@pytest.mark.requires_research_state
 def test_live_snapshot_headroom_is_below_one_position_cap():
     """The deployed loop can never hold two positions at once: the total cap binds first."""
     if not ARTIFACT.exists():
