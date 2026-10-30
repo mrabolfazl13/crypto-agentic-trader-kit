@@ -703,11 +703,8 @@ def test_evaluate_against_the_real_backtest_engine(config):
     prices = uptrend_prices(500)
     bars = _bars(prices)
     higher = _bars(uptrend_prices(120, base=40_000.0), step=DAY)
-    try:
-        report = evaluate(config, "BTC_USDT", bars=bars, higher_bars=higher, filters=FILTERS,
-                          params=default_params(), warmup=80, timeframe="4h")
-    except UnboundLocalError as exc:
-        pytest.skip(f"blocked by an upstream defect in src/cat/backtest.py run_backtest(): {exc}")
+    report = evaluate(config, "BTC_USDT", bars=bars, higher_bars=higher, filters=FILTERS,
+                      params=default_params(), warmup=80, timeframe="4h")
     assert report["bars"] == 500 and report["start"] == research._iso(bars[0].open_time)
     assert report["end"] == research._iso(bars[-1].open_time)
     assert report["trades"] == report["metrics"]["trades"]
