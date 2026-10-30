@@ -77,7 +77,7 @@ def test_optimizer_walk_forward_never_receives_final_holdout(config, monkeypatch
 
     def fake_evaluate(*args, **kwargs):
         return {"metrics": {"net_return_pct": 0.0}, "trades": 0, "rejected": {},
-                "params_label": "baseline", "start": "", "end": "", "bars": 0,
+                "params_label": "baseline", "start": "", "end": "", "bars": len(kwargs.get("bars", [])),
                 "buy_hold_pct": 0.0, "equity_curve": [], "benchmark_curve": []}
 
     def fake_walk_forward(*args, **kwargs):
