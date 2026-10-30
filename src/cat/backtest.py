@@ -103,7 +103,7 @@ def select_closed_higher(higher_bars: list[Kline], decision_time: int, higher_st
 
     This is the look-ahead guard for the multi-timeframe confirmation.
     """
-    return [bar for bar in higher_bars if bar.open_time + higher_step <= decision_time]
+    return [bar for bar in higher_bars if bar.closed and bar.open_time + higher_step <= decision_time]
 
 
 def _closed_ts(trade: Any) -> int:
