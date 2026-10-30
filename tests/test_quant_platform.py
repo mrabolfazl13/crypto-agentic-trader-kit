@@ -500,6 +500,23 @@ def test_nested_optimizer_chooses_finalists_on_the_inner_selection_window(tmp_pa
     assert "outer fold test was never read" in result["note"]
 
 
+def test_nested_optimizer_records_the_early_stop_it_actually_took(tmp_path: Path, monkeypatch):
+    """A search that quit early must say it did. The stop reason used to be assigned to a
+    local the payload never read, so every artifact claimed the trial budget was reached."""
+    import cat.quant.optimizer as optimizer_module
+
+    def fake_run_backtest(settings, symbols, *, strategy, timeframe, params, sim,
+                          start_ts, end_ts):
+        return {"metrics": {"trades": 0, "net_return_pct": 0.0, "effective_drawdown_pct": 0.0}}
+
+    monkeypatch.setattr(optimizer_module, "run_backtest", fake_run_backtest)
+    result = optimizer_module.optimize_windows(
+        quant_settings(tmp_path), ["TESTUSDT"], strategy="breakout", timeframe="1h",
+        search_window=Window(0, 600_000), trials=12)
+    assert result["stop_reason"] == "three consecutive trials without enough trades"
+    assert len(result["trials"]) < 12, "the study should have stopped before the budget"
+
+
 def test_nested_optimizer_refuses_a_window_that_leaves_the_fold_train_slice(tmp_path: Path):
     import cat.quant.optimizer as optimizer_module
 

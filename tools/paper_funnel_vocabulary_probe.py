@@ -412,6 +412,34 @@ def _select(connection: sqlite3.Connection, table: str, wanted: tuple, *,
     return sql
 
 
+_TIME_COLUMN = {"decisions": "ts", "orders": "created_ts", "portfolio_snapshots": "ts"}
+
+
+def cut_to_generation(rows: list[dict], *, table: str, as_of: str | None) -> list[dict]:
+    """Keep only rows that existed at the instant the witness was written (D-038).
+
+    The live snapshot is a superset — the daily audit overwrites it — so the generation the witness
+    counted is rebuilt from the timestamp the witness itself carries.  A row with no placeable
+    timestamp is dropped rather than assumed to belong to the generation.
+    """
+    if as_of is None:
+        return rows
+    limit = datetime.fromisoformat(as_of)
+    if table == "trades":
+        epoch = limit.timestamp()
+        return [row for row in rows if (row.get("entry_ts") or 0) <= epoch
+                and (row.get("exit_ts") is None or float(row["exit_ts"]) <= epoch)]
+    column = _TIME_COLUMN[table]
+    kept = []
+    for row in rows:
+        value = row.get(column)
+        if value is None:
+            continue
+        if datetime.fromisoformat(str(value)) <= limit:
+            kept.append(row)
+    return kept
+
+
 def recorded_funnel_from(payload: Mapping[str, Any]) -> dict:
     """The funnel as the *pre-D-035* estimator wrote it, from either file shape.
 
@@ -434,37 +462,53 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--d028", default=str(ROOT / "state/quant/results/d028_precision/unevaluability.json"))
     parser.add_argument("--allocation-cap", type=float, default=50.0,
                         help="allocated_capital * max_account_allocation_pct / 100 (config.yaml:123-124)")
+    parser.add_argument("--as-of", default=None,
+                        help="rebuild the witness's generation by cutting the store at this ISO instant; "
+                             "default: the witness's own evaluated_at; 'none' to audit the whole store")
     parser.add_argument("--out", default=str(ROOT / "state/quant/results/d035_funnel_vocabulary/funnel_vocabulary.json"))
     args = parser.parse_args(argv)
 
+    recorded_payload = read_json(Path(args.recorded_funnel))
+    recorded_funnel = recorded_funnel_from(recorded_payload)
+    if args.as_of == "none":
+        as_of, as_of_source = None, "disabled"
+    elif args.as_of:
+        as_of, as_of_source = args.as_of, "explicit"
+    else:
+        as_of, as_of_source = recorded_payload.get("evaluated_at"), "witness"
+
     connection = sqlite3.connect(f"file:{Path(args.db).resolve().as_posix()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
-    rows = [dict(r) for r in connection.execute(_select(connection, "decisions", (
-        "id", "ts", "symbol", "action", "approved", "rationale_json", "extras_json", "mode"),
-        order="ts"))]
-    modes = {str(row.get("mode") or "") for row in rows}
-    if modes - {"PAPER"}:
-        print(f"REFUSED: decisions carry a non-PAPER mode: {sorted(modes)}")
-        return EXIT["FAIL"]
-    orders = [dict(r) for r in connection.execute(_select(connection, "orders", (
-        "decision_id", "symbol", "side", "qty", "price", "status", "created_ts"), order="created_ts"))]
-    trades = [dict(r) for r in connection.execute(_select(connection, "trades", (
-        "symbol", "entry_ts", "exit_ts")))]
-    snapshots = [dict(r) for r in connection.execute(_select(connection, "portfolio_snapshots", (
-        "ts", "equity", "exposure_pct", "positions_json"), order="ts"))]
+    loaded = {table: [dict(r) for r in connection.execute(_select(connection, table, cols, order=order))]
+              for table, cols, order in (
+                  ("decisions", ("id", "ts", "symbol", "action", "approved", "rationale_json",
+                                 "extras_json", "mode"), "ts"),
+                  ("orders", ("decision_id", "symbol", "side", "qty", "price", "status",
+                              "created_ts"), "created_ts"),
+                  ("trades", ("symbol", "entry_ts", "exit_ts"), None),
+                  ("portfolio_snapshots", ("ts", "equity", "exposure_pct", "positions_json"), "ts"))}
     columns = {table: _columns(connection, table) for table in
                ("decisions", "orders", "trades", "portfolio_snapshots")}
     connection.close()
+
     if "approved" not in columns["decisions"] or "decision_id" not in columns["orders"]:
         print(f"REFUSED: this store cannot be cross-checked — decisions/approved or orders/decision_id "
               f"is missing ({columns['decisions']} / {columns['orders']})")
         return EXIT["FAIL"]
+    if {str(row.get("mode") or "") for row in loaded["decisions"]} - {"PAPER"}:
+        print(f"REFUSED: decisions carry a non-PAPER mode: "
+              f"{sorted({str(r.get('mode') or '') for r in loaded['decisions']})}")
+        return EXIT["FAIL"]
 
-    recorded_payload = read_json(Path(args.recorded_funnel))
-    recorded_funnel = recorded_funnel_from(recorded_payload)
+    rows = cut_to_generation(loaded["decisions"], table="decisions", as_of=as_of)
+    orders = cut_to_generation(loaded["orders"], table="orders", as_of=as_of)
+    trades = cut_to_generation(loaded["trades"], table="trades", as_of=as_of)
+    snapshots = cut_to_generation(loaded["portfolio_snapshots"], table="portfolio_snapshots", as_of=as_of)
+
     if recorded_funnel.get("decisions") != len(rows):
         print(f"REFUSED: {args.recorded_funnel} counted {recorded_funnel.get('decisions')} decisions, "
-              f"this snapshot has {len(rows)} — the recorded funnel is not from this snapshot")
+              f"this snapshot has {len(rows)} (as-of {as_of or 'whole store'}) — the recorded funnel "
+              f"is not from this generation")
         return EXIT["FAIL"]
 
     groups = groups_from_universe(json.loads(Path(args.universe).read_text(encoding="utf-8")))
@@ -497,6 +541,10 @@ def main(argv: list[str] | None = None) -> int:
         "d028_ledger_reproduction": d028_ledger_lock(census_frozen, d028_recorded, window=window),
     }
 
+    cut_sizes = {table: {"in_store": len(loaded[table]), "in_generation": len(kept)}
+                 for table, kept in (("decisions", rows), ("orders", orders), ("trades", trades),
+                                     ("portfolio_snapshots", snapshots))}
+
     blocked = blocked_signal_census(rows)
     h3 = {
         "blocked_after_signal": blocked,
@@ -525,6 +573,11 @@ def main(argv: list[str] | None = None) -> int:
                        "d027": str(Path(args.d027)), "d028": str(Path(args.d028)),
                        "universe": str(Path(args.universe)),
                        "decision_rows": len(rows), "orders_rows": len(orders),
+                       "as_of": as_of, "as_of_source": as_of_source,
+                       "generation_cut": {table: {"in_store": len(loaded[table]), "in_generation": len(kept)}
+                                          for table, kept in (("decisions", rows), ("orders", orders),
+                                                              ("trades", trades),
+                                                             ("portfolio_snapshots", snapshots))},
                        "store_columns": columns,
                        "allocation_cap_usdt": args.allocation_cap, "read_only": True},
         "recorded_funnel_before_the_fix": recorded_funnel,
@@ -540,6 +593,9 @@ def main(argv: list[str] | None = None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
 
+    print(f"generation: as-of {as_of} ({as_of_source}); "
+          + "  ".join(f"{table} {cut['in_store']}->{cut['in_generation']}"
+                      for table, cut in cut_sizes.items()))
     print(f"signal rows: {h1_book['signal_rows']} "
           f"(approved {h1_book['approved_signal_rows']}, blocked {h1_book['blocked_signal_rows']}); "
           f"orders rows: {h1_book['orders_rows']} {h1_book['orders_by_side']}")

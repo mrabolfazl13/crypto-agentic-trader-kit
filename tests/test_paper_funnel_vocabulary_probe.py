@@ -23,6 +23,7 @@ from paper_decisions_unarchived import classify  # noqa: E402
 from paper_funnel_vocabulary_probe import (  # noqa: E402
     SIZE_BLOCK,
     blocked_signal_census,
+    cut_to_generation,
     cap_headroom,
     classify_lock,
     freeze_book,
@@ -228,15 +229,50 @@ def test_classify_lock_tolerates_only_the_order_buckets_moving():
 
 
 def test_probe_measures_and_reports_both_clauses_holding(tmp_path):
-    """The committed gate-B artifact and the snapshot must be the same generation — that is the lock."""
+    """The probe measures the witness's own generation, whatever the store has grown to since."""
     out = tmp_path / "funnel_vocabulary.json"
     code = main(["--out", str(out)])
-    assert code == 0, "the recorded funnel no longer matches this snapshot: re-run tools/paper_gate_b.py"
+    assert code == 0, "the funnel no longer reproduces its own generation: D-038 pin is broken"
     payload = json.loads(out.read_text(encoding="utf-8"))
     verdict = payload["verdict"]
     assert verdict["clause_a_executed_matches_book"] is True
     assert verdict["clause_b_published_numbers_reproduced"] is True
     assert verdict["change_is_allowed"] is True
+
+
+def test_the_generation_is_pinned_to_the_witness_and_published(tmp_path):
+    """D-038: the daily audit overwrites the snapshot, so the pair is rebuilt by cutting, not by luck."""
+    witness = json.loads((ROOT / "state" / "quant" / "results" / "d035_funnel_vocabulary"
+                          / "gate_b_pre_fix_funnel.json").read_text(encoding="utf-8"))
+    counted = witness["decision_funnel"]["decisions"]
+    out = tmp_path / "funnel_vocabulary.json"
+    assert main(["--out", str(out)]) == 0
+    provenance = json.loads(out.read_text(encoding="utf-8"))["provenance"]
+    assert provenance["as_of"] == witness["evaluated_at"]
+    assert provenance["as_of_source"] == "witness"
+    decisions = provenance["generation_cut"]["decisions"]
+    assert decisions["in_generation"] == counted
+    assert decisions["in_store"] >= counted, "the store only grows; the cut is what keeps the pair valid"
+
+
+def test_an_unpinned_whole_store_audit_still_refuses(tmp_path):
+    """Refusing a mismatched pair is the gate; --as-of none must hit it, not silently pass (D-038/الف)."""
+    out = tmp_path / "funnel_vocabulary.json"
+    assert main(["--as-of", "none", "--out", str(out)]) == 3
+    assert not out.exists(), "a refused audit must not publish an artifact"
+
+
+def test_cutting_a_generation_keeps_only_the_rows_that_existed_then():
+    limit = "2026-10-29T17:23:46+00:00"
+    rows = [{"ts": limit}, {"ts": "2026-10-29T18:00:00+00:00"}, {"ts": None}]
+    assert cut_to_generation(rows, table="decisions", as_of=limit) == rows[:1]
+    assert cut_to_generation(rows, table="decisions", as_of=None) == rows, "no pin, no cut"
+
+    far = 9_999_999_999
+    trades = [{"entry_ts": 1, "exit_ts": 2}, {"entry_ts": 1, "exit_ts": far},
+              {"entry_ts": far, "exit_ts": None}]
+    assert cut_to_generation(trades, table="trades", as_of=limit) == trades[:1], (
+        "a trade closed after the instant is not in that generation, and neither is one opened after it")
 
 
 def test_committed_artifact_carries_the_measured_numbers():

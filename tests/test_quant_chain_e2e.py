@@ -293,7 +293,8 @@ def test_chain_thin_breadth_falls_back_to_the_pre_registered_protocol(monkeypatc
     def fake_backtest(_settings, symbols, **kwargs):
         baskets.append(len(symbols))
         return {"metrics": {"trades": 0}, "benchmark": {}, "trades": [],
-                "symbols_evaluated": len(symbols), "errors": {}}
+                "symbols_evaluated": len(symbols), "errors": {},
+                "sim": {"max_hold_hours": kwargs["sim"].max_hold_hours}}
 
     monkeypatch.setattr(wf, "run_backtest", fake_backtest)
     plan = {"fold": 1, "train": engine.Window(MONTH_START, MONTH_START + 10 * 86400),
@@ -331,7 +332,8 @@ def test_chain_usable_breadth_does_narrow_the_fold_basket(monkeypatch, lake):
     def fake_backtest(_settings, symbols, **kwargs):
         baskets.append(list(symbols))
         return {"metrics": {"trades": 0}, "benchmark": {}, "trades": [],
-                "symbols_evaluated": len(symbols), "errors": {}}
+                "symbols_evaluated": len(symbols), "errors": {},
+                "sim": {"max_hold_hours": kwargs["sim"].max_hold_hours}}
 
     monkeypatch.setattr(wf, "run_backtest", fake_backtest)
     plan = {"fold": 1, "train": engine.Window(MONTH_START, MONTH_START + 10 * 86400),
@@ -345,3 +347,31 @@ def test_chain_usable_breadth_does_narrow_the_fold_basket(monkeypatch, lake):
     assert baskets == [kept, kept], "search and test scoring must run on the same selected basket"
     assert fold["search_basket"] == len(kept) and fold["scored_basket"] == len(kept)
     assert fold["symbols_evaluated"] == len(kept)
+
+
+def test_chain_fold_records_the_hold_cap_it_was_actually_scored_on(monkeypatch, lake):
+    """D-034/F-041: a run that overrides the exit cap must not be able to claim a cap it never used."""
+    wf = _wf_tool()
+    settings, _ = lake
+    seen: list[float] = []
+
+    monkeypatch.setattr(wf, "optimize_windows", lambda _s, symbols, **kw: {
+        "best": {"params": QuantParams().as_dict()}, "chosen_on": "inner selection",
+        "finalists": 1, "trials": 1, "stop_reason": "done", "elapsed_seconds": 0.0})
+
+    def fake_backtest(_settings, symbols, **kwargs):
+        seen.append(kwargs["sim"].max_hold_hours)
+        return {"metrics": {"trades": 0}, "benchmark": {}, "trades": [],
+                "symbols_evaluated": len(symbols), "errors": {},
+                "sim": {"max_hold_hours": kwargs["sim"].max_hold_hours}}
+
+    monkeypatch.setattr(wf, "run_backtest", fake_backtest)
+    plan = {"fold": 1, "train": engine.Window(MONTH_START, MONTH_START + 10 * 86400),
+            "test": engine.Window(MONTH_START + 10 * 86400, MONTH_START + 13 * 86400)}
+    overridden = engine.simulate_settings(settings, max_hold_hours=720.0)
+    fold = wf.evaluate_fold(settings, list(SYMBOLS), list(SYMBOLS), strategy="ema_trend",
+                            timeframe="1h", plan=plan, trials=1, finalists=1,
+                            inner_selection_fraction=0.2, seed=1, sim=overridden)
+    assert settings.backtest.max_hold_hours != 720.0, "the config cap must stay the untouched control"
+    assert seen and set(seen) == {720.0}, "the scored fold must execute under the override"
+    assert fold["max_hold_hours"] == 720.0

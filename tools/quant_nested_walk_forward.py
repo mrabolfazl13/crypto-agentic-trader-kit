@@ -112,7 +112,7 @@ def evaluate_fold(settings, symbols_search: list[str], symbols: list[str], *, st
     search_result = optimize_windows(
         settings, search_basket, strategy=strategy, timeframe=timeframe,
         search_window=search, selection_window=selection, allowed_window=plan["train"],
-        trials=trials, seed=seed, finalists=finalists)
+        trials=trials, seed=seed, finalists=finalists, sim=sim or simulate_settings(settings))
     params = params_from_dict(overrides=search_result["best"]["params"])
     scored = run_backtest(settings, scored_basket, strategy=strategy, timeframe=timeframe, params=params,
                           sim=sim or simulate_settings(settings),
@@ -135,6 +135,9 @@ def evaluate_fold(settings, symbols_search: list[str], symbols: list[str], *, st
         # from it when breadth selection applies or falls back, so stamp what actually ran.
         "search_basket": len(search_basket), "scored_basket": len(scored_basket),
         "errors": scored["errors"],
+        # Fold-level echo of the exit cap: a time exit is a portfolio decision, so the
+        # run-level protocol field alone cannot prove a fold actually executed under it.
+        "max_hold_hours": scored["sim"]["max_hold_hours"],
         "elapsed_seconds": round(time.monotonic() - started, 2),
     }
     if subset is not None:
@@ -164,6 +167,12 @@ def main() -> int:
     parser.add_argument("--no-regime", action="store_true",
                         help="clear the regime gate even if config enables it, so results recorded "
                              "before the gate became the default stay reproducible")
+    parser.add_argument("--max-hold-hours", type=float, default=None,
+                        help="override quant.backtest.max_hold_hours for this run only (D-034). "
+                             "The effective cap is a wall-clock ceiling because trades execute on "
+                             "stored 1m bars, so the configured 24 also caps holds at 1440 minutes. "
+                             "The value is recorded in the run_id, every artifact and every CSV row, "
+                             "so a capped and an uncapped run can never be mistaken for each other")
     parser.add_argument("--symbol-selection", choices=("universe", "train_breadth"), default="universe",
                         help="how each fold picks its basket: the stored universe order (default, "
                              "unchanged behaviour) or the symbols with the most guard-passing "
@@ -189,14 +198,24 @@ def main() -> int:
     args = parser.parse_args()
 
     settings = load_quant_settings(load_config(root=ROOT))
-    sim = simulate_settings(settings)
     if args.no_regime and args.regime_symbol:
         raise SystemExit("--no-regime and --regime-symbol contradict each other")
+    overrides: dict[str, object] = {}
     if args.no_regime:
-        sim = simulate_settings(settings, regime_symbol="")
+        overrides["regime_symbol"] = ""
     elif args.regime_symbol:
-        sim = simulate_settings(settings, regime_symbol=args.regime_symbol,
-                                regime_ema=int(args.regime_ema))
+        overrides["regime_symbol"] = args.regime_symbol
+        overrides["regime_ema"] = int(args.regime_ema)
+    if args.max_hold_hours is not None:
+        # The same envelope the config loader enforces (settings.py:243), so a typo here
+        # cannot build a run the deployed settings could never have produced.
+        if not 0.1 <= args.max_hold_hours <= 720.0:
+            raise SystemExit(f"--max-hold-hours {args.max_hold_hours} is outside the range "
+                             f"0.1..720 allowed for quant.backtest.max_hold_hours")
+        overrides["max_hold_hours"] = float(args.max_hold_hours)
+    sim = simulate_settings(settings, **overrides)
+    configured_hold_hours = float(settings.backtest.max_hold_hours)
+    hold_cap_override = args.max_hold_hours is not None
     symbols = universe_symbols(settings)
     if args.limit:
         symbols = symbols[: max(1, args.limit)]
@@ -238,6 +257,8 @@ def main() -> int:
           + (f" top_k={args.symbol_top_k}" if args.symbol_selection != "universe" else "")
           + f"; regime={sim.regime_symbol or 'off'}"
           + (f"/ema{sim.regime_ema}" if sim.regime_symbol else "")
+          + f"; hold_cap={sim.max_hold_hours}h"
+          + ("" if not hold_cap_override else f" (configured {configured_hold_hours}h, overridden)")
           + f"; rolling window ends {fold_window.iso()['end']} (final test starts "
           f"{splits['test'].iso()['start']}, never read)", flush=True)
 
@@ -245,6 +266,10 @@ def main() -> int:
         run_id = f"nested-wf-{strategy}-{timeframe}"
         if args.symbol_selection != "universe":
             run_id += f"-{args.symbol_selection}"
+        if hold_cap_override:
+            # The artifact name is the only thing that separates a treatment run from the
+            # control it is compared against, so the cap belongs in the filename.
+            run_id += f"-hold{sim.max_hold_hours:g}h"
         target = out_dir / f"{run_id}.json"
         if args.resume and target.exists():
             existing = json.loads(target.read_text(encoding="utf-8"))
@@ -269,7 +294,8 @@ def main() -> int:
             records.append(fold)
             if args.dump_trades:
                 (out_dir / f"{run_id}.trades.json").write_text(json.dumps(
-                    {"run_id": run_id, "code_version": version, "window": fold_window.iso(),
+                    {"run_id": run_id, "code_version": version, "data_version": data_version,
+                     "max_hold_hours": sim.max_hold_hours, "window": fold_window.iso(),
                      "final_test_read": False,
                      "note": "trades are test-fold output used for diagnosis; "
                              "the final holdout starting "
@@ -277,6 +303,7 @@ def main() -> int:
                      "folds": trade_dump}, ensure_ascii=False, indent=1), encoding="utf-8")
             partial.write_text(json.dumps(
                 {"run_id": run_id, "code_version": version, "data_version": data_version,
+                 "max_hold_hours": sim.max_hold_hours,
                  "window": fold_window.iso(), "final_test_start": splits["test"].iso()["start"],
                  "final_test_read": False, "folds": records, "updated_at": utc_now()},
                 ensure_ascii=False, indent=1), encoding="utf-8")
@@ -289,7 +316,7 @@ def main() -> int:
                      if "symbol_subset" in fold else "")
                   + f" trades={fold['metrics'].get('trades')} net={fold['metrics'].get('net_return_pct')}% "
                   f"BH={fold['benchmark'].get('return_pct')}% chosen={fold['chosen_on']} "
-                  f"elapsed={fold['elapsed_seconds']}s", flush=True)
+                  f"cap={fold['max_hold_hours']}h elapsed={fold['elapsed_seconds']}s", flush=True)
 
         aggregate = aggregate_folds(records)
         validation = {
@@ -317,11 +344,14 @@ def main() -> int:
                       f"positive_folds_pct={aggregate.get('positive_fold_pct')}; "
                       f"folds={aggregate.get('folds')}; final_test_read=false; "
                       f"regime={sim.regime_symbol or 'off'}"
-                      + (f"/ema{sim.regime_ema}" if sim.regime_symbol else ""),
+                      + (f"/ema{sim.regime_ema}" if sim.regime_symbol else "")
+                      + f"; max_hold_hours={sim.max_hold_hours}"
+                      + ("" if not hold_cap_override else f" (configured {configured_hold_hours:g})"),
         }
         payload = {
             "run_id": run_id, "created_at": row["date"], "code_version": version,
             "data_version": data_version, "status": "completed",
+            "max_hold_hours": sim.max_hold_hours,
             "protocol": {"trials_per_fold": args.trials, "finalists": args.finalists,
                          "inner_selection_fraction": args.inner_selection_fraction,
                          "search_symbols": len(symbols_search), "scored_symbols": len(symbols),
@@ -329,6 +359,9 @@ def main() -> int:
                          "test_days": settings.walk_forward.test_days,
                          "regime_symbol": sim.regime_symbol or None,
                          "regime_ema": sim.regime_ema if sim.regime_symbol else None,
+                         "max_hold_hours": sim.max_hold_hours,
+                         "max_hold_hours_configured": configured_hold_hours,
+                         "max_hold_hours_overridden": hold_cap_override,
                          "symbol_selection": args.symbol_selection,
                          "symbol_top_k": args.symbol_top_k if args.symbol_selection != "universe" else None,
                          "symbol_min_candidates": (args.symbol_min_candidates
@@ -345,9 +378,11 @@ def main() -> int:
               f"sum_net={row['net_return_pct']}% BH_sum={row['benchmark_return_pct']}% "
               f"excess={row['excess_return_pct']}pp positive={aggregate.get('positive_fold_pct')}% "
               f"PF={row['profit_factor']} DD={row['max_drawdown_pct']}% "
+              f"hold_cap={sim.max_hold_hours:g}h "
               f"decision={decision['decision']} elapsed={seconds:.0f}s", flush=True)
 
     summary = {"generated_at": utc_now(), "code_version": version, "data_version": data_version,
+               "max_hold_hours": sim.max_hold_hours,
                "window": fold_window.iso(), "final_test_start": splits["test"].iso()["start"],
                "final_test_read": False,
                "elapsed_seconds": round(time.monotonic() - started_all, 1)}

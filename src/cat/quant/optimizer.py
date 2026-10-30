@@ -96,6 +96,7 @@ def optimize_windows(settings: QuantSettings, symbols: Iterable[str], *, strateg
                      search_window: Window, selection_window: Window | None = None,
                      allowed_window: Window | None = None, base: QuantParams | None = None,
                      trials: int | None = None, seed: int = 42, finalists: int = 3,
+                     sim=None,
                      progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """Bounded search scored on explicit windows only.
 
@@ -104,6 +105,12 @@ def optimize_windows(settings: QuantSettings, symbols: Iterable[str], *, strateg
     inner slice; the outer validation/test slice is never passed in. ``allowed_window``
     guards nested walk-forward callers: a bug that points search or selection at
     the outer fold test fails here instead of silently leaking it.
+
+    ``sim`` is the simulation settings the search scores under. It defaults to the
+    configured ones, so existing callers are unchanged. It exists because a caller
+    that overrides one field (the hold cap, D-034) must override it for the *search*
+    too: choosing parameters under one cap and scoring them under another is two
+    changes, not one, and the artifact would claim a cap the search never ran with.
     """
     symbols = list(symbols)
     base = base or QuantParams()
@@ -122,7 +129,7 @@ def optimize_windows(settings: QuantSettings, symbols: Iterable[str], *, strateg
                                or window.end_ts > allowed_window.end_ts):
             raise ValueError(f"{label} window falls outside the allowed training window")
     fields = SPACES.get(strategy, ())
-    sim = simulate_settings(settings)
+    sim = sim or simulate_settings(settings)
     min_trades = max(5, settings.loop.min_trades // 2)
     cache: dict[str, float] = {}
     records: list[TrialResult] = []
@@ -136,6 +143,7 @@ def optimize_windows(settings: QuantSettings, symbols: Iterable[str], *, strateg
         return result["metrics"]
 
     def objective(trial: optuna.Trial) -> float:
+        nonlocal stop_reason
         candidate = {name: _suggest(trial, name) for name in fields}
         key = _params_key(candidate)
         if key in cache:
