@@ -378,6 +378,8 @@ def compute_metrics(result: BacktestResult, state: AccountState, step: int) -> d
         "trades": len(trades),
         "win_rate_pct": round(len(wins) / len(trades) * 100.0, 2) if trades else None,
         "profit_factor": round(gross_win / gross_loss, 3) if gross_loss > 0 else None,
+        "gross_profit": round(gross_win, 4),
+        "gross_loss": round(gross_loss, 4),
         "avg_win": round(gross_win / len(wins), 4) if wins else None,
         "avg_loss": round(-gross_loss / len(losses), 4) if losses else None,
         "net_pnl": round(net, 4),
