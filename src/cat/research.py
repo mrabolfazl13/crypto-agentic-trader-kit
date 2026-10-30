@@ -459,7 +459,7 @@ def run_research(store: Any, config: Config, *, symbol: str, timeframe: str | No
                  champion: dict[str, Any] | None = None, top: int = 3, warmup: int = 80,
                  assumed_spread_pct: float = 0.05, min_trades: int = 8,
                  dataset_id: str | None = None, strategy: str | None = None) -> dict[str, Any]:
-    """Full honest loop: split -> grid on train -> re-score -> walk-forward both -> gate -> persist.
+    """Full honest loop: tune on train, validate on development folds, then report the untouched final hold-out separately.
 
     `strategy` selects an entry-trigger family from `strategy_lab`; only the trigger changes,
     so a family comparison never mixes in a different exit, sizing or risk policy.
@@ -488,8 +488,13 @@ def run_research(store: Any, config: Config, *, symbol: str, timeframe: str | No
                                split=parts, strategy=strategy)
     measure = partial(evaluate, config, symbol, higher_bars=higher_bars, filters=filters, timeframe=tf,
                       assumed_spread_pct=assumed_spread_pct, strategy=strategy)
-    fold_run = partial(walk_forward, config, symbol, bars=bars, higher_bars=higher_bars, filters=filters, folds=folds,
-                       warmup=warmup, assumed_spread_pct=assumed_spread_pct, timeframe=tf, strategy=strategy)
+    # The final 20% hold-out must never participate in candidate acceptance.
+    # Repeated optimizer experiments may inspect development folds, but the test
+    # segment is reported separately and is not used to promote a strategy.
+    development_bars = parts.train + parts.validation
+    fold_run = partial(walk_forward, config, symbol, bars=development_bars, higher_bars=higher_bars,
+                       filters=filters, folds=folds, warmup=warmup,
+                       assumed_spread_pct=assumed_spread_pct, timeframe=tf, strategy=strategy)
     best = grid_results[0]
     candidate_params = params_from_report(best["params"], base)
     candidate: dict[str, Any] = {"params_label": best["params_label"], "params": best["params"],
@@ -508,14 +513,14 @@ def run_research(store: Any, config: Config, *, symbol: str, timeframe: str | No
     champion_report.setdefault("params", champion_params.as_dict())
     champion_measure = partial(evaluate, config, symbol, higher_bars=higher_bars, filters=filters, timeframe=tf,
                                assumed_spread_pct=assumed_spread_pct, strategy=champion_family)
-    champion_fold = partial(walk_forward, config, symbol, bars=bars, higher_bars=higher_bars, filters=filters,
-                            folds=folds, warmup=warmup, assumed_spread_pct=assumed_spread_pct, timeframe=tf,
-                            strategy=champion_family)
-    if not isinstance(champion_report.get("validation"), dict):
-        champion_report["validation"] = champion_measure(bars=parts.validation, params=champion_params,
-                                                         warmup=hold_out_warmup)
-    if not isinstance(champion_report.get("walk_forward"), dict):
-        champion_report["walk_forward"] = champion_fold(params=champion_params)
+    champion_fold = partial(walk_forward, config, symbol, bars=development_bars, higher_bars=higher_bars,
+                            filters=filters, folds=folds, warmup=warmup,
+                            assumed_spread_pct=assumed_spread_pct, timeframe=tf, strategy=champion_family)
+    # Re-measure the incumbent on exactly the same current development window.
+    # A stored fold report may have used an older split (including the hold-out).
+    champion_report["validation"] = champion_measure(bars=parts.validation, params=champion_params,
+                                                     warmup=hold_out_warmup)
+    champion_report["walk_forward"] = champion_fold(params=champion_params)
 
     aggregate = candidate["walk_forward"]["aggregate"]
     checks = {"sized_positions_recorded": int(aggregate.get("trades") or 0) > 0,
