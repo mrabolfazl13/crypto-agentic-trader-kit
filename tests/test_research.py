@@ -446,6 +446,24 @@ def test_aggregate_uses_only_the_out_of_sample_fold_math():
     assert "out-of-sample" in aggregate["note"] and "not a forecast" in aggregate["note"]
 
 
+def test_aggregate_profit_factor_uses_combined_gross_pnl_not_mean_of_fold_ratios():
+    # Fold 1 has a very high factor on tiny volume; fold 2 carries most of the
+    # losses. Averaging 10.0 and 1.0 would misrepresent the combined ledger.
+    folds = [
+        {"test_metrics": {"net_return_pct": 1.0, "net_pnl": 1.0, "trades": 2,
+                          "max_drawdown_pct": 1.0, "profit_factor": 10.0,
+                          "gross_profit": 10.0, "gross_loss": 1.0}},
+        {"test_metrics": {"net_return_pct": -0.5, "net_pnl": -5.0, "trades": 8,
+                          "max_drawdown_pct": 4.0, "profit_factor": 1.0,
+                          "gross_profit": 10.0, "gross_loss": 10.0}},
+    ]
+    aggregate = aggregate_folds(folds)
+    assert aggregate["profit_factor"] == 20.0 / 11.0
+    assert aggregate["profit_factor_mean"] == 5.5
+    assert aggregate["gross_profit"] == 20.0
+    assert aggregate["gross_loss"] == 11.0
+
+
 def test_aggregate_refuses_incomplete_folds():
     with pytest.raises(ValueError, match="no folds"):
         aggregate_folds([])
