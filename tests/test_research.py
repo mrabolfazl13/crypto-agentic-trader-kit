@@ -16,7 +16,7 @@ from datetime import datetime
 import pytest
 
 from cat import research
-from cat.backtest import BacktestResult, BacktestTrade
+from cat.backtest import BacktestResult, BacktestTrade, compute_metrics
 from cat.data import Kline, SymbolFilter
 from cat.research import Split, acceptance, aggregate_folds, evaluate, grid_search, run_research, split_bars, \
     walk_forward
@@ -446,22 +446,43 @@ def test_aggregate_uses_only_the_out_of_sample_fold_math():
     assert "out-of-sample" in aggregate["note"] and "not a forecast" in aggregate["note"]
 
 
-def test_aggregate_profit_factor_uses_combined_gross_pnl_not_mean_of_fold_ratios():
+def test_aggregate_profit_factor_uses_combined_net_pnl_not_mean_of_fold_ratios():
     # Fold 1 has a very high factor on tiny volume; fold 2 carries most of the
-    # losses. Averaging 10.0 and 1.0 would misrepresent the combined ledger.
+    # net losses. The aggregate must be computed from summed net winners/losers.
     folds = [
         {"test_metrics": {"net_return_pct": 1.0, "net_pnl": 1.0, "trades": 2,
                           "max_drawdown_pct": 1.0, "profit_factor": 10.0,
-                          "gross_profit": 10.0, "gross_loss": 1.0}},
+                          "gross_profit": 12.0, "gross_loss": 2.0,
+                          "net_profit": 10.0, "net_loss": 1.0}},
         {"test_metrics": {"net_return_pct": -0.5, "net_pnl": -5.0, "trades": 8,
                           "max_drawdown_pct": 4.0, "profit_factor": 1.0,
-                          "gross_profit": 10.0, "gross_loss": 10.0}},
+                          "gross_profit": 15.0, "gross_loss": 12.0,
+                          "net_profit": 10.0, "net_loss": 10.0}},
     ]
     aggregate = aggregate_folds(folds)
     assert aggregate["profit_factor"] == 20.0 / 11.0
     assert aggregate["profit_factor_mean"] == 5.5
-    assert aggregate["gross_profit"] == 20.0
-    assert aggregate["gross_loss"] == 11.0
+    assert aggregate["gross_profit"] == 27.0
+    assert aggregate["gross_loss"] == 14.0
+
+
+def test_backtest_metrics_keep_gross_and_fee_adjusted_pnl_separate():
+    result = BacktestResult(
+        symbol="BTC_USDT", timeframe="4h", bars=2, start="start", end="end",
+        trades=[
+            BacktestTrade("BTC_USDT", 1, 2, 100, 110, 1, 8.0, 2.0, "target"),
+            BacktestTrade("BTC_USDT", 2, 3, 110, 105, 1, -5.0, 1.0, "stop"),
+        ],
+        equity_curve=[(1, 1000.0), (2, 1003.0)], fees_paid=3.0,
+        final_equity=1003.0, max_drawdown_pct=0.0,
+    )
+    state = type("State", (), {"allocated_capital": 1000.0})()
+    metrics = compute_metrics(result, state, STEP)
+    assert metrics["net_profit"] == 8.0
+    assert metrics["net_loss"] == 5.0
+    assert metrics["profit_factor"] == 1.6
+    assert metrics["gross_profit"] == 10.0
+    assert metrics["gross_loss"] == 4.0
 
 
 def test_aggregate_refuses_incomplete_folds():
